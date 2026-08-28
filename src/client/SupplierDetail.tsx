@@ -238,15 +238,15 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
     }
   }
 
-  const completeLogin = async (): Promise<void> => {
-    if (callbackUrl.trim() === '') return
+  const completeLogin = async (poll = false): Promise<void> => {
+    if (!poll && callbackUrl.trim() === '') return
     setBusy(true)
     setError('')
     try {
       const response = await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/login/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callbackUrl: callbackUrl.trim() }),
+        body: JSON.stringify({ callbackUrl: poll ? '' : callbackUrl.trim() }),
         cache: 'no-store',
       })
       const data = await response.json() as { ok: boolean; error?: string; account?: { uid: string; nickname: string } }
@@ -895,7 +895,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                           <div className="dshr-loginStep"><span className="dshr-loginNum">2</span>登录成功后点「完成添加」，自动获取凭证</div>
                           {error !== '' && <div className="dshr-alert"><strong>出错了</strong><span>{error}</span></div>}
                           <div className="dshr-modalActions">
-                            <button type="button" className="dshr-primaryButton" onClick={() => void completeLogin()} disabled={busy}>
+                            <button type="button" className="dshr-primaryButton" onClick={() => void completeLogin(true)} disabled={busy}>
                               {busy ? '轮询中…' : '完成添加'}
                             </button>
                           </div>

@@ -430,14 +430,17 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 .dshr-tabBody {
   display: flex;
+  flex: 1 1 auto;      /* 填满 content;自身滚动 */
   min-width: 0;
   min-height: 0;
   flex-direction: column;
   gap: 14px;
   padding: 14px 18px;
+  overflow-y: auto;
 }
 
 .dshr-card {
+  flex: none;          /* 不参与 flex 伸缩:高度=内容,避免被压缩裁切 */
   min-width: 0;
   border: 1px solid var(--rs-line);
   border-radius: 10px;

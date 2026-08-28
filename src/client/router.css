@@ -1,0 +1,2096 @@
+/* ============================================================
+   dsh-router — sidebar entry
+   ============================================================ */
+
+.dshr-entry {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dshr-entry:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshr-entry[data-active] {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+  font-weight: 600;
+}
+
+.dshr-entryIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.dshr-entryIcon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.dshr-entryLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-dsh-frame][data-sidebar-collapsed] .dshr-entry {
+  width: 36px;
+  min-height: 36px;
+  justify-content: center;
+  margin: 0 auto 12px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+[data-dsh-frame][data-sidebar-collapsed] .dshr-entryLabel {
+  display: none;
+}
+
+/* ============================================================
+   dsh-router — center-column panel
+   ============================================================ */
+
+[data-pane='conversation'] {
+  position: relative;
+}
+
+.dshDesktopConversationSurface {
+  position: relative;
+}
+
+[data-dsh-router-view] {
+  position: absolute;
+  z-index: 60;
+  inset: 0;
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
+}
+
+.dshr-panelView {
+  isolation: isolate;
+}
+
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-dsh-router-view] {
+  display: block;
+}
+
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-pane='conversation'] > :not([data-dsh-router-view]),
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [class*='centerCol'] > :not([data-dsh-router-view]),
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) .dshDesktopConversationSurface > :not([data-dsh-router-view]) {
+  display: none !important;
+}
+
+/* ============================================================
+   dsh-router — panel shell
+   ============================================================ */
+
+.dshr-shell {
+  --rs-bg: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
+  --rs-layer-1: var(--dsw-alias-bg-layer-1);
+  --rs-layer-2: var(--dsw-alias-bg-layer-2);
+  --rs-input: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-2));
+  --rs-text: var(--dsw-alias-label-primary);
+  --rs-muted: var(--dsw-alias-label-secondary);
+  --rs-faint: var(--dsw-alias-label-tertiary);
+  --rs-line: var(--dsw-alias-border-l1);
+  --rs-line-strong: var(--dsw-alias-border-l2);
+  --rs-accent: var(--dsw-alias-state-business-primary);
+  --rs-hover: var(--dsw-alias-interactive-bg-hover);
+  --rs-danger: var(--dsw-alias-state-error-primary);
+  --rs-success: var(--dsw-alias-state-success-primary);
+  --rs-ok: var(--rs-success);
+  --rs-warn: #9a6a18;
+  --rs-mono: var(--ds-font-family-code, 'SFMono-Regular', Consolas, monospace);
+  --rs-sans: var(--dsw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--rs-text);
+  background: var(--rs-bg);
+  font: 13px/1.55 var(--rs-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dshr-shell *,
+.dshr-shell *::before,
+.dshr-shell *::after { box-sizing: border-box; }
+
+.dshr-shell button,
+.dshr-shell input,
+.dshr-shell select,
+.dshr-shell textarea { color: inherit; font: inherit; }
+
+.dshr-shell button:focus-visible,
+.dshr-shell input:focus-visible,
+.dshr-shell select:focus-visible,
+.dshr-shell textarea:focus-visible {
+  outline: 2px solid var(--rs-accent);
+  outline-offset: 2px;
+}
+
+/* Masthead */
+.dshr-masthead {
+  display: flex;
+  min-height: 56px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--rs-line);
+}
+
+.dshr-brand {
+  display: grid;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-content: center;
+  gap: 1px 9px;
+}
+
+.dshr-brandTitle {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-brandSub {
+  overflow: hidden;
+  color: var(--rs-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-statusCluster {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  color: var(--rs-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dshr-statusEndpoint {
+  overflow: hidden;
+  max-width: 220px;
+  color: var(--rs-faint);
+  font: 11px var(--rs-mono);
+  text-overflow: ellipsis;
+}
+
+.dshr-headerActions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.dshr-refreshedAt {
+  color: var(--rs-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.dshr-iconButton {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: var(--rs-layer-1);
+  cursor: pointer;
+}
+
+.dshr-iconButton:hover { color: var(--rs-text); background: var(--rs-hover); }
+.dshr-iconButton:disabled { opacity: 0.5; cursor: default; }
+
+.dshr-backButton {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  color: var(--rs-text);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dshr-backButton:hover { background: var(--rs-hover); }
+.dshr-backButton svg { display: block; }
+
+/* Alert banner */
+.dshr-alert {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 10px;
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rs-line-strong);
+  border-radius: 8px;
+  background: var(--rs-layer-1);
+}
+
+.dshr-alert strong { color: var(--rs-danger); font-size: 12px; }
+.dshr-alert span { color: var(--rs-muted); font-size: 12px; }
+
+/* Nav tabs */
+.dshr-nav {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--rs-line);
+}
+
+.dshr-nav button {
+  position: relative;
+  min-height: 42px;
+  padding: 0 12px;
+  border: none;
+  color: var(--rs-muted);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dshr-nav button:hover { color: var(--rs-text); }
+
+.dshr-nav button[aria-current='page'] {
+  color: var(--rs-text);
+  font-weight: 600;
+}
+
+.dshr-nav button[aria-current='page']::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  content: '';
+  background: var(--rs-accent);
+}
+
+.dshr-navCount {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 6px;
+  border-radius: 9px;
+  color: var(--rs-faint);
+  background: var(--rs-layer-2);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Content */
+.dshr-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.dshr-empty {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  color: var(--rs-faint);
+  font-size: 13px;
+}
+
+/* Accounts table */
+.dshr-tableWrap {
+  overflow: auto;
+  padding: 12px 18px;
+}
+
+.dshr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.dshr-table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rs-line-strong);
+  color: var(--rs-faint);
+  background: var(--rs-bg);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dshr-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rs-line);
+  vertical-align: middle;
+}
+
+.dshr-table tbody tr:hover { background: var(--rs-hover); }
+
+.dshr-mono { font-family: var(--rs-mono); font-size: 11px; }
+.dshr-num { text-align: right; }
+.dshr-muted { color: var(--rs-faint); }
+.dshr-reason { color: var(--rs-muted); font-size: 11px; }
+
+.dshr-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dshr-badge-ok { color: var(--rs-success); background: color-mix(in srgb, var(--rs-success) 12%, transparent); }
+.dshr-badge-warn { color: var(--rs-warn); background: color-mix(in srgb, var(--rs-warn) 14%, transparent); }
+.dshr-badge-danger { color: var(--rs-danger); background: color-mix(in srgb, var(--rs-danger) 12%, transparent); }
+
+/* Models grid */
+.dshr-modelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 14px 18px;
+}
+
+.dshr-modelCard {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  background: var(--rs-layer-1);
+}
+
+.dshr-modelCard:hover { border-color: var(--rs-line-strong); }
+
+.dshr-modelId {
+  overflow: hidden;
+  font-family: var(--rs-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-modelCtx {
+  flex: none;
+  color: var(--rs-faint);
+  font-size: 10px;
+}
+
+/* ============================================================
+   dsh-router — 9router 风格 tab 内容（供应商 / 组合 / 端点与密钥）
+   ============================================================ */
+
+.dshr-tabBody {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 18px;
+}
+
+.dshr-card {
+  min-width: 0;
+  border: 1px solid var(--rs-line);
+  border-radius: 10px;
+  background: var(--rs-layer-1);
+  overflow: hidden;
+}
+
+.dshr-cardHead {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rs-line);
+}
+
+.dshr-cardTitle {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dshr-cardMeta {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 组合链 */
+.dshr-comboChain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+}
+
+.dshr-comboStep {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dshr-comboArrow {
+  color: var(--rs-faint);
+  margin-right: 8px;
+}
+
+.dshr-comboSupplier {
+  font-family: var(--rs-mono);
+  font-size: 12px;
+}
+
+/* 端点与密钥 */
+.dshr-endpointRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.dshr-endpointCode {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  background: var(--rs-layer-2);
+  color: var(--rs-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-miniButton {
+  display: inline-flex;
+  flex: none;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: var(--rs-layer-1);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dshr-miniButton:hover { color: var(--rs-text); background: var(--rs-hover); }
+
+.dshr-code {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  color: var(--rs-text);
+  background: var(--rs-layer-2);
+  font: 12px/1.6 var(--rs-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ============================================================
+   dsh-router — 供应商详情 / 端点与密钥 / 通用控件
+   ============================================================ */
+
+/* 详情页头 */
+.dshr-detailHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.dshr-detailTitle {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+/* 可点击卡片 */
+.dshr-card-click {
+  cursor: pointer;
+  transition: border-color .12s ease;
+}
+
+.dshr-card-click:hover { border-color: var(--rs-accent); }
+
+.dshr-cardHint {
+  padding: 0 14px 12px;
+}
+
+/* 供应商小卡片（grid 布局，替代整行大卡片） */
+.dshr-supplierGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+/* 供应商分组（内置 / 插件分开） */
+.dshr-supplierGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dshr-supplierGroup + .dshr-supplierGroup {
+  margin-top: 22px;
+}
+
+.dshr-supplierGroupTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rs-muted);
+  letter-spacing: .04em;
+  padding-left: 2px;
+}
+
+.dshr-supplierCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--rs-line);
+  border-radius: 12px;
+  background: var(--rs-layer-1);
+  cursor: pointer;
+  transition: border-color .12s ease;
+}
+
+.dshr-supplierCard:hover { border-color: var(--rs-accent); }
+
+.dshr-supplierName {
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dshr-supplierRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.dshr-supplierIcon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 5px;
+  object-fit: contain;
+  color: var(--rs-faint);
+}
+
+.dshr-supplierMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.dshr-chevron {
+  color: var(--rs-faint);
+  font-size: 18px;
+  line-height: 1;
+  margin-left: auto;
+}
+
+/* 登录框 */
+.dshr-loginBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rs-line);
+  background: var(--rs-layer-2);
+}
+
+.dshr-loginUrl {
+  display: block;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  background: var(--rs-layer-1);
+  color: var(--rs-accent);
+  font: 11px/1.5 var(--rs-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all;
+}
+
+/* 输入框 */
+.dshr-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  background: var(--rs-layer-1);
+  color: var(--rs-text);
+  font-size: 12px;
+}
+
+.dshr-input:focus {
+  outline: none;
+  border-color: var(--rs-accent);
+}
+
+/* 成功提示 */
+.dshr-alert-ok {
+  border-color: color-mix(in srgb, var(--rs-ok) 45%, transparent);
+  background: color-mix(in srgb, var(--rs-ok) 10%, transparent);
+}
+
+.dshr-createdKey {
+  display: block;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--rs-layer-1);
+  word-break: break-all;
+}
+
+/* 模型卡片行 */
+.dshr-modelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dshr-modelCard-off {
+  opacity: .55;
+}
+
+/* 开关 */
+.dshr-toggle {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--rs-line);
+  cursor: pointer;
+  padding: 0;
+  transition: background .15s ease;
+}
+
+.dshr-toggle-on { background: var(--rs-ok); }
+
+.dshr-toggleKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform .15s ease;
+}
+
+.dshr-toggle-on .dshr-toggleKnob { transform: translateX(14px); }
+
+/* 操作按钮组 */
+.dshr-ops {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.dshr-danger { color: var(--rs-danger); }
+.dshr-danger:hover { color: var(--rs-danger); border-color: var(--rs-danger); }
+
+/* ============================================================
+   dsh-router — 弹窗 + 按钮 + 整体打磨
+   ============================================================ */
+
+/* 弹窗 */
+.dshr-modalOverlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 42%, transparent);
+  backdrop-filter: blur(2px);
+  animation: dshrFadeIn .12s ease;
+}
+
+.dshr-modal {
+  width: min(560px, 100%);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rs-line-strong);
+  border-radius: 12px;
+  background: var(--rs-layer-1);
+  box-shadow: 0 20px 50px rgb(0 0 0 / .35), 0 0 0 1px rgb(0 0 0 / .05);
+  animation: dshrModalIn .16s ease;
+}
+
+.dshr-modalHead {
+  display: flex;
+  min-height: 48px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--rs-line);
+}
+
+.dshr-modalTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-modalClose {
+  display: inline-flex;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.dshr-modalClose:hover { color: var(--rs-text); background: var(--rs-hover); }
+
+.dshr-modalBody {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.dshr-modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@keyframes dshrFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dshrModalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* 按钮 */
+.dshr-shell .dshr-primaryButton {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: none;
+  border-radius: 7px;
+  color: #fff;
+  background: var(--rs-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .12s ease;
+}
+
+.dshr-shell .dshr-primaryButton:hover { filter: brightness(1.08); }
+.dshr-shell .dshr-primaryButton:disabled { opacity: .55; cursor: default; }
+
+.dshr-shell .dshr-dangerButton {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: none;
+  border-radius: 7px;
+  color: #fff;
+  background: var(--rs-danger);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .12s ease;
+}
+
+.dshr-shell .dshr-dangerButton:hover { filter: brightness(1.1); }
+
+/* 登录步骤 */
+.dshr-loginBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dshr-loginStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--rs-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.dshr-loginNum {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.dshr-loginUrl {
+  display: block;
+  overflow: hidden;
+  padding: 9px 11px;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  background: var(--rs-layer-2);
+  color: var(--rs-accent);
+  font: 11px/1.5 var(--rs-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all;
+}
+
+/* 新 Key 弹窗 */
+.dshr-createdKeyBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dshr-createdKey {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--rs-layer-2);
+  word-break: break-all;
+  user-select: all;
+}
+
+/* ============================================================
+   dsh-router — 整体打磨
+   ============================================================ */
+
+/* Masthead: 细腻渐变 + 底部微阴影 */
+.dshr-masthead {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--rs-layer-1) 62%, transparent), transparent);
+}
+
+/* Brand 标题更突出 */
+.dshr-brandTitle {
+  letter-spacing: .01em;
+}
+
+/* 卡片:阴影 + hover 微抬升 */
+.dshr-card {
+  box-shadow: 0 1px 2px rgb(0 0 0 / .04);
+  transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
+}
+
+.dshr-card-click:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--rs-accent) 55%, var(--rs-line));
+  box-shadow: 0 6px 18px rgb(0 0 0 / .10);
+}
+
+/* Tab:悬停背景 + 计数徽标配色 */
+.dshr-nav button {
+  transition: color .12s ease, background .12s ease;
+}
+
+.dshr-nav button:hover {
+  background: var(--rs-hover);
+  border-radius: 6px 6px 0 0;
+}
+
+.dshr-navCount {
+  background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
+  color: var(--rs-accent);
+  font-weight: 600;
+}
+
+/* 徽标:更柔和 */
+.dshr-badge {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 12%, transparent);
+}
+
+/* 表格行悬停 + 表头层级 */
+.dshr-table tbody tr { transition: background .1s ease; }
+.dshr-table th { letter-spacing: .02em; }
+
+/* 输入框聚焦 */
+.dshr-input:focus {
+  border-color: var(--rs-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent);
+}
+
+/* 开关微过渡 */
+.dshr-toggle { transition: background .15s ease, box-shadow .15s ease; }
+.dshr-toggle:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent); }
+
+/* 内容区细滚动条 */
+.dshr-content::-webkit-scrollbar,
+.dshr-tableWrap::-webkit-scrollbar,
+.dshr-modalBody::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dshr-content::-webkit-scrollbar-thumb,
+.dshr-tableWrap::-webkit-scrollbar-thumb,
+.dshr-modalBody::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--rs-line-strong);
+}
+
+.dshr-content::-webkit-scrollbar-track,
+.dshr-tableWrap::-webkit-scrollbar-track,
+.dshr-modalBody::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============================================================
+   dsh-router — 端点与密钥（9router 风格布局）
+   ============================================================ */
+
+/* 卡片头图标 */
+.dshr-cardIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
+}
+
+.dshr-cardAction {
+  margin-left: auto;
+}
+
+/* Endpoint 列表 */
+.dshr-endpointList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.dshr-endpointRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dshr-endpointLabel {
+  flex: none;
+  min-width: 88px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: var(--rs-layer-2);
+  font: 11px var(--rs-mono);
+  text-align: center;
+}
+
+.dshr-endpointRow .dshr-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--rs-muted);
+}
+
+.dshr-endpointNote {
+  padding: 2px 2px 0;
+}
+
+/* 图标按钮 */
+.dshr-iconBtn {
+  display: inline-flex;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+
+.dshr-iconBtn:hover { color: var(--rs-accent); background: var(--rs-hover); }
+
+.dshr-iconBtn svg { display: block; }
+
+.dshr-iconBtn-sm { width: 26px; height: 26px; }
+
+/* Require API key 行 */
+.dshr-requireRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rs-line);
+}
+
+.dshr-requireTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dshr-requireDesc {
+  margin: 2px 0 0;
+  color: var(--rs-faint);
+  font-size: 12px;
+}
+
+/* 空状态 */
+.dshr-keyEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 16px 44px;
+}
+
+.dshr-keyEmptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
+}
+
+.dshr-keyEmptyTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dshr-keyEmptyDesc {
+  margin: 0 0 8px;
+  color: var(--rs-faint);
+  font-size: 12px;
+}
+
+/* key 列表（flex 行，非表格） */
+.dshr-keyList {
+  display: flex;
+  flex-direction: column;
+}
+
+.dshr-keyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rs-line);
+  transition: opacity .12s ease;
+}
+
+.dshr-keyRow:last-child { border-bottom: none; }
+.dshr-keyRow-paused { opacity: .6; }
+
+.dshr-keyInfo {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dshr-keyNameRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dshr-keyName {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dshr-keyValue {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.dshr-keyValue code {
+  overflow: hidden;
+  color: var(--rs-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-keyCreated {
+  margin: 3px 0 0;
+  color: var(--rs-faint);
+  font-size: 11px;
+}
+
+.dshr-keyPaused { color: var(--rs-warn); }
+
+.dshr-keyOps {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 删除按钮 hover 才明显（9router：group-hover 显示） */
+.dshr-keyDelete {
+  color: var(--rs-muted);
+  opacity: 0;
+  transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+
+.dshr-keyRow:hover .dshr-keyDelete { opacity: 1; }
+.dshr-keyDelete:focus-visible { opacity: 1; }
+.dshr-keyDelete:hover {
+  color: var(--rs-danger);
+  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+}
+
+/* 弹窗表单 */
+.dshr-modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dshr-fieldLabel {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--rs-text);
+  margin-top: 4px;
+}
+
+.dshr-warnBox {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--rs-warn) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rs-warn) 8%, transparent);
+}
+
+.dshr-warnTitle {
+  margin: 0 0 4px;
+  color: var(--rs-warn);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dshr-warnDesc {
+  margin: 0;
+  color: var(--rs-muted);
+  font-size: 12px;
+}
+
+.dshr-createdRow { padding: 0; }
+
+.dshr-createdRow .dshr-input { color: var(--rs-text); }
+
+.dshr-fullButton { width: 100%; }
+
+/* ============================================================
+   dsh-router — 供应商详情（9router 风格）
+   ============================================================ */
+
+/* Header */
+.dshr-providerHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dshr-backLink {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  border: none;
+  padding: 2px 0;
+  color: var(--rs-muted);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color .12s ease;
+}
+
+.dshr-backLink:hover { color: var(--rs-accent); }
+
+.dshr-providerTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dshr-providerIcon {
+  display: inline-flex;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.dshr-providerImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.dshr-providerName {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+.dshr-providerCount {
+  margin: 2px 0 0;
+  color: var(--rs-muted);
+  font-size: 12px;
+}
+
+/* 链接池空状态 */
+.dshr-linkEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 16px 40px;
+}
+
+.dshr-linkEmptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
+}
+
+.dshr-linkEmptyText { text-align: center; }
+
+.dshr-linkEmptyTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dshr-linkEmptyDesc {
+  margin: 2px 0 0;
+  color: var(--rs-faint);
+  font-size: 12px;
+}
+
+/* 链接列表（9router ConnectionRow 风格行） */
+.dshr-linkList {
+  display: flex;
+  flex-direction: column;
+}
+
+.dshr-linkRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rs-line);
+  transition: background .1s ease;
+}
+
+.dshr-linkRow:last-child { border-bottom: none; }
+.dshr-linkRow:hover { background: var(--rs-hover); }
+.dshr-linkRow[draggable='true'] { cursor: grab; }
+.dshr-linkRow[draggable='true']:active { cursor: grabbing; }
+.dshr-linkRowDragging { opacity: .45; background: var(--rs-hover); }
+
+.dshr-linkGrip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rs-muted);
+  flex: 0 0 auto;
+  cursor: grab;
+  padding: 4px 2px;
+  user-select: none;
+}
+.dshr-linkGrip:active { cursor: grabbing; }
+.dshr-linkGrip svg { opacity: .65; }
+.dshr-linkRow:hover .dshr-linkGrip svg { opacity: 1; }
+
+.dshr-linkMain {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dshr-linkTitleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dshr-linkName {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-linkSub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--rs-faint);
+  font-size: 11px;
+}
+
+.dshr-linkUid { color: var(--rs-faint); }
+.dshr-linkCredits { color: var(--rs-muted); }
+.dshr-linkErr { color: var(--rs-warn); }
+.dshr-linkCooling { color: var(--rs-warn); }
+.dshr-linkDot { color: var(--rs-faint); opacity: .6; }
+
+.dshr-linkOps {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+/* 删除链接 hover 显示 + 红色 */
+.dshr-linkDelete {
+  color: var(--rs-muted);
+  opacity: 0;
+  transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+
+.dshr-linkRow:hover .dshr-linkDelete { opacity: 1; }
+.dshr-linkDelete:focus-visible { opacity: 1; }
+.dshr-linkDelete:hover {
+  color: var(--rs-danger);
+  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+}
+
+/* 模型 chips（9router ModelRow 风格） */
+.dshr-modelChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px;
+}
+
+.dshr-modelChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  color: var(--rs-text);
+  background: var(--rs-layer-1);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+
+.dshr-modelChip:hover {
+  border-color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
+}
+
+.dshr-modelChip:disabled { opacity: .6; cursor: default; }
+
+.dshr-modelChipId {
+  font-family: var(--rs-mono);
+  font-size: 11px;
+}
+
+.dshr-modelChipCtx {
+  flex: none;
+  color: var(--rs-faint);
+  font-size: 10px;
+}
+
+.dshr-modelChip-off {
+  border-style: dashed;
+  color: var(--rs-faint);
+  opacity: .8;
+}
+
+.dshr-modelChip-off:hover {
+  color: var(--rs-accent);
+  border-color: var(--rs-accent);
+}
+
+.dshr-modelChipRestore {
+  color: var(--rs-accent);
+  font-size: 10px;
+}
+
+/* 已禁用区 */
+.dshr-disabledModels {
+  width: 100%;
+}
+
+.dshr-disabledLabel {
+  margin: 4px 0 0;
+  color: var(--rs-faint);
+  font-size: 11px;
+}
+
+.dshr-disabledModels .dshr-modelChips {
+  padding: 8px 0 0;
+}
+
+/* ============================================================
+   dsh-router — 模型 chips 升级（9router 测试/复制 + 批量按钮）
+   ============================================================ */
+
+/* 卡片头操作组 */
+.dshr-cardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* 连接池策略选择 */
+.dshr-poolStrategy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.dshr-select {
+  appearance: none;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  background: var(--rs-surface, transparent);
+  color: inherit;
+  font-size: 12px;
+  padding: 3px 22px 3px 8px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--rs-muted) 50%), linear-gradient(135deg, var(--rs-muted) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.dshr-select:focus { outline: none; border-color: var(--rs-accent, #4c7dff); }
+
+
+/* 模型 chip 包装（状态边框） */
+.dshr-modelChipWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  background: var(--rs-layer-1);
+  transition: border-color .12s ease, background .12s ease;
+}
+
+.dshr-modelChipWrap:hover {
+  border-color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
+}
+
+.dshr-modelChipWrap.dshr-modelChip-ok { border-color: var(--rs-ok); }
+.dshr-modelChipWrap.dshr-modelChip-err { border-color: var(--rs-danger); }
+
+/* chip 本体（点击禁用） */
+.dshr-modelChipWrap .dshr-modelChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 6px;
+  border: none;
+  border-radius: 8px;
+  color: var(--rs-text);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dshr-modelChipStatus {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--rs-faint);
+}
+
+.dshr-modelChipWrap.dshr-modelChip-ok .dshr-modelChipStatus { color: var(--rs-ok); }
+.dshr-modelChipWrap.dshr-modelChip-err .dshr-modelChipStatus { color: var(--rs-danger); }
+
+/* chip 右侧操作（hover 显示） */
+.dshr-modelChipOps {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding-right: 4px;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+.dshr-modelChipWrap:hover .dshr-modelChipOps,
+.dshr-modelChipOps:focus-within { opacity: 1; }
+
+/* 旧 .dshr-modelChip 独立样式（disabled 区仍用） */
+.dshr-modelChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  color: var(--rs-text);
+  background: var(--rs-layer-1);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+
+.dshr-modelChip:hover {
+  border-color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
+}
+
+.dshr-modelChip:disabled { opacity: .6; cursor: default; }
+
+.dshr-modelChipId {
+  font-family: var(--rs-mono);
+  font-size: 11px;
+}
+
+.dshr-modelChipCtx {
+  flex: none;
+  color: var(--rs-faint);
+  font-size: 10px;
+}
+
+.dshr-modelChip-off {
+  border-style: dashed;
+  color: var(--rs-faint);
+  opacity: .8;
+}
+
+.dshr-modelChip-off:hover {
+  color: var(--rs-accent);
+  border-color: var(--rs-accent);
+}
+
+.dshr-modelChipRestore {
+  color: var(--rs-accent);
+  font-size: 10px;
+}
+
+/* 计数徽标跟在标题/操作按钮右侧（模型卡片） */
+.dshr-cardMetaAfter {
+  margin-left: 0;
+}
+
+/* 测试 loading 转圈 */
+.dshr-spin {
+  display: inline-flex;
+  animation: dshrSpin .8s linear infinite;
+}
+
+@keyframes dshrSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 供应商标题行编辑按钮（靠右） */
+.dshr-providerEdit {
+  margin-left: auto;
+}
+
+/* 模型搜索栏 */
+.dshr-modelSearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 0;
+}
+
+.dshr-modelSearchIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--rs-faint);
+}
+
+.dshr-modelSearch .dshr-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 自定义模型删除按钮（hover 红色） */
+.dshr-modelDelete {
+  color: var(--rs-muted);
+  transition: color .12s ease, background .12s ease;
+}
+
+.dshr-modelDelete:hover {
+  color: var(--rs-danger);
+  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+}
+
+/* 全局浮窗提示（toast） */
+.dshr-toast {
+  position: fixed;
+  z-index: 2000;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: var(--rs-text);
+  background: var(--rs-layer-2);
+  border: 1px solid var(--rs-line-strong);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  animation: dshrToastIn .18s ease;
+}
+
+@keyframes dshrToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ============ 组合（9router combos 布局交互） ============ */
+.dshr-comboIntro { overflow: visible; }
+
+.dshr-comboIntroDesc {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dshr-comboIntroBody {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--rs-muted);
+  border-top: 1px solid var(--rs-line);
+}
+
+.dshr-comboHeaderKey {
+  font-weight: 600;
+  color: var(--rs-text);
+  background: color-mix(in srgb, var(--rs-success) 14%, transparent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.dshr-comboHeaderKey-2 {
+  margin-left: 4px;
+  background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+}
+
+.dshr-comboList { display: flex; flex-direction: column; gap: 10px; }
+
+.dshr-comboCard { display: flex; flex-direction: column; }
+
+.dshr-comboName {
+  font-family: var(--rs-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rs-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.dshr-comboOps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+.dshr-comboOpBtn-danger { color: var(--rs-danger); }
+.dshr-comboOpBtn-danger:hover {
+  color: var(--rs-danger);
+  background: color-mix(in srgb, var(--rs-danger) 12%, transparent);
+}
+
+.dshr-comboCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--rs-line);
+}
+
+.dshr-comboChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dshr-comboChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: color-mix(in srgb, var(--rs-text) 6%, transparent);
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  padding: 3px 8px 3px 5px;
+}
+
+.dshr-comboChipNum {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--rs-primary);
+  background: color-mix(in srgb, var(--rs-primary) 12%, transparent);
+}
+
+.dshr-comboChipSupplier {
+  font-family: var(--rs-mono);
+  font-size: 11px;
+  color: var(--rs-text);
+}
+
+.dshr-comboEmptySteps { font-style: italic; font-size: 12px; }
+
+.dshr-comboMore { font-size: 10px; color: var(--rs-muted); }
+
+.dshr-comboStrategySelect {
+  width: 84px;
+  height: 26px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.dshr-comboStrategySelect:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* 表单 */
+.dshr-formLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rs-text);
+  margin: 0 0 6px;
+}
+
+.dshr-formHint {
+  font-size: 10px;
+  color: var(--rs-muted);
+  margin: 4px 0 0;
+}
+
+.dshr-comboEmptyStepsBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 0;
+  border: 1px dashed color-mix(in srgb, var(--rs-text) 16%, transparent);
+  border-radius: 9px;
+  color: var(--rs-muted);
+}
+
+.dshr-comboStepList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.dshr-comboStepRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: grab;
+}
+
+.dshr-comboStepRow:active { cursor: grabbing; }
+
+.dshr-comboStepRow-dragging {
+  opacity: .45;
+  border-color: var(--rs-accent);
+}
+
+.dshr-comboStepRow-over {
+  border-color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 8%, transparent);
+}
+
+.dshr-comboGrip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rs-faint);
+  cursor: grab;
+}
+
+.dshr-comboStepNum {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rs-primary);
+  background: color-mix(in srgb, var(--rs-primary) 12%, transparent);
+}
+
+.dshr-comboStepSelect { flex: 1; min-width: 0; }
+
+.dshr-comboStepRemove:hover {
+  color: var(--rs-danger);
+  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+}
+
+.dshr-comboAddStep {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 0;
+  border: 1px dashed color-mix(in srgb, var(--rs-text) 20%, transparent);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--rs-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: border-color .12s ease, background .12s ease;
+}
+
+.dshr-comboAddStep:hover {
+  border-color: color-mix(in srgb, var(--rs-primary) 50%, transparent);
+  background: color-mix(in srgb, var(--rs-primary) 5%, transparent);
+}
+
+/* 组合：已选模型行 + 添加模型挑选列表 */
+.dshr-comboSelectedModel {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--rs-mono);
+  font-size: 12px;
+  color: var(--rs-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-comboPickLabel { margin-top: 12px; }
+
+.dshr-comboModelSearch { margin-bottom: 6px; }
+
+.dshr-comboPickList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.dshr-comboPickItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--rs-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+
+.dshr-comboPickItem:hover { background: var(--rs-hover); }
+
+.dshr-comboPickName {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--rs-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-comboPickEmpty {
+  font-size: 12px;
+  font-style: italic;
+  padding: 8px 2px;
+}
+
+/* 组合：添加模型按供应商分组 */
+.dshr-comboPickGroup { margin-bottom: 6px; }
+
+.dshr-comboPickGroupTitle {
+  margin: 0 0 2px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rs-faint);
+}
+
+/* 组合表单：左右分栏（左=组合名/策略/已选，右=添加模型） */
+.dshr-comboFormSplit {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.dshr-comboFormLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dshr-comboFormRight {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-height: 340px;
+}
+
+.dshr-comboFormRight .dshr-comboPickList {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 组合编辑弹窗：加宽 */
+.dshr-modal-wide {
+  width: min(760px, 100%);
+}
+
+/* 左右分栏之间的分割线 */
+.dshr-comboFormDivider {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 50%;
+  width: 1px;
+  background: var(--rs-line);
+}

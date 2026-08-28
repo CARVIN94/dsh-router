@@ -1,0 +1,11 @@
+{
+  "//": "Declaration build for the shipped types surface: emits lib/types/*.d.ts from the HOST half only. The client half is bundled by vite (client/vite.config.ts), which transpiles via esbuild and does not emit .d.ts.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "lib/types"
+  },
+  "include": ["src/index.ts", "src/shared.ts", "src/types.d.ts"]
+}

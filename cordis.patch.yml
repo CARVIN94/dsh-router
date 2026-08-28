@@ -1,0 +1,9 @@
+# dsh-router bundle patch
+#
+# Mounts dsh-router into the DSH cordis bundle stack. dsh-router adds a
+# 路由系统 (Routing System) sidebar entry beside dsh-mnemon's 记忆系统; its
+# host half proxies traework2api (localhost:7864) through /router/api/*.
+# No dependency on other plugins.
+- insert:
+    - id: dsh-router
+      name: 'dsh-router'

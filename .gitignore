@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+lib/
+dist/
+
+# Runtime data (local state: accounts, config, sqlite)
+data/
+*.sqlite
+
+# Editor / OS
+.DS_Store
+*.log
+
+# Env
+.env
+.env.local

@@ -1,26 +1,36 @@
-name: Publish Package
+name: publish
 
 on:
   push:
     tags:
       - 'v*'
 
-permissions:
-  id-token: write  # Required for OIDC
-  contents: read
-
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@v4
         with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false  # never use caching in release builds
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
       - run: pnpm install --frozen-lockfile
+
       - run: pnpm build
-      - run: npm test
-      - run: npm publish  # Or: npm stage publish
+
+      - name: Verify npm auth
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

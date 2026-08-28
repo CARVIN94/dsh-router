@@ -21,6 +21,7 @@
  *   POST   /suppliers/:id/checkin                 触发签到
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Router } from '../router/index.ts'
 import type { ModelWithEnabled } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { LoadedSupplier } from './loader.ts'
@@ -96,7 +97,7 @@ function mod(s: LoadedSupplier): Record<string, unknown> {
 }
 
 /** 为一个供应商生成端点（通用 + 差异化，返回 route 列表）。 */
-export function supplierRoutes(base: string, loaded: LoadedSupplier, store: SupplierConfigStore): WebServerRoute[] {
+export function supplierRoutes(base: string, loaded: LoadedSupplier, store: SupplierConfigStore, router: Router): WebServerRoute[] {
   const s = loaded.supplier
   const m = mod(loaded)
   const c = loaded.capabilities
@@ -247,13 +248,13 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     },
   })
 
-  // ---- 必要差异化: testModel（所有供应商必须实现） ----
+  // ---- 通用: 测试模型（核心统一走 chatCompletions 路径，账号池回退/冷却自动生效） ----
   routes.push({
     kind: 'exact',
     path: `${p}/models/test`,
     handler: async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { id?: string }
-      const result = await s.testModel(body.id ?? '')
+      const result = await router.testModel(s.id, body.id ?? '')
       writeJson(res, result.ok ? 200 : 400, result)
     },
   })

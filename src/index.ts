@@ -146,7 +146,7 @@ export function apply(rawContext: unknown): void {
   const supplierDisposers = new Map<string, Array<() => void>>()
   const registerSupplierRoutes = (loaded: LoadedSupplier): void => {
     const dis: Array<() => void> = []
-    for (const r of supplierRoutes(ROUTER_API_BASE, loaded, store)) {
+    for (const r of supplierRoutes(ROUTER_API_BASE, loaded, store, router)) {
       dis.push(ctx.webServer.register(r))
     }
     supplierDisposers.set(loaded.supplier.id, dis)

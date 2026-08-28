@@ -29,6 +29,8 @@ const KNOWN_FREE = new Set(['big-pickle'])
 export default function factory(env: SupplierEnv): SupplierModule {
   // 模型缓存由 dsh-router 核心统一管；插件每次拉取，失败回退上次成功结果
   let modelsCache: ModelInfo[] | undefined
+  /** 上次 chatCompletions 失败原因（供核心测试模型汇总诊断）。 */
+  let lastErr: string | undefined
 
   async function refreshModels(): Promise<ModelInfo[]> {
     try {
@@ -73,37 +75,14 @@ export default function factory(env: SupplierEnv): SupplierModule {
     status: (): SupplierStatus => ({ id, name, accounts: [] }),
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
     getAlias: (): string => 'oc',
-    async testModel(mid: string): Promise<{ ok: boolean; error?: string }> {
-      if (!isFreeModel(mid)) return { ok: false, error: `unknown free model ${JSON.stringify(mid)}` }
-      try {
-        const resp = await fetch(CHAT_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer public',
-            'User-Agent': UA,
-            'x-opencode-client': 'desktop',
-          },
-          body: JSON.stringify({
-            model: mid,
-            messages: [{ role: 'user', content: 'ping' }],
-            stream: false,
-            max_tokens: 1,
-          }),
-          signal: AbortSignal.timeout(30000),
-        })
-        if (!resp.ok) {
-          const body = await resp.text().catch(() => '')
-          return { ok: false, error: `upstream ${resp.status}: ${body.slice(0, 200)}` }
-        }
-        return { ok: true }
-      } catch (err) {
-        return { ok: false, error: (err as Error).message }
-      }
-    },
+    // testModel 由 dsh-router 核心统一走 chatCompletions 路径（无账号，无需回退）
+    lastError: (): string | undefined => lastErr,
     async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean> {
       // 只认 free 模型，其他模型返回 false 交给别的供应商
-      if (!isFreeModel(req.model)) return false
+      if (!isFreeModel(req.model)) {
+        lastErr = `unknown free model ${JSON.stringify(req.model)}`
+        return false
+      }
       // 模型名规范化：剥 alias 前缀，body.model 用裸 id
       let body = req.rawBody
       try {
@@ -130,6 +109,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
           signal: AbortSignal.timeout(120000),
         })
       } catch (err) {
+        lastErr = `opencode upstream: ${(err as Error).message}`
         writeJson(res, 502, { error: { message: `opencode upstream: ${(err as Error).message}`, type: 'api_error', code: 'upstream_error' } })
         return true
       }

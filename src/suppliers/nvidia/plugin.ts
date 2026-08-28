@@ -28,6 +28,7 @@ const MODELS_URL = `${BASE}/models`
 const CHAT_URL = `${BASE}/chat/completions`
 const COOL_DOWN_MS = 60 * 1000 // 失败冷却 60s
 
+
 /** 剥 alias 前缀（nv/xxx → xxx）。 */
 function stripAlias(model: string): string {
   const slash = model.lastIndexOf('/')
@@ -42,6 +43,8 @@ interface ApiKeyAccount {
 export default function factory(env: SupplierEnv): SupplierModule {
   // 模型缓存由 dsh-router 核心统一管；插件每次拉取，失败回退上次成功结果
   let modelsCache: ModelInfo[] | undefined
+  /** 上次 chatCompletions 失败原因（供核心测试模型汇总诊断）。 */
+  let lastErr: string | undefined
   /** 失败冷却：uid → until(ms)。 */
   const cooling = new Map<string, number>()
 
@@ -149,35 +152,20 @@ export default function factory(env: SupplierEnv): SupplierModule {
       cooling.delete(uid)
       return true
     },
-    async testModel(mid: string): Promise<{ ok: boolean; error?: string }> {
-      const base = stripAlias(mid)
-      const keys = orderedKeys()
-      if (keys.length === 0) return { ok: false, error: '未添加 API key（点「添加链接」配置）' }
-      if (!(await allModels(false)).some((m) => m.id === base)) {
-        return { ok: false, error: `unknown model ${JSON.stringify(mid)}` }
-      }
-      for (const { acct } of keys) {
-        try {
-          const resp = await fetch(CHAT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${acct.apiKey}`, 'User-Agent': 'dsh-router' },
-            body: JSON.stringify({ model: base, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 1 }),
-            signal: AbortSignal.timeout(30000),
-          })
-          if (resp.ok) return { ok: true }
-          const body = await resp.text().catch(() => '')
-          return { ok: false, error: `upstream ${resp.status}: ${body.slice(0, 200)}` }
-        } catch (err) {
-          return { ok: false, error: (err as Error).message }
-        }
-      }
-      return { ok: false, error: 'no api key' }
-    },
+    // testModel 由 dsh-router 核心统一走 chatCompletions 路径（账号池回退/冷却自动生效）
+    lastError: (): string | undefined => lastErr,
     async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean> {
       const base = stripAlias(req.model)
-      if (!(await allModels(false)).some((m) => m.id === base)) return false
+      if (!(await allModels(false)).some((m) => m.id === base)) {
+        lastErr = `unknown model ${JSON.stringify(req.model)}`
+        return false
+      }
       const keys = orderedKeys().filter(({ uid }) => !isCooling(uid))
-      if (keys.length === 0) return false // 无健康 key → 路由器 fallback
+      if (keys.length === 0) {
+        lastErr = '所有 key 都在冷却中（稍后重试）'
+        return false // 无健康 key → 路由器 fallback
+      }
+      lastErr = undefined
 
       let body = req.rawBody
       try {
@@ -188,7 +176,6 @@ export default function factory(env: SupplierEnv): SupplierModule {
         // 保持原样
       }
 
-      let lastErr = ''
       for (const { uid, acct } of keys) {
         let upstream: Response
         try {

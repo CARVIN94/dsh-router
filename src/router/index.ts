@@ -20,6 +20,45 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
+/** 丢弃响应的假 ServerResponse（测试模型用：记录状态+内容，用于判定成败）。 */
+function sinkRes(): ServerResponse & { status(): number; body(): string } {
+  let status = 200
+  let text = ''
+  const self = {
+    headersSent: false,
+    writableEnded: false,
+    writeHead: (code: number): unknown => {
+      status = code
+      return self
+    },
+    write: (chunk?: unknown): boolean => {
+      if (chunk !== undefined) text += String(chunk)
+      return true
+    },
+    end: (chunk?: unknown): unknown => {
+      if (chunk !== undefined) text += String(chunk)
+      return self
+    },
+    flushHeaders: (): void => {},
+    status: (): number => status,
+    body: (): string => text,
+  }
+  return self as unknown as ServerResponse & { status(): number; body(): string }
+}
+
+/** 从上游响应体提取错误信息（OpenAI {error:{message}} 或 {code,msg}/{message}）。 */
+function extractUpstreamError(body: string): string {
+  try {
+    const j = JSON.parse(body) as { error?: { message?: string }; message?: string; msg?: string; code?: number }
+    if (typeof j.error?.message === 'string') return j.error.message
+    if (typeof j.message === 'string') return j.message
+    if (typeof j.msg === 'string') return j.msg
+  } catch {
+    // 非 JSON（可能是 SSE 文本）→ 走下面截断
+  }
+  return body.slice(0, 200)
+}
+
 /** 路由器。 */
 export class Router {
   private suppliers: Supplier[] = []
@@ -264,6 +303,36 @@ export class Router {
       if (served) return true
     }
     return false
+  }
+
+  /** 测试某供应商的某模型是否可用。
+   *  走真实 chatCompletions 路径：账号池回退/冷却由供应商内部实现，自动生效；
+   *  响应丢弃到 sink，限定单一供应商（不跨供应商回退）。 */
+  async testModel(supplierId: string, model: string): Promise<{ ok: boolean; error?: string }> {
+    const s = this.suppliers.find((x) => x.id === supplierId)
+    if (s === undefined) return { ok: false, error: `unknown supplier ${JSON.stringify(supplierId)}` }
+    const sink = sinkRes()
+    const req: ChatRequest = {
+      model,
+      stream: false,
+      rawBody: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 1 }),
+    }
+    let served = false
+    try {
+      served = await s.chatCompletions(req, sink)
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+    // 供应商可能「服务了但写出错误响应」（如 opencode：唯一能处理该模型的供应商，错误自己上报）
+    if (served && sink.status() < 400) return { ok: true }
+    const fromSink = served && sink.status() >= 400 ? extractUpstreamError(sink.body()) : ''
+    const detail = fromSink !== '' ? fromSink : s.lastError?.()
+    return {
+      ok: false,
+      error: detail !== undefined && detail !== ''
+        ? `${detail}（账号/额度/限流问题，非模型问题）`
+        : '所有账号都失败或账号都在冷却中（稍后重试）',
+    }
   }
 
   dispose(): void {

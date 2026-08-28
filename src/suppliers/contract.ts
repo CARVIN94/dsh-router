@@ -47,9 +47,14 @@ export interface SupplierModule {
   /** 默认前缀（可被通用层 alias 覆盖）。 */
   getAlias(): string
   chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean>
-  /** 测试模型（验证上游真实可用，必要差异化能力）。 */
-  testModel(id: string): Promise<{ ok: boolean; error?: string }>
   dispose(): void
+
+  // ---- 差异化能力（可选，按存在性暴露端点/UI） ----
+
+  /** 上次 chatCompletions 失败的原因（诊断用）。
+   *  测试模型由 dsh-router 核心统一走 chatCompletions 路径（账号池回退/冷却自动生效），
+   *  插件只需把失败原因暴露出来供核心汇总；不实现则测试失败时只有通用提示。 */
+  lastError?(): string | undefined
 
   // ---- 差异化能力（可选，按存在性暴露端点/UI） ----
 

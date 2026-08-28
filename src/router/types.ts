@@ -77,8 +77,8 @@ export interface Supplier {
   /** 用户手动添加的模型 id（可选，/v1/models 用它聚合自定义模型）。 */
   customModelIds?(): string[]
   chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean>
-  /** 测试模型（验证上游真实可用，必要差异化能力）。 */
-  testModel(id: string): Promise<{ ok: boolean; error?: string }>
+  /** 上次 chatCompletions 失败原因（诊断用，可选）。 */
+  lastError?(): string | undefined
   /** 删除链接（清理凭证；内部能力，js 契约不要求实现）。 */
   removeLink?(uid: string): Promise<boolean>
   dispose(): void

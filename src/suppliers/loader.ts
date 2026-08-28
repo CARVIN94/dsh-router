@@ -43,7 +43,6 @@ function resolveModule(mod: Record<string, unknown>, file: string): SupplierModu
   if (typeof cand !== 'object' || cand === null) throw new Error(`供应商模块无效: ${file}`)
   if (typeof cand.id !== 'string' || cand.id === '') throw new Error(`供应商缺少 id: ${file}`)
   if (typeof cand.name !== 'string' || cand.name === '') throw new Error(`供应商缺少 name: ${file}`)
-  if (typeof cand.testModel !== 'function') throw new Error(`供应商 ${cand.id} 缺少 testModel（必要差异化能力）: ${file}`)
   return cand as unknown as SupplierModule
 }
 
@@ -56,7 +55,7 @@ async function importSupplierFile(file: string): Promise<SupplierModule> {
 
 /**
  * 差异化能力（供应商 js 实现；其余为通用能力由核心提供）。
- * testModel 是必要差异化能力（核心必须），不在此列。
+ * testModel / 连接池 / 模型管理 / 别名 / 凭证存储均为核心通用能力，不在此列。
  */
 const DIFF_CAPS = [
   'generateLoginUrl', 'completeLogin',
@@ -75,9 +74,7 @@ async function loadOne(file: string, env: SupplierEnv, source: 'builtin' | 'user
     if (typeof instance !== 'object' || instance === null || typeof instance.id !== 'string' || instance.id === '') {
       throw new Error(`供应商 factory 返回无效: ${file}`)
     }
-    if (typeof instance.testModel !== 'function') {
-      throw new Error(`供应商 ${instance.id} 缺少 testModel（必要差异化能力）: ${file}`)
-    }
+    // 测试模型由核心统一走 chatCompletions 路径，插件无需实现 testModel
   } else {
     instance = mod
   }
@@ -92,9 +89,7 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
   if (typeof instance !== 'object' || instance === null || typeof instance.id !== 'string' || instance.id === '') {
     throw new Error(`供应商模块无效: ${source}`)
   }
-  if (typeof instance.testModel !== 'function') {
-    throw new Error(`供应商 ${instance.id} 缺少 testModel（必要差异化能力）: ${source}`)
-  }
+  // 测试模型由核心统一走 chatCompletions 路径（账号池回退/冷却自动生效），插件无需实现 testModel
   const capabilities = new Set<string>()
   for (const key of DIFF_CAPS) {
     if (isFn((instance as unknown as Record<string, unknown>)[key])) capabilities.add(key)
@@ -123,7 +118,9 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
     getAlias: (): string => env.store.get(instance.id).alias || instance.getAlias(),
     customModelIds: (): string[] => [...env.store.get(instance.id).custom],
     chatCompletions: (req: ChatRequest, res: ServerResponse): Promise<boolean> => instance.chatCompletions(req, res),
-    testModel: (id: string): Promise<{ ok: boolean; error?: string }> => instance.testModel(id),
+    lastError: isFn((instance as unknown as Record<string, unknown>).lastError)
+      ? (): string | undefined => (instance as unknown as { lastError(): string | undefined }).lastError()
+      : undefined,
     // 删除链接：数据删除是通用能力，凭证清理由供应商内部实现（js 契约不要求）
     removeLink: isFn((instance as unknown as Record<string, unknown>).removeLink)
       ? (uid: string): Promise<boolean> => (instance as unknown as { removeLink(uid: string): Promise<boolean> }).removeLink(uid)

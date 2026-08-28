@@ -13,6 +13,8 @@
  * 模型不内置、不缓存：listModels 每次从上游 /v1/models 拉取（全量，不过滤），
  * 缓存由 dsh-router 核心统一管。
  */
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import type { ChatRequest, ModelInfo, SupplierStatus } from '../../router/types.ts'
 import type { SupplierEnv, SupplierModule } from '../contract.ts'
@@ -27,6 +29,8 @@ const BASE = 'https://integrate.api.nvidia.com/v1'
 const MODELS_URL = `${BASE}/models`
 const CHAT_URL = `${BASE}/chat/completions`
 const COOL_DOWN_MS = 60 * 1000 // 失败冷却 60s
+/** 非聊天用途的模型（护栏/翻译/解析/检测/图像生成等），聊天路由用不上，拉列表时过滤掉。 */
+const NON_CHAT_MODEL = /(guard|safety|moderation|translate|transcription|parse|detector|embed|rerank|diffusion|tts|asr|calibration)/i
 
 
 /** 剥 alias 前缀（nv/xxx → xxx）。 */
@@ -68,7 +72,88 @@ export default function factory(env: SupplierEnv): SupplierModule {
     return (cooling.get(uid) ?? 0) > now
   }
 
-  async function refreshModels(): Promise<ModelInfo[]> {
+  // ---- 模型可用性探测（NIM 的 /v1/models 无状态字段，大量模型已下线/未授权） ----
+  // 判定：200=可用；404/410=死（下线或未授权给该账号）；401/403=key 无效；其余=未知（下次再试）。
+  // 结果持久化到 dataDir，force 刷新只探测「未探测过」的模型，避免每次全量探测。
+
+  /** 已确认不可用的模型（下线/未授权）。 */
+  const deadModels = new Set<string>()
+  /** 已确认可用的模型（避免重复探测）。 */
+  const okModels = new Set<string>()
+  const PROBE_CONCURRENCY = 8
+
+  function probeFile(): string {
+    return join(env.dataDir, 'nvidia-models.json')
+  }
+
+  function loadProbeState(): void {
+    try {
+      const j = JSON.parse(readFileSync(probeFile(), 'utf8')) as { dead?: string[]; ok?: string[] }
+      for (const m of j.dead ?? []) deadModels.add(m)
+      for (const m of j.ok ?? []) okModels.add(m)
+    } catch {
+      // 首次无文件
+    }
+  }
+
+  function saveProbeState(): void {
+    try {
+      mkdirSync(env.dataDir, { recursive: true })
+      const tmp = `${probeFile()}.tmp`
+      writeFileSync(tmp, JSON.stringify({ dead: [...deadModels], ok: [...okModels], at: Date.now() }))
+      renameSync(tmp, probeFile())
+    } catch {
+      // 持久化失败不影响主流程
+    }
+  }
+
+  loadProbeState()
+
+  /** 探测单个模型：'ok' | 'dead' | 'unauthorized' | 'unknown'。 */
+  async function probeModel(apiKey: string, model: string): Promise<'ok' | 'dead' | 'unauthorized' | 'unknown'> {
+    try {
+      const r = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, 'User-Agent': 'dsh-router' },
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 1 }),
+        signal: AbortSignal.timeout(15000),
+      })
+      if (r.ok) return 'ok'
+      if (r.status === 401 || r.status === 403) return 'unauthorized'
+      if (r.status === 404 || r.status === 410) return 'dead'
+      return 'unknown'
+    } catch {
+      return 'unknown'
+    }
+  }
+
+  /** 并发探测全部「未探测过」的模型，更新 dead/ok 并持久化。 */
+  async function probeAll(ids: string[]): Promise<void> {
+    const acct = orderedKeys().find(({ uid }) => !isCooling(uid))
+    if (acct === undefined) return // 无可用 key：不探测，保持原样
+    const todo = ids.filter((m) => !deadModels.has(m) && !okModels.has(m) && !NON_CHAT_MODEL.test(m))
+    if (todo.length === 0) return
+    let cursor = 0
+    let unauthorized = false
+    let changed = false
+    await Promise.all(
+      Array.from({ length: Math.min(PROBE_CONCURRENCY, todo.length) }, async () => {
+        for (;;) {
+          const i = cursor++
+          if (i >= todo.length || unauthorized) return
+          const model = todo[i]!
+          const r = await probeModel(acct.acct.apiKey, model)
+          if (r === 'unauthorized') unauthorized = true
+          else if (r === 'ok') { okModels.add(model); changed = true }
+          else if (r === 'dead') { deadModels.add(model); changed = true }
+        }
+      }),
+    )
+    if (changed) saveProbeState()
+    env.log(`nvidia probe: ${okModels.size} ok / ${deadModels.size} dead`)
+  }
+
+  async function refreshModels(force = false): Promise<ModelInfo[]> {
     try {
       const resp = await fetch(MODELS_URL, {
         headers: { 'User-Agent': 'dsh-router' },
@@ -87,17 +172,20 @@ export default function factory(env: SupplierEnv): SupplierModule {
         models.push(entry)
       }
       if (models.length > 0) modelsCache = models
-      return models
+      if (force && models.length > 0) await probeAll(models.map((m) => m.id))
+      return models.filter((m) => !deadModels.has(m.id) && !NON_CHAT_MODEL.test(m.id))
     } catch {
-      return modelsCache ?? []
+      return (modelsCache ?? []).filter((m) => !deadModels.has(m.id) && !NON_CHAT_MODEL.test(m.id))
     }
   }
 
   async function allModels(force: boolean): Promise<ModelInfo[]> {
-    return refreshModels()
+    return refreshModels(force)
   }
 
-  /** key 有效性探测：chat 接口无 key → 400，无效 key → 401，有效 → 200。 */
+  /** key 有效性探测：只有 401/403 才算 key 无效。
+   *  NIM 模型下线很快（410）或没授权给该账号（404），那是模型问题不是 key 问题——
+   *  固定探测某个模型迟早腐化，故 404/410 视为 key 有效。 */
   async function probeKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
     const probe = await fetch(CHAT_URL, {
       method: 'POST',
@@ -106,8 +194,12 @@ export default function factory(env: SupplierEnv): SupplierModule {
       signal: AbortSignal.timeout(30000),
     })
     if (probe.ok) return { ok: true }
-    const text = await probe.text().catch(() => '')
-    return { ok: false, error: `key 无效: ${probe.status} ${text.slice(0, 200)}` }
+    if (probe.status === 401 || probe.status === 403) {
+      const text = await probe.text().catch(() => '')
+      return { ok: false, error: `key 无效: ${probe.status} ${text.slice(0, 200)}` }
+    }
+    // 404/410 等：模型端问题（下线/未授权），key 本身已通过鉴权
+    return { ok: true }
   }
 
   return {

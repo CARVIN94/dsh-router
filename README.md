@@ -1,12 +1,31 @@
 # dsh-router
 
-DSH 插件:9router 的简版。**dsh-router 本身就是路由器**——在 DSH web 服务
-(`http://localhost:3080`)上暴露 OpenAI 兼容的 `/v1/*` 端点,并把请求路由到内部
-供应商。内置供应商对接公开免费通道(参考 [9router](../9router) 的 open-sse 实现);
-外部供应商(其它 DSH 插件)经 cordis service `router.suppliers` 注册(见
-[`docs/suppliers.md`](docs/suppliers.md)「加载顺序」)。
+**插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进
+DSH web(和「记忆系统」同侧边栏),在 `http://localhost:3080/v1` 上原生暴露
+OpenAI 兼容端点,把请求路由到内部供应商。装好即用,不用多开一个 9router、
+不用维护第二个端口、不用在网关和 DSH 之间搬配置。
 
-左侧边栏「记忆系统」上方有 **路由系统** 入口,点击打开中心栏面板(参考 9router):
+## 为什么更优雅
+
+- **零额外进程**:dsh-router 就是 DSH 插件,随 `dsh web` 启停,天然同源
+  (`/router/api/*` 无 CORS、面板内嵌侧边栏),不像 9router 要独立跑一个
+  Next.js 服务再对接;
+- **供应商即插即拔**:内置供应商(如 opencode / openrouter / nvidia)随插件分发;
+  更多供应商 = 装一个 DSH 插件(`dsh-router-*`)经 cordis service
+  `router.suppliers` 注册,面板自动出现、热加载/卸载;也可以放一个自定义
+  js 文件到 `~/.dsh/profiles/web/suppliers/` 就注册一个新供应商——
+  无需改核心代码、无需重编译;
+- **模型不内置**:供应商只实现差异化能力(列模型/调上游/登录),模型拉取与
+  缓存由核心统一管,不写死、不过时;
+- **凭证 SQLite 单库**:`auths/credentials.sqlite`,供应商凭证不透明 blob,
+  核心统一生命周期,干净可备份;
+- **复用 9router 思路**:面板布局、组合 fallback、连接池/账号池、API key
+  管理都贴近 9router,但按 DSH「一切皆插件」的方式重组得更轻。
+
+> 供应商开发与接入规范见 [`docs/suppliers.md`](docs/suppliers.md)
+> （契约 / 加载顺序 / 模型统一策略 / 内置供应商参考实现）。
+
+左侧边栏「记忆系统」上方有 **路由系统** 入口,点击打开中心栏面板:
 
 - **返回会话** — 左侧按钮,关闭面板回到聊天;
 - **供应商** — 供应商卡片(内置 / 插件分组),点击进入详情:
@@ -16,7 +35,7 @@ DSH 插件:9router 的简版。**dsh-router 本身就是路由器**——在 DSH
   - **可用模型** — 模型列表,逐个启用/禁用 + 自定义模型(通用能力,持久化到
     `data/supplier-config.json`,`/v1/models` 与 chat 只接受启用的模型);
 - **组合** — fallback 链(免费优先),可自定义;
-- **端点与密钥** — 9router endpoint 核心(无隧道/Tailscale):
+- **端点与密钥** — 端点核心(无隧道/Tailscale):
   - API 端点 URL(`http://localhost:3080/v1`,可复制);
   - 鉴权设置 `requireApiKey` 开关;
   - API Keys 管理:创建 / 启用切换 / 显示 / 复制 / 删除(持久化到 `data/keys.json`)。

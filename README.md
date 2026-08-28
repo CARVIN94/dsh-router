@@ -129,22 +129,23 @@ pnpm typecheck
 
 ## 安装(DSH)
 
-在 `~/.dsh/profiles/web` 下安装(profile 是 DSH web 的插件宿主):
+DSH 插件装到 profile(`~/.dsh/profiles/web`,DSH web 的插件宿主):
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add dsh-router-core        # 核心(面板 + 内置供应商 opencode/openrouter/nvidia)
-pnpm add dsh-router-traework    # 可选:traework 供应商(免费 SOLO 通道)
-pnpm add dsh-router-codebuddy   # 可选:codebuddy 供应商(OAuth 登录)
+pnpm add dsh-router-core
 ```
 
 装完确认 `~/.dsh/profiles/web/package.json`:
-- `dependencies` 含上述包(npm 版本号);
-- `dsh.profile.bundles` 含 `dsh-router`(以及装了的 `dsh-router-traework` / `dsh-router-codebuddy`)——
-  每个插件的 `cordis.patch.yml` 会自动插入 bundle,一般无需手改。
+- `dependencies` 含 `dsh-router-core`(npm 版本号);
+- `dsh.profile.bundles` 含 `dsh-router`——插件的 `cordis.patch.yml` 会自动插入
+  bundle,一般无需手改。
 
 然后**重启 `dsh web`**。侧边栏出现「路由系统」入口,打开即面板。
 
+> 更多供应商:DSH 插件形态的供应商各自发 npm 包,同样 `pnpm add` 即可;
+> 供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md)。
+>
 > 本地开发版:不用 npm,直接 `dependencies` 加
 > `"dsh-router-core": "link:/path/to/dsh-router"` 指向本地仓库。
 

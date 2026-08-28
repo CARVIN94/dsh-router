@@ -7,7 +7,7 @@
  *   - 可插拔 js 模块只提供**差异化能力**：如何列模型/调上游/登录/签到等。
  *
  * 用户自定义供应商 js 放到 `~/.dsh/profiles/web/suppliers/*.js`，重启后自动加载。
- * 内置 traework 与用户 js 同构（差异化能力驱动）。
+ * 内置供应商与用户 js 同构（差异化能力驱动）。
  */
 import type { ServerResponse } from 'node:http'
 import type { ChatRequest, ModelInfo, SupplierAccount, SupplierStatus } from '../router/types.ts'

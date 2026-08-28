@@ -5,7 +5,7 @@
  *   - chat:  POST /api/v1/chat/completions（SSE 流式 / 非流式）
  *   - models: GET  /api/v1/models（过滤免费模型：pricing 全 0 + context ≥ 200k）
  *
- * API key 账号：走「添加链接 + 连接池」（同 traework 账号模型），弹窗填名字+key，
+ * API key 账号：走「添加链接 + 连接池」（账号池模型），弹窗填名字+key，
  * 一个供应商可有多个命名 key，按池顺序/策略尝试。凭证存通用 CredentialStore
  * （SQLite：auths/credentials.sqlite，{ name, apiKey }）。
  */

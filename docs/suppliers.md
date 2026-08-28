@@ -69,8 +69,8 @@ export function dispose() {}
    (值为 `{ [supplierId]: (env) => SupplierModule }`)暴露供应商,dsh-router
    `ctx.inject(['router.suppliers'])` 延迟加载(service 可用即注册)。
    cordis 的 `provide` 每个 service name 只允许一个插件提供,多个供应商插件采用
-   **共享表模式**:先 provide 的插件(如 `dsh-router-traework`)持有聚合表对象,
-   其余插件(如 `dsh-router-codebuddy`)**`inject` 后把工厂追加进同一对象**并广播一次
+   **共享表模式**:先 provide 的插件持有聚合表对象,
+   其余插件 **`inject` 后把工厂追加进同一对象**并广播一次
    `internal/service`,dsh-router 的处理器按 live 表读取且幂等,追加即可增量加载。
 
 加载失败(如缺 `testModel`)不阻断其他供应商,错误记入 DSH 日志。
@@ -84,7 +84,7 @@ dsh-router 核心统一管**:`/suppliers/:id/models` 端点(registry)按 60s TTL
 (capabilities 为空),`listModels` 从上游拉取并过滤免费模型,
 `chatCompletions` 直接透传上游(SSE 流式透传 + 非流式 JSON)。
 
-内置 `openrouter.js` 是 **API key 账号**供应商:走「添加链接 + 连接池」模型(同 traework),
+内置 `openrouter.js` 是 **API key 账号**供应商:走「添加链接 + 连接池」模型,
 添加链接弹窗填**名字 + API key**(而非 URL 登录),一个供应商可有多个命名 key。
 凭证存通用 CredentialStore(SQLite:`{authDir}/credentials.sqlite`,表 `credentials(supplier, uid, data)`,凭证为不透明 JSON blob,`{ name, apiKey }`),
 添加时用 `GET /api/v1/key` 验证 key 有效性(无效 401 拒绝)。

@@ -1,7 +1,7 @@
 {
   "name": "dsh-router",
   "version": "0.1.0",
-  "description": "DSH plugin: a simplified 9router for traework. Adds a 路由系统 (Routing System) sidebar entry beside 记忆系统; the panel shows traework2api status, account pool (credits/cooldown/disabled), and model list.",
+  "description": "DSH plugin: a simplified 9router (AI routing gateway). Adds a 路由系统 (Routing System) sidebar entry beside 记忆系统; the panel shows suppliers, account pool, combos, and endpoint/API keys.",
   "type": "module",
   "repository": {
     "type": "git",

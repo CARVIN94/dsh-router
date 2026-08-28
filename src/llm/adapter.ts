@@ -2,9 +2,9 @@
  * DSH llm adapter for dsh-router（provider 固定卡片，名字 Router）。
  *
  * 模型目录 = 组合（自动带出，不可改）。对话转发到本插件 /v1/chat/completions，
- * 由现有路由按组合策略命中 traework 模型。
+ * 由现有路由按组合策略命中供应商模型。
  *
- * 纯文本流：traework 组合是文本模型，本 adapter 不处理图片附件。
+ * 纯文本流：组合为文本模型，本 adapter 不处理图片附件。
  */
 import {
   CallId,

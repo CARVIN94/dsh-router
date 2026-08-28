@@ -3,7 +3,7 @@
  * 内部 Supplier，并暴露"能力检测"(capabilities)供通用路由/前端按能力渲染。
  *
  * 加载来源（两处，profile 优先）：
- *   1. 内置：<plugin>/lib/suppliers/*.js（随插件分发，如 traework）
+ *   1. 内置：<plugin>/lib/suppliers/*.js（随插件分发）
  *   2. 用户：~/.dsh/profiles/web/suppliers/*.js（用户自定义）
  */
 import { readdirSync } from 'node:fs'

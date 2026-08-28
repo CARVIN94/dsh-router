@@ -1,8 +1,8 @@
 /**
  * tsdown build for dsh-router — HOST half only.
  *
- * Produces `lib/index.js`: the Node host half (ESM) that proxies
- * traework2api through /router/api/* on the DSH webServer.
+ * Produces `lib/index.js`: the Node host half (ESM) that serves
+ * /router/api/* on the DSH webServer.
  *
  * The BROWSER client half (React panel + sidebar entry) is built separately
  * by Vite — see `client/vite.config.ts`, which emits `lib/client.js`

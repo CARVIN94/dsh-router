@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { TW2A_KEY_REF } from './shared.ts'
+import { API_KEY_REF } from './shared.ts'
 
 /** 库内一条 key。 */
 export interface ApiKeyEntry {
@@ -137,7 +137,7 @@ export class KeysStore {
     if (!this.require) return true
     if (bearer === undefined || bearer === '') return false
     if (this.keys.some((k) => k.isActive && k.key === bearer)) return true
-    const envKey = process.env[TW2A_KEY_REF]
+    const envKey = process.env[API_KEY_REF]
     return envKey !== undefined && envKey !== '' && envKey === bearer
   }
 }

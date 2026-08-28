@@ -3,9 +3,7 @@
  *
  * dsh-router IS the router: it exposes an OpenAI-compatible `/v1/*` endpoint
  * on the DSH web server (http://localhost:3080/v1), and routes requests to
- * internal suppliers. The built-in `traework` supplier talks to TRAE SOLO
- * directly (ported from traework2api), so no external traework2api service
- * is required.
+ * internal suppliers.
  *
  * Routes:
  *   POST /v1/chat/completions                 OpenAI-compatible chat (stream + non-stream)
@@ -20,10 +18,10 @@
  *   PATCH /router/api/keys/:id                toggle key {isActive}
  *   GET  /router/api/settings                 { requireApiKey }
  *   PATCH /router/api/settings                { requireApiKey }
- *   POST /router/api/suppliers/traework/login                  generate login URL
- *   POST /router/api/suppliers/traework/login/callback         {callbackUrl} → add account
- *   GET  /router/api/suppliers/traework/models                 models with enabled state
- *   PATCH /router/api/suppliers/traework/models/:id            {enabled}
+ *   POST /router/api/suppliers/:id/login                  generate login URL
+ *   POST /router/api/suppliers/:id/login/callback         {callbackUrl} → add account
+ *   GET  /router/api/suppliers/:id/models                 models with enabled state
+ *   PATCH /router/api/suppliers/:id/models/:mid           {enabled}
  *
  * `/v1/*` auth: gated by KeysStore.requireApiKey — when on, Bearer must be an
  * active library key or TW2A_API_KEY env. `/router/api/*` is same-origin, no auth.
@@ -192,7 +190,7 @@ export function apply(rawContext: unknown): void {
   const unloadExternal = (): void => {
     for (const id of externalSupplierIds.splice(0)) unregisterSupplier(id)
   }
-  // 外部插件供应商（cordis service，dsh-router-traework 等提供）。
+  // 外部插件供应商（cordis service，其它 DSH 插件提供）。
   // 监听 internal/service：service 提供时加载，移除（插件卸载）时注销——不依赖重启。
   ctx.on('internal/service', (name: unknown, value: unknown) => {
     if (name !== 'router.suppliers') return

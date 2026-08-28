@@ -1,8 +1,8 @@
 /**
- * 供应商详情（traework）— 布局交互贴近 9router 供应商详情页。
+ * 供应商详情 — 布局交互贴近 9router 供应商详情页。
  * Header（返回 + 图标 + 名称 + 链接数）+ 链接池卡片（空状态 / 行列表 + 删除）
  * + 可用模型卡片（flex-wrap chips，禁用模型单独列出可恢复）。
- * 加链接流程移植自 traework2api/login.sh。
+ * 加链接流程由供应商能力驱动（登录链接 / API key / 轮询登录）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -88,7 +88,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
   const [error, setError] = useState('')
   const [removeTarget, setRemoveTarget] = useState<RouterAccount | null>(null)
   const [models, setModels] = useState<RouterSupplierModel[] | null>(null)
-  const [alias, setAlias] = useState('traework')
+  const [alias, setAlias] = useState('')
   const [modelsError, setModelsError] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [toggling, setToggling] = useState(false)
@@ -801,7 +801,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
               <p className="dshr-muted">前缀用于模型全名（复制模型名时 = 前缀/模型id），只含字母、数字、- 和 _。</p>
               <input
                 className="dshr-input dshr-mono"
-                placeholder="如 traework"
+                placeholder="如 oc、or、nv"
                 value={aliasDraft}
                 onChange={(e) => setAliasDraft(e.target.value)}
               />

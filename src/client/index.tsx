@@ -1,8 +1,7 @@
 /**
  * Client half of dsh-router: mounts the 路由系统 sidebar entry and its
  * center-column panel. Pure DOM + fetch — no injected DSH services needed:
- * the panel reads /router/api/* (same-origin), which the host half proxies
- * from traework2api.
+ * the panel reads /router/api/* (same-origin), which the host half serves.
  */
 import { mountRouterWorkspace } from './workspace-mount.tsx'
 import './router.css'

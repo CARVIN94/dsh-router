@@ -21,7 +21,7 @@ export const ROUTER_TITLE = '路由系统'
 export const ROUTER_API_BASE = '/router/api'
 
 /** Bearer key env / credential reference protecting /v1/*. */
-export const TW2A_KEY_REF = 'TW2A_API_KEY'
+export const API_KEY_REF = 'TW2A_API_KEY'
 
 /** One account row from `/router/api/status`. */
 export interface RouterAccount {
@@ -33,7 +33,7 @@ export interface RouterAccount {
   reason?: string
   disabled: boolean
   err_count?: number
-  /** 所属供应商 id（如 traework）。 */
+  /** 所属供应商 id。 */
   supplier?: string
 }
 
@@ -135,7 +135,7 @@ export interface RouterSupplierModel {
   custom?: boolean
 }
 
-/** `/router/api/suppliers/traework/models` response. */
+/** `/router/api/suppliers/:id/models` response. */
 export interface RouterSupplierModelsResponse {
   ok: boolean
   error?: string
@@ -144,7 +144,7 @@ export interface RouterSupplierModelsResponse {
   models?: RouterSupplierModel[]
 }
 
-/** `/router/api/suppliers/traework/login` response. */
+/** `/router/api/suppliers/:id/login` response. */
 export interface RouterLoginResponse {
   ok: boolean
   error?: string

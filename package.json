@@ -1,5 +1,5 @@
 {
-  "name": "@horizon/dsh-router",
+  "name": "dsh-router-core",
   "version": "0.1.0",
   "description": "DSH plugin: a simplified 9router (AI routing gateway). Adds a 路由系统 (Routing System) sidebar entry beside 记忆系统; the panel shows suppliers, account pool, combos, and endpoint/API keys.",
   "type": "module",
@@ -81,7 +81,6 @@
     "vite-plugin-css-injected-by-js": "^3.5.2"
   },
   "publishConfig": {
-    "registry": "https://registry.npmjs.org",
-    "access": "public"
+    "registry": "https://registry.npmjs.org"
   }
 }

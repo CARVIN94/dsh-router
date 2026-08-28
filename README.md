@@ -130,11 +130,11 @@ pnpm typecheck
 ## 挂载
 
 1. `~/.dsh/profiles/web/package.json` 的 `dsh.profile.bundles` 加 `"dsh-router"`,
-   `dependencies` 加 `"@horizon/dsh-router": "link:/Users/carvin/Desktop/dsh-plugins/dsh-router"`;
+   `dependencies` 加 `"dsh-router-core": "link:/Users/carvin/Desktop/dsh-plugins/dsh-router"`;
 2. `cd ~/.dsh/profiles/web && pnpm install`;
 3. 重启 `dsh web`。
 
-> 发布版:`npm i @horizon/dsh-router`(见 [npm](https://www.npmjs.com/package/@horizon/dsh-router))。
+> 发布版:`npm i dsh-router-core`(见 [npm](https://www.npmjs.com/package/dsh-router-core))。
 
 ## 前提
 

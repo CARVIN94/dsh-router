@@ -139,3 +139,11 @@ pnpm typecheck
 - 凭证由 dsh-router 核心统一管(SQLite 库 `<dataDir>/auths/credentials.sqlite`);
 - 供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md);
 - 重启 DSH 后 `/v1/*` 即生效;面板管理账号、模型与密钥。
+
+## 致谢
+
+感谢以下项目给的灵感:
+
+- [decolua/9router](https://github.com/decolua/9router) —— 本地 AI 路由网关,面板/组合/连接池/凭证等思路的来源;
+- [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) —— DSH「一切皆插件」的宿主框架;
+- [omdsh-dev/dsh-mnemon](https://github.com/omdsh-dev/dsh-mnemon) —— DSH 插件形态与侧边栏入口的参考。

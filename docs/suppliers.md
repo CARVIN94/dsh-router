@@ -66,7 +66,9 @@ js 只需把失败原因记下来并通过 `lastError()` 暴露,核心就能给�
 - 签哪些账号由**核心通用策略**决定(`checkinRule`:`all` 所有链接 / `first` 首个),
   js 读 `env.store.get(id).checkinRule` 即可,规则设置/持久化不用管
 - `credits`(`status().accounts[].credits`)用于面板显示积分/额度;上游接口不实时
-  时,建议缓存 + 签到后刷新(如 codebuddy 插件:10 分钟 TTL,签到后主动拉取)
+  时,建议缓存 + 签到后刷新(如 codebuddy 插件:10 分钟 TTL,签到后主动拉取)。
+  **填「剩余额度」而不是「已消耗」**——额度类接口两者常常都有(如 codebuddy 的
+  `CapacityRemain` 才是剩余,`TotalDosage` 是累计消耗),填反了面板数字会越用越多
 
 上游幂等要处理好:codebuddy 的「今日已签到」返回 **HTTP 400 + `code=10001`**,
 所以要先解析 body 的 code 再判 HTTP 状态,否则幂等情况会被误报成失败。

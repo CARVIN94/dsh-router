@@ -275,7 +275,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     },
   })
 
-  // ---- 通用: 测试模型（核心统一走 chatCompletions 路径，账号池回退/冷却自动生效） ----
+  // ---- 通用: 测试模型（核心统一走 chatOnce 路径，账号池回退/冷却自动生效） ----
   routes.push({
     kind: 'exact',
     path: `${p}/models/test`,

@@ -8,9 +8,8 @@
  * noAuth 直连：无账号/凭证/连接池/签到 —— 通用层对它是空的，
  * 面板只显示模型卡片（连接池、签到由能力检测自动隐藏）。
  */
-import type { ServerResponse } from 'node:http'
-import type { ChatRequest, ModelInfo, SupplierStatus } from '../../router/types.ts'
-import type { SupplierEnv, SupplierModule } from '../contract.ts'
+import type { ChatRequest, ModelInfo } from '../../router/types.ts'
+import type { AccountState, ChatOnceResult, SupplierEnv, SupplierModule, SupplierStatusNow } from '../contract.ts'
 
 const DEFAULT_ALIAS = 'oc'
 
@@ -31,7 +30,7 @@ const KNOWN_FREE = new Set(['big-pickle'])
 export default function factory(env: SupplierEnv): SupplierModule {
   // 模型缓存由 dsh-router 核心统一管；插件每次拉取，失败回退上次成功结果
   let modelsCache: ModelInfo[] | undefined
-  /** 上次 chatCompletions 失败原因（供核心测试模型汇总诊断）。 */
+  /** 上次 chatOnce 失败原因（供核心测试模型汇总诊断）。 */
   let lastErr: string | undefined
 
   async function refreshModels(): Promise<ModelInfo[]> {
@@ -81,16 +80,17 @@ export default function factory(env: SupplierEnv): SupplierModule {
     name,
     priority,
     icon,
-    status: (): SupplierStatus => ({ id, name, accounts: [] }),
+    status: (): SupplierStatusNow => ({ id, name, accounts: [] }),
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
     getAlias: (): string => 'oc',
-    // testModel 由 dsh-router 核心统一走 chatCompletions 路径（无账号，无需回退）
+    // testModel 由 dsh-router 核心统一走 chatOnce 路径（无账号，无需回退）
     lastError: (): string | undefined => lastErr,
-    async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean> {
-      // 只认 free 模型，其他模型返回 false 交给别的供应商
+    /** 无账号供应商：uid 恒为空，只认 free 模型。 */
+    async chatOnce(_uid: string, req: ChatRequest): Promise<ChatOnceResult> {
+      // 只认 free 模型，其他模型交给别的供应商
       if (!isFreeModel(req.model)) {
         lastErr = `unknown free model ${JSON.stringify(req.model)}`
-        return false
+        return { ok: false, state: 'unavailable', message: lastErr }
       }
       // 模型名规范化：剥 alias 前缀，body.model 用裸 id
       let body = req.rawBody
@@ -117,71 +117,37 @@ export default function factory(env: SupplierEnv): SupplierModule {
         })
       } catch (err) {
         lastErr = `opencode upstream: ${(err as Error).message}`
-        writeJson(res, 502, { error: { message: `opencode upstream: ${(err as Error).message}`, type: 'api_error', code: 'upstream_error' } })
-        return true
+        return { ok: false, state: 'transport', message: lastErr }
       }
 
+      // 非 2xx：按状态归类，核心据此冷却/换号（本供应商无号可换，直接放弃）
+      if (upstream.status < 200 || upstream.status >= 300) {
+        const text = await upstream.text().catch(() => '')
+        lastErr = `upstream ${upstream.status}: ${text.slice(0, 200)}`
+        const state: AccountState =
+          upstream.status === 429 ? 'rate_limit' : upstream.status === 404 ? 'unavailable' : 'unknown'
+        return { ok: false, state, message: lastErr }
+      }
+
+      // 流式：上游已是 OpenAI SSE，原样交回核心（核心负责写响应）
       if (req.stream) {
-        // 上游非 2xx：不是 SSE，返回 JSON 错误（透传状态）
-        if (upstream.status < 200 || upstream.status >= 300) {
-          const text = await upstream.text().catch(() => '')
-          try {
-            writeJson(res, upstream.status, JSON.parse(text))
-          } catch {
-            writeJson(res, upstream.status, { error: { message: text.slice(0, 500), type: 'api_error', code: 'upstream_error' } })
-          }
-          return true
-        }
-        // SSE 透传
-        res.writeHead(upstream.status, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-          'X-Accel-Buffering': 'no',
-        })
         if (!upstream.body) {
-          res.end()
-          return true
+          lastErr = 'opencode upstream: empty stream body'
+          return { ok: false, state: 'transport', message: lastErr }
         }
-        const reader = upstream.body.getReader()
-        try {
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            res.write(Buffer.from(value))
-            if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
-              ;(res as { flushHeaders: () => void }).flushHeaders()
-            }
-          }
-        } finally {
-          reader.releaseLock()
-        }
-        res.end()
-        return true
+        return { ok: true, stream: upstream.body }
       }
 
-      // 非流式：透传 JSON（含错误状态）
+      // 非流式：透传 JSON（空 body 视为上游异常）
       const text = await upstream.text().catch(() => '')
-      let status = upstream.status
-      if (status === 200 && text === '') status = 502
-      try {
-        writeJson(res, status, JSON.parse(text))
-      } catch {
-        writeJson(res, status, { error: { message: text.slice(0, 500), type: 'api_error', code: 'upstream_error' } })
+      if (text === '') {
+        lastErr = 'opencode upstream: empty body'
+        return { ok: false, state: 'transport', message: lastErr }
       }
-      return true
+      return { ok: true, status: upstream.status, body: text }
     },
     dispose: (): void => {
       modelsCache = undefined
     },
   }
-}
-
-function writeJson(res: ServerResponse, status: number, body: unknown): void {
-  const payload = typeof body === 'string' ? body : JSON.stringify(body)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-  })
-  res.end(payload)
 }

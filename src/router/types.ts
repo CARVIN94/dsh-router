@@ -3,7 +3,8 @@
  * 每个供应商提供 OpenAI 兼容的 chat/models，并暴露面板状态。
  * 仿 9router：供应商 = 一种"免费/付费"通道；dsh-router 在其上做路由。
  */
-import type { ServerResponse } from 'node:http'
+import type { ChatOnceResult, SupplierAccountNow } from '../suppliers/contract.ts'
+import type { AccountPool } from './account-pool.ts'
 
 /** 面板展示的账号状态（脱敏）。 */
 export interface SupplierAccount {
@@ -57,9 +58,8 @@ export interface ChatRequest {
 }
 
 /**
- * 供应商接口。chatCompletions 直接向 res 写响应（流式 SSE 或 JSON），
- * 成功返回 true；返回 false 表示"该供应商无健康账号可服务"（触发路由器
- * 轮换到下一个供应商）。写响应后不得再改 res。
+ * 供应商接口。核心负责账号池（选号/冷却/禁用/错误累计/遍历回退），
+ * 供应商只对**单个账号**调一次上游并报告结果，不碰 res。
  */
 export interface Supplier {
   readonly id: string
@@ -76,10 +76,15 @@ export interface Supplier {
   getAlias(): string
   /** 用户手动添加的模型 id（可选，/v1/models 用它聚合自定义模型）。 */
   customModelIds?(): string[]
-  chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean>
-  /** 上次 chatCompletions 失败原因（诊断用，可选）。 */
+  /** 账号「现在状态」（从 status() 派生，插件只报它观察到的）。空 = 无账号供应商。 */
+  accounts(): SupplierAccountNow[]
+  /** 对单个账号调一次上游。不遍历账号、不管冷却、不写 res。 */
+  chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult>
+  /** 上次 chatOnce 失败原因（诊断用，可选）。 */
   lastError?(): string | undefined
   /** 删除链接（清理凭证；内部能力，js 契约不要求实现）。 */
   removeLink?(uid: string): Promise<boolean>
   dispose(): void
+  /** 该供应商的账号池（核心持有：选号/冷却/禁用/错误累计）。 */
+  readonly pool: AccountPool
 }

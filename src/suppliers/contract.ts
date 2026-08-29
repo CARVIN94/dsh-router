@@ -9,8 +9,7 @@
  * 用户自定义供应商 js 放到 `~/.dsh/profiles/web/suppliers/*.js`，重启后自动加载。
  * 内置供应商与用户 js 同构（差异化能力驱动）。
  */
-import type { ServerResponse } from 'node:http'
-import type { ChatRequest, ModelInfo, SupplierAccount, SupplierStatus } from '../router/types.ts'
+import type { ChatRequest, ModelInfo, SupplierAccount } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { CredentialStore } from '../credential-store.ts'
 
@@ -29,6 +28,51 @@ export interface SupplierEnv {
 /** 通用供应商工厂：一个 js 模块 export 它（或 default export 它），loader 调用得到实例。 */
 export type SupplierFactory = (env: SupplierEnv) => SupplierModule
 
+/**
+ * 账户此刻的状态 —— 插件**解读**上游信号后的语义状态。
+ *
+ * 插件只报「现在怎么了」，不说「该怎么办」：冷却多久、是否禁用、要不要换号
+ * 都是核心的策略，见 `AccountState` 各值的处置表（docs/suppliers.md）。
+ *
+ * 天花板：目前是固定枚举。若将来某供应商需要更细的语义，再加值而不是放宽成
+ * 字符串——核心的策略表要能穷举。
+ */
+export type AccountState =
+  | 'ok'            // 正常
+  | 'rate_limit'    // 限流（429 类）
+  | 'quota'         // 额度/权益不足
+  | 'session_dead'  // 凭证彻底失效，必须重新登录才能恢复
+  | 'unavailable'   // 上游不可用（404 / 服务下线）
+  | 'transport'     // 网络/连接层失败（没拿到 HTTP 状态）
+  | 'unknown'       // 说不清是什么错
+
+/** 面板展示的账号此刻状态（插件只报它观察到的部分，冷却/禁用由核心叠加）。 */
+export interface SupplierAccountNow {
+  uid: string
+  nickname?: string
+  credits: number
+  /** 插件观察到的上游状态。 */
+  state: AccountState
+  /** 状态的人类可读补充（如上游错误串），可选。 */
+  message?: string
+}
+
+/** 插件报的供应商状态（accounts 是「现在状态」，非核心加工后的面板态）。 */
+export interface SupplierStatusNow {
+  id: string
+  name: string
+  accounts: SupplierAccountNow[]
+}
+
+/** 一次上游调用的结果。 */
+export type ChatOnceResult =
+  /** 流式：插件已把上游协议转成 OpenAI SSE，核心只负责 pipe 到 res。 */
+  | { ok: true; stream: ReadableStream<Uint8Array> }
+  /** 非流式：核心写 JSON。 */
+  | { ok: true; status: number; body: string }
+  /** 失败：核心据此做冷却/禁用/换号。 */
+  | { ok: false; state: AccountState; message: string }
+
 /** 供应商模块 —— 契约（核心必须，差异化可选）。 */
 export interface SupplierModule {
   /** 供应商唯一 id（小写字母数字 - _）。 */
@@ -41,18 +85,24 @@ export interface SupplierModule {
   readonly icon?: string
 
   // ---- 核心（必须） ----
-  status(): SupplierStatus
+  /** 报账号「现在状态」。冷却/禁用/错误累计由核心叠加，插件不算这些。 */
+  status(): SupplierStatusNow
   /** 模型来源。`force=true` 时强制刷新来源（核心「获取模型」按钮调用）。 */
   listModels(force?: boolean): Promise<ModelInfo[]> | ModelInfo[]
   /** 默认前缀（可被通用层 alias 覆盖）。 */
   getAlias(): string
-  chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean>
+  /**
+   * 对**单个账号**调一次上游。插件不遍历账号、不管冷却、不写 res——
+   * 选号/回退/健康判定全是核心的活。
+   * 无账号供应商（如 opencode）传空 uid，忽略即可。
+   */
+  chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult>
   dispose(): void
 
   // ---- 差异化能力（可选，按存在性暴露端点/UI） ----
 
-  /** 上次 chatCompletions 失败的原因（诊断用）。
-   *  测试模型由 dsh-router 核心统一走 chatCompletions 路径（账号池回退/冷却自动生效），
+  /** 上次 chatOnce 失败的原因（诊断用）。
+   *  测试模型由 dsh-router 核心统一走 chatOnce 路径（账号池回退/冷却自动生效），
    *  插件只需把失败原因暴露出来供核心汇总；不实现则测试失败时只有通用提示。 */
   lastError?(): string | undefined
 

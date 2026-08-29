@@ -128,7 +128,7 @@ export function apply(rawContext: unknown): void {
   const stateFile = process.env.TW2A_STATE_FILE ?? 'data/state.json'
   const store = new SupplierConfigStore(stateFile)
   const credentials = new CredentialStore(process.env.TW2A_AUTH_DIR ?? join(dirname(stateFile), 'auths'))
-  const router = new Router(stateFile)
+  const router = new Router(stateFile, store)
 
   const keys = new KeysStore(stateFile)
 

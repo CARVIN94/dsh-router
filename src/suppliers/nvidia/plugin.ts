@@ -15,8 +15,8 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ServerResponse } from 'node:http'
-import type { ChatRequest, ModelInfo, SupplierStatus } from '../../router/types.ts'
+import type { ChatRequest, ModelInfo } from '../../router/types.ts'
+import type { AccountState, ChatOnceResult, SupplierStatusNow } from '../contract.ts'
 import type { SupplierEnv, SupplierModule } from '../contract.ts'
 
 export const id = 'nvidia'
@@ -28,7 +28,6 @@ export const icon = 'http://localhost:20128/providers/nvidia.png'
 const BASE = 'https://integrate.api.nvidia.com/v1'
 const MODELS_URL = `${BASE}/models`
 const CHAT_URL = `${BASE}/chat/completions`
-const COOL_DOWN_MS = 60 * 1000 // 失败冷却 60s
 /** 默认前缀（用户可在面板改；loader 包装会优先用 store 里的值）。 */
 const DEFAULT_ALIAS = 'nv'
 /** 非聊天用途的模型（护栏/翻译/解析/检测/图像生成等），聊天路由用不上，拉列表时过滤掉。 */
@@ -49,11 +48,8 @@ interface ApiKeyAccount {
 export default function factory(env: SupplierEnv): SupplierModule {
   // 模型缓存由 dsh-router 核心统一管；插件每次拉取，失败回退上次成功结果
   let modelsCache: ModelInfo[] | undefined
-  /** 上次 chatCompletions 失败原因（供核心测试模型汇总诊断）。 */
+  /** 上次 chatOnce 失败原因（供核心测试模型汇总诊断）。 */
   let lastErr: string | undefined
-  /** 失败冷却：uid → until(ms)。 */
-  const cooling = new Map<string, number>()
-
   function listKeys(): string[] {
     return env.credentials.list(id)
   }
@@ -73,10 +69,6 @@ export default function factory(env: SupplierEnv): SupplierModule {
   /** 当前前缀（与 loader 包装一致：store 覆盖默认值）。 */
   function currentAlias(): string {
     return env.store.get(id).alias || DEFAULT_ALIAS
-  }
-
-  function isCooling(uid: string, now = Date.now()): boolean {
-    return (cooling.get(uid) ?? 0) > now
   }
 
   // ---- 模型可用性探测（NIM 的 /v1/models 无状态字段，大量模型已下线/未授权） ----
@@ -136,8 +128,9 @@ export default function factory(env: SupplierEnv): SupplierModule {
 
   /** 并发探测全部「未探测过」的模型，更新 dead/ok 并持久化。 */
   async function probeAll(ids: string[]): Promise<void> {
-    const acct = orderedKeys().find(({ uid }) => !isCooling(uid))
-    if (acct === undefined) return // 无可用 key：不探测，保持原样
+    // 探测是尽力而为：随便挑一个 key，冷却/健康由核心在真正请求时才判断
+    const acct = orderedKeys()[0]
+    if (acct === undefined) return // 无 key：不探测，保持原样
     const todo = ids.filter((m) => !deadModels.has(m) && !okModels.has(m) && !NON_CHAT_MODEL.test(m))
     if (todo.length === 0) return
     let cursor = 0
@@ -214,15 +207,13 @@ export default function factory(env: SupplierEnv): SupplierModule {
     name,
     priority,
     icon,
-    status: (): SupplierStatus => {
-      const now = Date.now()
+    status: (): SupplierStatusNow => {
+      // 只报「现在状态」：凭证是否存在。冷却/禁用/错误累计由核心叠加。
       const accounts = orderedKeys().map(({ uid, acct }) => ({
         uid,
         nickname: acct.name || 'API Key',
         credits: 0,
-        cooling: isCooling(uid, now),
-        disabled: false,
-        err_count: 0,
+        state: 'ok' as AccountState,
       }))
       return { id, name, accounts }
     },
@@ -248,23 +239,21 @@ export default function factory(env: SupplierEnv): SupplierModule {
     async removeLink(uid: string): Promise<boolean> {
       if (getKey(uid) === undefined) return false
       env.credentials.remove(id, uid)
-      cooling.delete(uid)
       return true
     },
-    // testModel 由 dsh-router 核心统一走 chatCompletions 路径（账号池回退/冷却自动生效）
     lastError: (): string | undefined => lastErr,
-    async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean> {
+    /** 对单个 key 调一次上游。选号/冷却/换号是核心的活，这里只报结果。 */
+    async chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult> {
       const base = stripAlias(req.model, currentAlias())
       if (!(await allModels(false)).some((m) => m.id === base)) {
         lastErr = `unknown model ${JSON.stringify(req.model)}`
-        return false
+        return { ok: false, state: 'unavailable', message: lastErr }
       }
-      const keys = orderedKeys().filter(({ uid }) => !isCooling(uid))
-      if (keys.length === 0) {
-        lastErr = '所有 key 都在冷却中（稍后重试）'
-        return false // 无健康 key → 路由器 fallback
+      const acct = getKey(uid)
+      if (acct === undefined) {
+        lastErr = `unknown account ${JSON.stringify(uid)}`
+        return { ok: false, state: 'unavailable', message: lastErr }
       }
-      lastErr = undefined
 
       let body = req.rawBody
       try {
@@ -275,68 +264,44 @@ export default function factory(env: SupplierEnv): SupplierModule {
         // 保持原样
       }
 
-      for (const { uid, acct } of keys) {
-        let upstream: Response
-        try {
-          upstream = await fetch(CHAT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${acct.apiKey}`, 'User-Agent': 'dsh-router' },
-            body,
-            signal: AbortSignal.timeout(120000),
-          })
-        } catch (err) {
-          cooling.set(uid, Date.now() + COOL_DOWN_MS)
-          lastErr = (err as Error).message
-          continue
-        }
-        // 非 2xx：冷却该 key，试下一个
-        if (upstream.status < 200 || upstream.status >= 300) {
-          cooling.set(uid, Date.now() + COOL_DOWN_MS)
-          const text = await upstream.text().catch(() => '')
-          lastErr = `upstream ${upstream.status}: ${text.slice(0, 120)}`
-          continue
-        }
-        // 成功：透传（流式 SSE 或 JSON）
-        if (req.stream) {
-          res.writeHead(upstream.status, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          })
-          if (!upstream.body) {
-            res.end()
-            return true
-          }
-          const reader = upstream.body.getReader()
-          try {
-            for (;;) {
-              const { done, value } = await reader.read()
-              if (done) break
-              res.write(Buffer.from(value))
-              if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
-                ;(res as { flushHeaders: () => void }).flushHeaders()
-              }
-            }
-          } finally {
-            reader.releaseLock()
-          }
-          res.end()
-          return true
-        }
-        const text = await upstream.text().catch(() => '')
-        let status = upstream.status
-        if (status === 200 && text === '') status = 502
-        try {
-          writeJson(res, status, JSON.parse(text))
-        } catch {
-          writeJson(res, status, { error: { message: text.slice(0, 500), type: 'api_error', code: 'upstream_error' } })
-        }
-        return true
+      let upstream: Response
+      try {
+        upstream = await fetch(CHAT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${acct.apiKey}`, 'User-Agent': 'dsh-router' },
+          body,
+          signal: AbortSignal.timeout(120000),
+        })
+      } catch (err) {
+        lastErr = (err as Error).message
+        return { ok: false, state: 'transport', message: lastErr }
       }
-      // 所有 key 都失败：记录日志，返回 false 让路由器 fallback
-      env.log(`nvidia chat failed: ${lastErr}`)
-      return false
+
+      if (upstream.status < 200 || upstream.status >= 300) {
+        const text = await upstream.text().catch(() => '')
+        lastErr = `upstream ${upstream.status}: ${text.slice(0, 120)}`
+        const state: AccountState =
+          upstream.status === 429 ? 'rate_limit'
+            : upstream.status === 401 || upstream.status === 403 ? 'session_dead'
+              : upstream.status === 404 ? 'unavailable'
+                : 'unknown'
+        return { ok: false, state, message: lastErr }
+      }
+
+      // 流式：上游已是 OpenAI SSE，原样交回核心写
+      if (req.stream) {
+        if (!upstream.body) {
+          lastErr = 'nvidia upstream: empty stream body'
+          return { ok: false, state: 'transport', message: lastErr }
+        }
+        return { ok: true, stream: upstream.body }
+      }
+      const text = await upstream.text().catch(() => '')
+      if (text === '') {
+        lastErr = 'nvidia upstream: empty body'
+        return { ok: false, state: 'transport', message: lastErr }
+      }
+      return { ok: true, status: upstream.status, body: text }
     },
     dispose: (): void => {
       modelsCache = undefined
@@ -344,11 +309,3 @@ export default function factory(env: SupplierEnv): SupplierModule {
   }
 }
 
-function writeJson(res: ServerResponse, status: number, body: unknown): void {
-  const payload = typeof body === 'string' ? body : JSON.stringify(body)
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-  })
-  res.end(payload)
-}

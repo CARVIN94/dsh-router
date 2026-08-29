@@ -13,7 +13,8 @@ import type { ServerResponse } from 'node:http'
 import type { ChatRequest, ModelInfo, ModelWithEnabled, Supplier, SupplierStatus } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { CredentialStore } from '../credential-store.ts'
-import type { SupplierEnv, SupplierFactory, SupplierModule } from './contract.ts'
+import type { ChatOnceResult, SupplierAccountNow, SupplierEnv, SupplierFactory, SupplierModule } from './contract.ts'
+import { AccountPool } from '../router/account-pool.ts'
 
 /** 供应商加载错误（不阻断其他供应商）。 */
 export interface SupplierLoadError {
@@ -74,7 +75,7 @@ async function loadOne(file: string, env: SupplierEnv, source: 'builtin' | 'user
     if (typeof instance !== 'object' || instance === null || typeof instance.id !== 'string' || instance.id === '') {
       throw new Error(`供应商 factory 返回无效: ${file}`)
     }
-    // 测试模型由核心统一走 chatCompletions 路径，插件无需实现 testModel
+    // 测试模型由核心统一走 chatOnce 路径，插件无需实现 testModel
   } else {
     instance = mod
   }
@@ -89,18 +90,25 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
   if (typeof instance !== 'object' || instance === null || typeof instance.id !== 'string' || instance.id === '') {
     throw new Error(`供应商模块无效: ${source}`)
   }
-  // 测试模型由核心统一走 chatCompletions 路径（账号池回退/冷却自动生效），插件无需实现 testModel
+  // 测试模型由核心统一走 chatOnce 路径（账号池回退/冷却自动生效），插件无需实现 testModel
   const capabilities = new Set<string>()
   for (const key of DIFF_CAPS) {
     if (isFn((instance as unknown as Record<string, unknown>)[key])) capabilities.add(key)
   }
+
+  // 账号池由核心持有（选号/冷却/禁用/错误累计），插件不参与。
+  // 挂在 supplier 上：status() 叠加状态与 Router 的 chat 循环共用同一实例。
+  const pool = new AccountPool()
 
   const supplier: Supplier = {
     id: instance.id,
     name: instance.name,
     priority: instance.priority ?? 0,
     icon: (instance as { icon?: string }).icon,
-    status: (): SupplierStatus => instance.status(),
+    status: (): SupplierStatus => {
+      const now = instance.status()
+      return { id: now.id, name: now.name, accounts: pool.decorate(now.accounts) }
+    },
     listModels: (force?: boolean): Promise<ModelInfo[]> | ModelInfo[] => instance.listModels(force),
     // 通用能力：模型启用状态/自定义由核心 SupplierConfigStore 合并
     modelsWithEnabled: (force?: boolean): Promise<ModelWithEnabled[]> | ModelWithEnabled[] => {
@@ -117,7 +125,8 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
     },
     getAlias: (): string => env.store.get(instance.id).alias || instance.getAlias(),
     customModelIds: (): string[] => [...env.store.get(instance.id).custom],
-    chatCompletions: (req: ChatRequest, res: ServerResponse): Promise<boolean> => instance.chatCompletions(req, res),
+    accounts: (): SupplierAccountNow[] => instance.status().accounts,
+    chatOnce: (uid: string, req: ChatRequest): Promise<ChatOnceResult> => instance.chatOnce(uid, req),
     lastError: isFn((instance as unknown as Record<string, unknown>).lastError)
       ? (): string | undefined => (instance as unknown as { lastError(): string | undefined }).lastError()
       : undefined,
@@ -126,6 +135,7 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
       ? (uid: string): Promise<boolean> => (instance as unknown as { removeLink(uid: string): Promise<boolean> }).removeLink(uid)
       : undefined,
     dispose: (): void => instance.dispose(),
+    pool,
   }
   // 差异化路由通过 LoadedSupplier.capabilities + supplier 实例调用面板方法
   ;(supplier as Supplier & { __module?: SupplierModule }).__module = instance

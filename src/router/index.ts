@@ -7,6 +7,9 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import type { Supplier, ChatRequest, ModelInfo, ModelWithEnabled, SupplierStatus, Combo } from './types.ts'
+import type { ChatOnceResult } from '../suppliers/contract.ts'
+import { AccountPool } from './account-pool.ts'
+import { SupplierConfigStore } from '../supplier-config.ts'
 
 function openAIError(code: string, msg: string): Record<string, unknown> {
   return { error: { message: msg, type: 'api_error', code } }
@@ -46,6 +49,49 @@ function sinkRes(): ServerResponse & { status(): number; body(): string } {
   return self as unknown as ServerResponse & { status(): number; body(): string }
 }
 
+/**
+ * 把 chatOnce 的结果写进 res（核心独占响应写入权）。
+ * 流式：SSE 头 + pipe 上游已转好的 OpenAI SSE；非流式：原样写 JSON。
+ */
+async function writeChatResult(res: ServerResponse, r: ChatOnceResult): Promise<void> {
+  if (!r.ok) return // 失败不该走到这里（核心先判 ok 才写）
+  if (!('stream' in r)) {
+    res.writeHead(r.status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+    res.end(r.body)
+    return
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
+    ;(res as { flushHeaders: () => void }).flushHeaders()
+  }
+  // 流中途出错（客户端断开/上游断流）也要结束响应，否则连接悬挂
+  const onError = (): void => {
+    res.destroy()
+  }
+  res.once('error', onError)
+  try {
+    await r.stream.pipeTo(
+      new WritableStream<Uint8Array>({
+        write: (chunk) =>
+          new Promise<void>((resolve) => {
+            if (res.write(chunk)) resolve()
+            else res.once('drain', resolve)
+          }),
+      }),
+    )
+  } catch {
+    // 尽力而为：流断了也要收尾
+  } finally {
+    res.removeListener('error', onError)
+    res.end()
+  }
+}
+
 /** 从上游响应体提取错误信息（OpenAI {error:{message}} 或 {code,msg}/{message}）。 */
 function extractUpstreamError(body: string): string {
   try {
@@ -66,9 +112,12 @@ export class Router {
   private customCombos: Combo[] = []
   /** round-robin 轮转游标（按组合 id 记忆）。 */
   private rrCursors = new Map<string, number>()
+  /** 通用供应商配置（连接池顺序/策略、模型启用、别名）。 */
+  private store: SupplierConfigStore
 
-  constructor(stateFile = '') {
+  constructor(stateFile = '', store?: SupplierConfigStore) {
     this.combosFp = stateFile ? join(dirname(stateFile), 'combos.json') : ''
+    this.store = store ?? new SupplierConfigStore(stateFile)
     this.loadCombos()
   }
 
@@ -287,14 +336,12 @@ export class Router {
       writeJson(res, 503, openAIError('no_healthy_supplier', `combo ${JSON.stringify(req.model)}: all models unavailable`))
       return
     }
-    for (const s of this.suppliers) {
-      const served = await s.chatCompletions(req, res)
-      if (served) return
-    }
+    const served = await this.chatWithModel(req, res, req.model)
+    if (served) return
     writeJson(res, 503, openAIError('no_healthy_supplier', 'all suppliers unavailable'))
   }
 
-  /** 把 model 改写为组合选中的模型名后尝试供应商。 */
+  /** 把 model 改写为组合选中的模型名后，遍历供应商 + 账号（策略全在核心）。 */
   private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string): Promise<boolean> {
     const clone: ChatRequest = { ...req, model }
     try {
@@ -305,14 +352,49 @@ export class Router {
       clone.rawBody = req.rawBody
     }
     for (const s of this.suppliers) {
-      const served = await s.chatCompletions(clone, res)
+      const served = await this.chatWithSupplier(s, clone, res)
       if (served) return true
     }
     return false
   }
 
+  /**
+   * 单个供应商内遍历账号（核心策略）：选号 → 调 chatOnce → 按返回的
+   * AccountState 处置 → 失败换号；写响应只在成功后发生。
+   *
+   * 流式一旦写出响应头就绑死（上游协议如此，9router 同样如此），所以
+   * 「拿到 ok:true 的流」即视为该账号成功，之后出错不再换号——要能回退
+   * 就得在写头前缓冲判定，代价是首字节延迟，目前未做。
+   */
+  private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse): Promise<boolean> {
+    const pool = s.pool
+    const cfg = this.store.get(s.id)
+    // 无账号供应商：直接调一次（uid 传空，插件忽略）
+    if (s.accounts !== undefined && s.accounts().length === 0) {
+      const r = await s.chatOnce('', req)
+      if (!r.ok) {
+        pool.noteFailure('', r.state, r.message)
+        return false
+      }
+      await writeChatResult(res, r)
+      return true
+    }
+    for (;;) {
+      const uid = pool.pick(s.accounts(), cfg.poolOrder, cfg.poolStrategy)
+      if (uid === undefined) return false
+      const r = await s.chatOnce(uid, req)
+      if (!r.ok) {
+        pool.noteFailure(uid, r.state, r.message)
+        continue
+      }
+      pool.noteSuccess(uid)
+      await writeChatResult(res, r)
+      return true
+    }
+  }
+
   /** 测试某供应商的某模型是否可用。
-   *  走真实 chatCompletions 路径：账号池回退/冷却由供应商内部实现，自动生效；
+   *  走真实的账号遍历 + chatOnce 路径：账号池回退/冷却由核心实现，自动生效；
    *  响应丢弃到 sink，限定单一供应商（不跨供应商回退）。 */
   async testModel(supplierId: string, model: string): Promise<{ ok: boolean; error?: string }> {
     const s = this.suppliers.find((x) => x.id === supplierId)
@@ -325,7 +407,7 @@ export class Router {
     }
     let served = false
     try {
-      served = await s.chatCompletions(req, sink)
+      served = await this.chatWithSupplier(s, req, sink)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }

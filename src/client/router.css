@@ -1103,6 +1103,12 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 .dshr-iconBtn-sm { width: 26px; height: 26px; }
 
+/* 禁用态必须看得出来：纯图标按钮没有文字可读（不像「刷新中…」），
+   只靠 hover 反馈会让人以为还能点。 */
+.dshr-iconBtn:disabled { opacity: .4; cursor: default; }
+
+.dshr-iconBtn:disabled:hover { color: var(--rs-muted); background: transparent; }
+
 /* Require API key 行 */
 .dshr-requireRow {
   display: flex;

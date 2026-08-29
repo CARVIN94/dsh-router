@@ -32,11 +32,12 @@ export const priority = 10        // 数字越小越优先(免费优先)
 | `generateLoginUrl()` / `completeLogin(callbackUrl)` | 添加链接(有它才显示连接池) |
 | `addApiKey({ name, apiKey })` / `removeLink(uid)` | API key 账号:弹窗填名字 + key;删除链接清凭证 |
 | `pollLogin()` | 轮询式登录:面板隐藏「粘贴回调链接」步骤,登录后直接点完成 |
-| `checkinNow()` | 触发签到(规则由 dsh-router 通用层指定),见下 |
+| `checkinNow(uid)` | 单个链接签到(核心遍历所有链接 + 汇总),见下 |
 | `lastError()` | 上次 `chatCompletions` 的失败原因(诊断用),见下 |
 
-删除链接、获取模型、签到规则、测试模型不需要 js 实现:它们是 dsh-router 的通用
-数据/策略能力(获取模型 = 调 `listModels(true)` + 核心数据操作)。
+删除链接、获取模型、签到、测试模型不需要 js 实现:它们是 dsh-router 的通用
+数据/策略能力(获取模型 = 调 `listModels(true)` + 核心数据操作;签到 = 核心逐个
+调 `checkinNow(uid)` 再汇总)。
 凭证(token)由 dsh-router 核心统一存储,js 通过 `env.credentials`(list/get/save/remove)访问。
 
 ### 测试模型(核心通用,js 不实现)
@@ -56,15 +57,33 @@ js 只需把失败原因记下来并通过 `lastError()` 暴露,核心就能给�
 
 ### 签到与积分(可选)
 
-有 `checkinNow()` 时面板才显示「签到」按钮。返回:
+有 `checkinNow(uid)` 时面板才显示「签到」按钮。**js 只签一个 uid**,遍历所有
+链接 + 结果汇总是核心的活。单个 uid 返回:
 
 ```ts
-{ ok, total, succeeded, already, error?, results?: [{ uid, ok, status, message }] }
+{ ok, status, message? }
 ```
 
 - `status`:`'ok'`(签到成功)/ `'already'`(今日已签到)/ `'error'`(失败)
-- 签哪些账号由**核心通用策略**决定(`checkinRule`:`all` 所有链接 / `first` 首个),
-  js 读 `env.store.get(id).checkinRule` 即可,规则设置/持久化不用管
+- **禁用与否由 js 自己判定**:核心遍历**所有**链接(不替 js 筛 `disabled`),
+  js 对禁用/不可用的链接自己回一个非成功 status(如 traework 的 `'disabled'`)
+- `message` 直接透给用户看(如 `+100 积分（连续 3 天）`、`凭证失效 401`);
+  某个 uid 抛错由核心兜住记成 `error`,不会带垮其它链接
+- 核心汇总后给面板:`{ ok, total, succeeded, already, results }`
+
+### 刷新链接池(核心通用,js 不实现)
+
+面板链接池的「刷新」按钮是**核心的活**,js 不用做任何事:
+
+1. **积分**:核心连着调 `status()` 等它落地(见下);`status().accounts[].credits`
+   该缓存就缓存,不该缓存就现拉,核心只认这个字段
+2. **健康**:核心拿一个启用模型跑一次最简会话(复用「测试模型」的
+   `chatCompletions` 路径,账号池回退/冷却自动生效),回答「这个供应商还有没有
+   活着的链接」——**不按链接细分**,那需要按 uid 指定账号的管道,会给 js 增负
+
+天花板与升级路径:刷新积分目前是**轮询等落地**(插件缓存没过期时不会真拉上游,
+此时按钮退化成「重读一次状态」)。哪天插件愿意暴露可 `await` 的刷新能力,
+这里就不用轮询了。
 - `credits`(`status().accounts[].credits`)用于面板显示积分/额度;上游接口不实时
   时,建议缓存 + 签到后刷新(如 codebuddy 插件:10 分钟 TTL,签到后主动拉取)。
   **填「剩余额度」而不是「已消耗」**——额度类接口两者常常都有(如 codebuddy 的

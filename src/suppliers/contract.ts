@@ -70,8 +70,9 @@ export interface SupplierModule {
   /** 轮询式登录标记：有它 → 面板隐藏「粘贴回调链接」步骤，登录后直接点完成（后台轮询）。 */
   pollLogin?(): boolean
 
-  /** 触发签到。签到规则(all/first)是 dsh-router 通用策略,不在此列。 */
-  checkinNow?(): Promise<{ ok: boolean; total: number; succeeded: number; already?: number; error?: string; results?: Array<{ uid: string; ok: boolean; status?: string; message?: string }> }>
+  /** 单个链接签到。遍历所有链接 + 结果汇总是 dsh-router 核心的活,插件只管一个 uid。
+   *  status: 'ok'(签到成功) / 'already'(今日已签到) / 'error'(失败)。 */
+  checkinNow?(uid: string): Promise<{ ok: boolean; status: string; message?: string }>
 }
 
 /** 供应商账号（复用 router 类型，供 loader 包装）。 */

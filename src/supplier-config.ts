@@ -5,7 +5,6 @@
  *   - 别名 alias(前缀,模型全名 = alias/id)
  *   - 模型管理:启用/禁用 disabled、自定义 custom
  *   - 连接池:poolOrder(拖动排序)、poolStrategy(回退/轮询)
- *   - 签到规则 checkinRule(所有链接 / 首个链接)
  *
  * 持久化到 data/supplier-config.json。
  */
@@ -13,7 +12,6 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 export type PoolStrategy = 'fallback' | 'round-robin'
-export type CheckinRule = 'all' | 'first'
 
 export interface SupplierConfig {
   alias: string
@@ -21,7 +19,6 @@ export interface SupplierConfig {
   custom: string[]
   poolOrder: string[]
   poolStrategy: PoolStrategy
-  checkinRule: CheckinRule
 }
 
 interface ConfigFile {
@@ -42,7 +39,7 @@ export class SupplierConfigStore {
   get(supplierId: string): SupplierConfig {
     let cfg = this.bySupplier.get(supplierId)
     if (!cfg) {
-      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback', checkinRule: 'all' }
+      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback' }
       this.bySupplier.set(supplierId, cfg)
     }
     return cfg
@@ -91,12 +88,6 @@ export class SupplierConfigStore {
     this.saveLocked()
   }
 
-  setCheckinRule(supplierId: string, rule: string): void {
-    if (rule !== 'all' && rule !== 'first') return
-    this.get(supplierId).checkinRule = rule
-    this.saveLocked()
-  }
-
   private load(): void {
     if (this.fp === '') return
     let f: ConfigFile
@@ -112,7 +103,6 @@ export class SupplierConfigStore {
         custom: Array.isArray(c.custom) ? c.custom.filter((m) => typeof m === 'string') : [],
         poolOrder: Array.isArray(c.poolOrder) ? c.poolOrder.filter((u) => typeof u === 'string') : [],
         poolStrategy: c.poolStrategy === 'round-robin' ? 'round-robin' : 'fallback',
-        checkinRule: c.checkinRule === 'first' ? 'first' : 'all',
       })
     }
   }
@@ -127,7 +117,6 @@ export class SupplierConfigStore {
         custom: [...cfg.custom],
         poolOrder: [...cfg.poolOrder],
         poolStrategy: cfg.poolStrategy,
-        checkinRule: cfg.checkinRule,
       }
     }
     try {

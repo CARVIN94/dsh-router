@@ -39,6 +39,7 @@ const I = {
   edit: 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3',
   loading: 'M12 3a9 9 0 1 0 9 9M12 3a9 9 0 0 1 9 9',
   search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+  refresh: 'M20.5 12a8.5 8.5 0 1 1-2.6-6.1M20.5 4v5h-5',
 }
 
 interface SupplierDetailProps {
@@ -108,8 +109,8 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
   const [removeModelTarget, setRemoveModelTarget] = useState<string | null>(null)
   const [poolStrategy, setPoolStrategy] = useState<'fallback' | 'round-robin'>('fallback')
   const [poolOrder, setPoolOrder] = useState<string[]>([])
-  const [checkinRule, setCheckinRule] = useState<'all' | 'first'>('all')
   const [checkingIn, setCheckingIn] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const mounted = useRef(true)
 
@@ -144,20 +145,17 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
 
   const loadPoolConfig = useCallback(async (): Promise<void> => {
     try {
-      const [strategyRes, orderRes, ruleRes] = await Promise.all([
+      const [strategyRes, orderRes] = await Promise.all([
         fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/strategy`, { cache: 'no-store' }),
         fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/order`, { cache: 'no-store' }),
-        fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/checkin/rule`, { cache: 'no-store' }),
       ])
-      const [strategyData, orderData, ruleData] = await Promise.all([strategyRes.json(), orderRes.json(), ruleRes.json()]) as [
+      const [strategyData, orderData] = await Promise.all([strategyRes.json(), orderRes.json()]) as [
         { ok: boolean; strategy?: 'fallback' | 'round-robin' },
         { ok: boolean; order?: string[] },
-        { ok: boolean; rule?: 'all' | 'first' },
       ]
       if (mounted.current) {
         if (strategyData.ok && strategyData.strategy) setPoolStrategy(strategyData.strategy)
         if (orderData.ok && Array.isArray(orderData.order)) setPoolOrder(orderData.order)
-        if (ruleData.ok && ruleData.rule) setCheckinRule(ruleData.rule)
       }
     } catch {
       // 连接池配置加载失败不阻断
@@ -206,6 +204,45 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
       showToast(`签到失败：${(err as Error).message}`)
     } finally {
       setCheckingIn(false)
+    }
+  }
+
+  /** 刷新链接池：积分刷一遍 + 全供应商健康探测（最简会话，走真实 chatCompletions
+   *  并按账号池回退，所以「这个供应商还有没有活着的链接」能回答；不按链接细分 —— 那需要
+   *  按 uid 指定账号的管道，会给插件增负）。 */
+  const runRefresh = async (): Promise<void> => {
+    if (refreshing) return
+    setRefreshing(true)
+    let msg = ''
+    try {
+      const response = await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/links/refresh`, { method: 'POST', cache: 'no-store' })
+      const data = await response.json() as { ok: boolean; changed?: boolean; accounts?: unknown[]; error?: string }
+      if (!data.ok) {
+        showToast(data.error ?? '刷新失败')
+        return
+      }
+      // 健康探测：拿一个启用模型跑最简会话；没有启用模型就退回任意第一个
+      const probe = models?.find(m => m.enabled) ?? models?.[0]
+      if (probe === undefined) {
+        msg = `已刷新 ${data.accounts?.length ?? 0} 链接 · 无模型可探测`
+      } else {
+        const probeRes = await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/models/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: probe.id }),
+          cache: 'no-store',
+        })
+        const probeData = await probeRes.json() as { ok: boolean; error?: string }
+        msg = probeData.ok
+          ? `已刷新 ${data.accounts?.length ?? 0} 链接 · 健康`
+          : `已刷新 ${data.accounts?.length ?? 0} 链接 · 不可用：${probeData.error ?? '未知'}`
+      }
+      showToast(msg)
+      onRefresh()
+    } catch (err) {
+      showToast(`刷新失败：${(err as Error).message}`)
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -470,7 +507,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
       const data = await response.json() as { ok: boolean; error?: string }
       if (data.ok) {
         setAlias(aliasDraft.trim())
-        // 同时保存连接池策略 + 签到规则
+        // 同时保存连接池策略
         try {
           await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/strategy`, {
             method: 'POST',
@@ -480,16 +517,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
           })
         } catch {
           // 策略保存失败不阻断前缀保存
-        }
-        try {
-          await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/checkin/rule`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rule: checkinRule }),
-            cache: 'no-store',
-          })
-        } catch {
-          // 签到规则保存失败不阻断前缀保存
         }
         setShowAlias(false)
       } else {
@@ -559,9 +586,16 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
         <div className="dshr-cardHead">
           <div className="dshr-cardTitle">链接池</div>
           <div className="dshr-cardActions">
+            <button type="button" className="dshr-iconBtn dshr-iconBtn-sm" onClick={() => void runRefresh()} disabled={refreshing || supplierAccounts.length === 0} title="刷新积分并探测健康" aria-label="刷新积分并探测健康">
+              <span className={refreshing ? 'dshr-spin' : undefined}>
+                <Icon d={I.refresh} size={15} />
+              </span>
+            </button>
             {canCheckin && (
-              <button type="button" className="dshr-miniButton" onClick={() => void runCheckin()} disabled={checkingIn || supplierAccounts.length === 0}>
-                {checkingIn ? '签到中…' : '签到'}
+              <button type="button" className="dshr-iconBtn dshr-iconBtn-sm" onClick={() => void runCheckin()} disabled={checkingIn || supplierAccounts.length === 0} title="签到所有链接" aria-label="签到所有链接">
+                <span className={checkingIn ? 'dshr-spin' : undefined}>
+                  <Icon d={I.checkCircle} size={15} />
+                </span>
               </button>
             )}
             {canLogin && (
@@ -792,7 +826,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
         </Modal>
       )}
 
-      {/* ---- 编辑供应商弹窗（前缀 + 连接池策略 + 签到规则） ---- */}
+      {/* ---- 编辑供应商弹窗（前缀 + 连接池策略） ---- */}
       {showAlias && (
         <Modal title="编辑供应商" onClose={() => setShowAlias(false)}>
           <div className="dshr-modalForm">
@@ -818,16 +852,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                 <option value="round-robin">轮询</option>
               </select>
             </>
-            <label className="dshr-fieldLabel">签到规则</label>
-            <p className="dshr-muted">所有链接 = 签到每个链接；首个链接 = 只签到第一个链接。（dsh-router 通用策略）</p>
-            <select
-              className="dshr-select dshr-input"
-              value={checkinRule}
-              onChange={(e) => setCheckinRule(e.target.value as 'all' | 'first')}
-            >
-              <option value="all">所有链接</option>
-              <option value="first">首个链接</option>
-            </select>
             {aliasError !== '' && <div className="dshr-alert"><strong>出错了</strong><span>{aliasError}</span></div>}
             <div className="dshr-modalActions">
               <button type="button" className="dshr-miniButton" onClick={() => setShowAlias(false)}>取消</button>

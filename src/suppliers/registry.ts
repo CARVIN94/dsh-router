@@ -17,12 +17,12 @@
  *   POST   /suppliers/:id/login                   生成登录链接
  *   POST   /suppliers/:id/login/callback          {callbackUrl}
  *   POST   /suppliers/:id/links/remove            {uid}
- *   GET    /suppliers/:id/checkin/rule            + POST {rule}
- *   POST   /suppliers/:id/checkin                 触发签到
+ *   POST   /suppliers/:id/links/refresh           刷新链接池（积分，核心调 status() 等落地）
+ *   POST   /suppliers/:id/checkin                 签到所有链接（核心遍历 + 汇总）
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Router } from '../router/index.ts'
-import type { ModelWithEnabled } from '../router/types.ts'
+import type { ModelWithEnabled, SupplierStatus } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { LoadedSupplier } from './loader.ts'
 
@@ -62,6 +62,33 @@ async function readBody(req: IncomingMessage, limit = 64 << 10): Promise<string>
 
 function cap(set: Set<string>, key: string): boolean {
   return set.has(key)
+}
+
+/** 账号状态指纹（积分 + 健康），用于判断刷新是否落地。 */
+function fingerprint(accounts: SupplierStatus['accounts']): string {
+  return accounts.map((a) => `${a.uid}:${a.credits}:${a.cooling}:${a.disabled}`).join('|')
+}
+
+/**
+ * 反复调插件已有的 status()，直到快照稳定再返回（是否有变化 = changed）。
+ * 插件的积分刷新是 fire-and-forget（status() 内部异步拉），核心拿不到句柄，
+ * 只能按指纹变化等它落地。天花板：缓存未过期时插件不会真拉上游，此时按钮
+ * 退化为「重读一次状态」（冷却/禁用这类健康状态仍是 status() 实时算的）。
+ * 升级路径：插件暴露可 await 的刷新能力，这里就不用轮询了。
+ */
+async function settleStatus(s: LoadedSupplier['supplier'], timeoutMs = 3000): Promise<boolean> {
+  const first = fingerprint(s.status().accounts)
+  const deadline = Date.now() + timeoutMs
+  let last = first
+  let stable = 0
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    const now = fingerprint(s.status().accounts)
+    stable = now === last ? stable + 1 : 0
+    last = now
+    if (stable >= 2) break // 连续两次没变 → 认为刷新已落地
+  }
+  return last !== first
 }
 
 /** 模型列表统一缓存（dsh-router 核心管；插件只管拉取，不缓存）。 */
@@ -328,22 +355,19 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     },
   })
 
-  // ---- 通用: 签到规则（dsh-router 策略,存 SupplierConfigStore） ----
+  // ---- 通用: 刷新链接池（积分 + 健康） ----
+  // 刷新是核心的活，但只调插件已有的 status()——插件在 status() 里自带积分
+  // 异步刷新（缓存过期才真拉上游），冷却/禁用（健康）也是 status() 实时算的。
   routes.push({
     kind: 'exact',
-    path: `${p}/checkin/rule`,
-    handler: async (req, res) => {
-      if (req.method === 'GET') {
-        writeJson(res, 200, { ok: true, rule: store.get(s.id).checkinRule })
-        return
+    path: `${p}/links/refresh`,
+    handler: async (_req, res) => {
+      try {
+        const changed = await settleStatus(s)
+        writeJson(res, 200, { ok: true, changed, accounts: s.status().accounts })
+      } catch (err) {
+        writeJson(res, 500, { ok: false, error: (err as Error).message })
       }
-      const body = JSON.parse(await readBody(req)) as { rule?: string }
-      if (body.rule !== 'all' && body.rule !== 'first') {
-        writeJson(res, 400, { ok: false, error: 'rule 必须是 all 或 first' })
-        return
-      }
-      store.setCheckinRule(s.id, body.rule)
-      writeJson(res, 200, { ok: true })
     },
   })
 
@@ -352,12 +376,30 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
       kind: 'exact',
       path: `${p}/checkin`,
       handler: async (_req, res) => {
-        try {
-          const result = await (m.checkinNow as () => Promise<{ ok: boolean; error?: string }>).call(loaded.supplier)
-          writeJson(res, result.ok === false ? 400 : 200, result)
-        } catch (err) {
-          writeJson(res, 500, { ok: false, error: (err as Error).message })
+        // 签到 = 所有链接逐个签一次：checkinNow 是单账号能力，
+        // 遍历与汇总是核心的活（插件不负责连接池顺序/范围）。
+        // 禁用与否由插件自己判定（如 traework 返回 status:'disabled'），核心不替它筛。
+        const checkinOne = m.checkinNow as
+          ((uid: string) => Promise<{ ok: boolean; status: string; message?: string }>) | undefined
+        if (!checkinOne) {
+          writeJson(res, 400, { ok: false, error: '该供应商不支持签到' })
+          return
         }
+        type CheckinResult = { uid: string; ok: boolean; status: string; message?: string }
+        const uids = s.status().accounts.map((a) => a.uid)
+        const results: CheckinResult[] = []
+        // 单个链接抛错不能带垮整批：记成 error 继续下一个
+        for (const uid of uids) {
+          try {
+            results.push({ uid, ...(await checkinOne.call(loaded.supplier, uid)) })
+          } catch (err) {
+            results.push({ uid, ok: false, status: 'error', message: (err as Error).message })
+          }
+        }
+        const succeeded = results.filter((r) => r.status === 'ok').length
+        const already = results.filter((r) => r.status === 'already').length
+        const payload = { ok: succeeded + already > 0, total: uids.length, succeeded, already, results }
+        writeJson(res, payload.ok ? 200 : 400, payload)
       },
     })
   }

@@ -52,6 +52,7 @@
     "build": "rm -rf lib && tsc -p tsconfig.build.json && tsdown && npm run build:client",
     "build:client": "DSH_CLIENT_ID=dsh-router DSH_CLIENT_FILE=client.js vite build -c client/vite.config.ts && DSH_CLIENT_ID=dsh-external/dsh-router DSH_CLIENT_FILE=client-registry.js vite build -c client/vite.config.ts",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
     "bundle": "tsdown",
     "watch": "tsdown --watch"
   },

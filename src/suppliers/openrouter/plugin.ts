@@ -23,6 +23,8 @@ const BASE = 'https://openrouter.ai/api/v1'
 const MODELS_URL = `${BASE}/models`
 const CHAT_URL = `${BASE}/chat/completions`
 const COOL_DOWN_MS = 60 * 1000 // 失败冷却 60s
+/** 默认前缀（用户可在面板改；loader 包装会优先用 store 里的值）。 */
+const DEFAULT_ALIAS = 'or'
 
 /** 免费模型过滤（同 9Router openrouter-free）：pricing 全 0 且 context ≥ 200k。 */
 function isFreeModelMeta(m: { pricing?: { prompt?: string; completion?: string }; context_length?: number }): boolean {
@@ -35,9 +37,9 @@ function isFreeModelMeta(m: { pricing?: { prompt?: string; completion?: string }
 
 
 /** 剥 alias 前缀（or/xxx → xxx）。 */
-function stripAlias(model: string): string {
-  const slash = model.lastIndexOf('/')
-  return slash >= 0 ? model.slice(slash + 1) : model
+/** 剥本供应商 alias 前缀（只剥自己的，模型 id 自带的斜杠保留）。 */
+function stripAlias(model: string, alias: string): string {
+  return alias !== '' && model.startsWith(`${alias}/`) ? model.slice(alias.length + 1) : model
 }
 
 interface ApiKeyAccount {
@@ -68,6 +70,11 @@ export default function factory(env: SupplierEnv): SupplierModule {
     const order = env.store.get(id).poolOrder
     const uids = [...order.filter((u) => byUid.has(u)), ...listKeys().filter((u) => !order.includes(u))]
     return uids.map((uid) => ({ uid, acct: getKey(uid)! })).filter((x) => x.acct !== undefined)
+  }
+
+  /** 当前前缀（与 loader 包装一致：store 覆盖默认值）。 */
+  function currentAlias(): string {
+    return env.store.get(id).alias || DEFAULT_ALIAS
   }
 
   function isCooling(uid: string, now = Date.now()): boolean {
@@ -159,7 +166,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
     // testModel 由 dsh-router 核心统一走 chatCompletions 路径（账号池回退/冷却自动生效）
     lastError: (): string | undefined => lastErr,
     async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<boolean> {
-      const base = stripAlias(req.model)
+      const base = stripAlias(req.model, currentAlias())
       if (!freeIds.has(base) && !(await allModels(false)).some((m) => m.id === base)) {
         lastErr = `unknown free model ${JSON.stringify(req.model)}`
         return false

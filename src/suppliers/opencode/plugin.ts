@@ -12,6 +12,8 @@ import type { ServerResponse } from 'node:http'
 import type { ChatRequest, ModelInfo, SupplierStatus } from '../../router/types.ts'
 import type { SupplierEnv, SupplierModule } from '../contract.ts'
 
+const DEFAULT_ALIAS = 'oc'
+
 export const id = 'opencode'
 export const name = 'OpenCode Free'
 export const priority = 0
@@ -58,12 +60,19 @@ export default function factory(env: SupplierEnv): SupplierModule {
     return refreshModels()
   }
 
+    /** 当前前缀（与 loader 包装一致：store 覆盖默认值）。 */
+  function currentAlias(): string {
+    return env.store.get(id).alias || DEFAULT_ALIAS
+  }
+
+  /** 剥本供应商 alias 前缀（只剥自己的，模型 id 自带的斜杠保留）。 */
+  function stripAlias(model: string, alias: string): string {
+    return alias !== '' && model.startsWith(`${alias}/`) ? model.slice(alias.length + 1) : model
+  }
+
   /** 剥 alias 前缀（oc/xxx → xxx）后判断是否 free 模型。 */
   function isFreeModel(model: string): boolean {
-    const m = model.trim()
-    let base = m
-    const slash = base.lastIndexOf('/')
-    if (slash >= 0) base = base.slice(slash + 1)
+    const base = stripAlias(model.trim(), currentAlias())
     return base.endsWith('-free') || KNOWN_FREE.has(base)
   }
 
@@ -87,9 +96,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
       let body = req.rawBody
       try {
         const obj = JSON.parse(body) as Record<string, unknown>
-        const m = String(obj.model ?? req.model)
-        const slash = m.lastIndexOf('/')
-        obj.model = slash >= 0 ? m.slice(slash + 1) : m
+        obj.model = stripAlias(String(obj.model ?? req.model), currentAlias())
         body = JSON.stringify(obj)
       } catch {
         // 保持原样

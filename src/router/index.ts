@@ -89,9 +89,11 @@ export class Router {
                     .map((s) => s.supplier)
                     .filter((m) => typeof m === 'string' && m !== '')
                 : []
-            // 兼容旧版存的全名 alias/id：剥掉前缀存裸 id（前缀随供应商动态变）
+            // 兼容旧版存的全名 alias/id：剥掉第一段前缀存裸 id（前缀随供应商动态变）。
+            // 用 indexOf 而非 lastIndexOf：模型 id 本身可含斜杠（如 nvidia 的
+            // deepseek-ai/xxx），剥最后一段会把命名空间吃掉。
             const models = raw.map((m) => {
-              const slash = m.lastIndexOf('/')
+              const slash = m.indexOf('/')
               return slash >= 0 ? m.slice(slash + 1) : m
             })
             return {
@@ -204,11 +206,15 @@ export class Router {
     return strategy === 'fallback' || strategy === 'round-robin'
   }
 
-  /** 组合模型统一存裸 id：剥掉 alias/ 前缀（前缀随供应商动态变）。 */
+  /** 组合模型统一存裸 id：剥掉 alias/ 前缀（前缀随供应商动态变）。
+   *  只剥「已知 alias + /」开头的前缀——模型 id 本身可以含斜杠
+   *  （如 nvidia 的 `deepseek-ai/deepseek-v4-flash-0731`），用 lastIndexOf 会把
+   *  命名空间一起吃掉，后面请求必然 404。 */
   private normalizeModelIds(models: string[]): string[] {
+    const aliases = this.suppliers.map((s) => s.getAlias()).filter((a) => a !== '')
     return models.map((m) => {
-      const slash = m.lastIndexOf('/')
-      return slash >= 0 ? m.slice(slash + 1) : m
+      const prefix = aliases.find((a) => m.startsWith(`${a}/`))
+      return prefix === undefined ? m : m.slice(prefix.length + 1)
     })
   }
 

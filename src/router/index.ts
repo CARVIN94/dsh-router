@@ -11,6 +11,9 @@ import type { ChatOnceResult } from '../suppliers/contract.ts'
 import { AccountPool } from './account-pool.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
 
+/** 模型列表缓存有效期。 */
+const MODELS_TTL_MS = 60 * 1000
+
 function openAIError(code: string, msg: string): Record<string, unknown> {
   return { error: { message: msg, type: 'api_error', code } }
 }
@@ -114,6 +117,8 @@ export class Router {
   private rrCursors = new Map<string, number>()
   /** 通用供应商配置（连接池顺序/策略、模型启用、别名）。 */
   private store: SupplierConfigStore
+  /** 模型列表缓存（supplierId → 模型 + 拉取时间）。插件只管拉，不缓存。 */
+  private modelsCache = new Map<string, { models: ModelWithEnabled[]; fetchedAt: number }>()
 
   constructor(stateFile = '', store?: SupplierConfigStore) {
     this.combosFp = stateFile ? join(dirname(stateFile), 'combos.json') : ''
@@ -183,6 +188,7 @@ export class Router {
     const i = this.suppliers.findIndex((s) => s.id === id)
     if (i < 0) return false
     const [s] = this.suppliers.splice(i, 1)
+    this.modelsCache.delete(id)
     s?.dispose()
     return true
   }
@@ -232,18 +238,61 @@ export class Router {
     return [...this.customCombos]
   }
 
-  /** 可用模型（按供应商分组，仅启用），面板加模型用。 */
-  async supplierModels(): Promise<Array<{ supplier: { id: string; name: string; alias: string }; models: ModelWithEnabled[] }>> {
-    const out: Array<{ supplier: { id: string; name: string; alias: string }; models: ModelWithEnabled[] }> = []
-    for (const s of this.suppliers) {
-      try {
-        const models = (await s.modelsWithEnabled()).filter((m) => m.enabled)
-        out.push({ supplier: { id: s.id, name: s.name, alias: s.getAlias() }, models })
-      } catch {
-        // 单供应商失败不影响其它
+  /**
+   * 取某供应商的模型（核心统一缓存）。
+   *
+   * 模型列表只在这里缓存一次：`/suppliers/:id/models`（供应商详情）和
+   * `/combos`（组合加模型）共用。组合面板**不主动打上游**——它只是读缓存，
+   * 冷启动（缓存还没建）时才拉一次；真正刷新由详情页打开或「获取模型」
+   * 按钮（force）触发。
+   *
+   * 天花板：TTL 60s 是拍的。若上游模型列表变更很频繁，可调小；要彻底实时
+   * 就得让供应商暴露 etag/版本号，目前没有这个需求。
+   */
+  async modelsOf(supplierId: string, force = false): Promise<ModelWithEnabled[]> {
+    const s = this.suppliers.find((x) => x.id === supplierId)
+    if (s === undefined) return []
+    const hit = this.modelsCache.get(supplierId)
+    if (!force && hit !== undefined && Date.now() - hit.fetchedAt < MODELS_TTL_MS) return hit.models
+    const cfg = this.store.get(supplierId)
+    const custom = new Set(cfg.custom)
+    const disabled = new Set(cfg.disabled)
+    const list = await Promise.resolve(s.listModels())
+    const models: ModelWithEnabled[] = list.map((mm) => ({
+      ...mm,
+      enabled: !disabled.has(mm.id),
+      custom: custom.has(mm.id) ? true : undefined,
+    }))
+    // 自定义模型（listModels 之外的）并入显示
+    const seen = new Set(models.map((mm) => mm.id))
+    for (const id of custom) {
+      if (!seen.has(id)) {
+        seen.add(id)
+        models.push({ id, enabled: !disabled.has(id), custom: true })
       }
     }
-    return out
+    this.modelsCache.set(supplierId, { models, fetchedAt: Date.now() })
+    return models
+  }
+
+  /** 失效某供应商的模型缓存（增删改模型后调用）。 */
+  invalidateModels(supplierId: string): void {
+    this.modelsCache.delete(supplierId)
+  }
+
+  /** 可用模型（按供应商分组，仅启用），面板加模型用。
+   *  各供应商**并行**拉取——串行会把每个上游的延迟累加起来。 */
+  async supplierModels(): Promise<Array<{ supplier: { id: string; name: string; alias: string }; models: ModelWithEnabled[] }>> {
+    const groups = await Promise.all(this.suppliers.map(async (s) => {
+      try {
+        const models = (await this.modelsOf(s.id)).filter((m) => m.enabled)
+        return { supplier: { id: s.id, name: s.name, alias: s.getAlias() }, models }
+      } catch {
+        // 单供应商失败不影响其它
+        return undefined
+      }
+    }))
+    return groups.filter((g): g is NonNullable<typeof g> => g !== undefined)
   }
 
   private validModels(models: string[]): boolean {
@@ -373,17 +422,25 @@ export class Router {
     if (s.accounts !== undefined && s.accounts().length === 0) {
       const r = await s.chatOnce('', req)
       if (!r.ok) {
+        if (r.state === 'no_such_model') return false // 不是我的模型：换供应商，不记账
         pool.noteFailure('', r.state, r.message)
         return false
       }
       await writeChatResult(res, r)
       return true
     }
+    // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
+    // 不排除试过的就会原地打转——死循环等于整个服务挂住。
+    const tried = new Set<string>()
     for (;;) {
-      const uid = pool.pick(s.accounts(), cfg.poolOrder, cfg.poolStrategy)
+      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy)
       if (uid === undefined) return false
+      tried.add(uid)
       const r = await s.chatOnce(uid, req)
       if (!r.ok) {
+        // 模型不属于本供应商：整个供应商都跳过，换号重试没有意义，
+        // 也不能记在账号头上（否则无关账号会被攒够错误冷却掉）
+        if (r.state === 'no_such_model') return false
         pool.noteFailure(uid, r.state, r.message)
         continue
       }

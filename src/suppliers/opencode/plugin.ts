@@ -90,7 +90,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
       // 只认 free 模型，其他模型交给别的供应商
       if (!isFreeModel(req.model)) {
         lastErr = `unknown free model ${JSON.stringify(req.model)}`
-        return { ok: false, state: 'unavailable', message: lastErr }
+        return { ok: false, state: 'no_such_model', message: lastErr }
       }
       // 模型名规范化：剥 alias 前缀，body.model 用裸 id
       let body = req.rawBody

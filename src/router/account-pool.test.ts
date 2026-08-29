@@ -86,6 +86,18 @@ test('decorate：把冷却/禁用/错误累计叠加到插件报的「现在状�
   assert.equal(by.get('ok')?.credits, 5)
 })
 
+test('no_such_model 不惩罚账号：不冷却、不计数', () => {
+  const p = new AccountPool()
+  const list = accs(['a'])
+  // 攒够阈值次也不该冷却——模型不属于本供应商不是账号的错
+  for (let i = 0; i < 10; i++) p.noteFailure('a', 'no_such_model', 'unknown model "x"')
+  assert.equal(p.pick(list, [], 'fallback'), 'a')
+  const out = p.decorate(list)[0]
+  assert.equal(out?.cooling, false)
+  assert.equal(out?.disabled, false)
+  assert.equal(out?.err_count, 0)
+})
+
 test('状态表：各 AccountState 的处置符合预期', () => {
   const p = new AccountPool()
   const list = accs(['rate', 'quota', 'dead', 'unavail'])

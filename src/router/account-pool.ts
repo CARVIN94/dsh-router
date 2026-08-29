@@ -38,6 +38,8 @@ const RULES: Record<AccountState, Rule> = {
   unavailable: { cooldownMs: 0, disable: false, counts: true },
   transport: { cooldownMs: 0, disable: false, counts: true },
   unknown: { cooldownMs: 0, disable: false, counts: true },
+  // 模型不属于本供应商：不是账号的错，不冷却也不计数（核心据此换下一个供应商）
+  no_such_model: { cooldownMs: 0, disable: false, counts: false },
 }
 
 /** 连续错误攒够这么多次就自动冷却（防止坏号被反复重试）。 */

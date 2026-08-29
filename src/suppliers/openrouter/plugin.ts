@@ -158,12 +158,12 @@ export default function factory(env: SupplierEnv): SupplierModule {
       const base = stripAlias(req.model, currentAlias())
       if (!freeIds.has(base) && !(await allModels(false)).some((m) => m.id === base)) {
         lastErr = `unknown free model ${JSON.stringify(req.model)}`
-        return { ok: false, state: 'unavailable', message: lastErr }
+        return { ok: false, state: 'no_such_model', message: lastErr }
       }
       const acct = getKey(uid)
       if (acct === undefined) {
         lastErr = `unknown account ${JSON.stringify(uid)}`
-        return { ok: false, state: 'unavailable', message: lastErr }
+        return { ok: false, state: 'no_such_model', message: lastErr }
       }
 
       let body = req.rawBody

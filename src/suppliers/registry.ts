@@ -91,34 +91,6 @@ async function settleStatus(s: LoadedSupplier['supplier'], timeoutMs = 3000): Pr
   return last !== first
 }
 
-/** 模型列表统一缓存（dsh-router 核心管；插件只管拉取，不缓存）。 */
-const modelsCache = new Map<string, { models: ModelWithEnabled[]; fetchedAt: number }>()
-const MODELS_TTL_MS = 60 * 1000
-
-/** 拉取并缓存某供应商模型（force 时强制刷新）。custom 模型并入显示。 */
-async function cachedModels(s: LoadedSupplier['supplier'], cfg: ReturnType<SupplierConfigStore['get']>, force = false): Promise<ModelWithEnabled[]> {
-  const hit = modelsCache.get(s.id)
-  if (!force && hit && Date.now() - hit.fetchedAt < MODELS_TTL_MS) return hit.models
-  const list = await Promise.resolve(s.listModels())
-  const custom = new Set(cfg.custom)
-  const disabled = new Set(cfg.disabled)
-  const models: ModelWithEnabled[] = list.map((mm) => ({
-    ...mm,
-    enabled: !disabled.has(mm.id),
-    custom: custom.has(mm.id) ? true : undefined,
-  }))
-  // 自定义模型（listModels 之外的）并入显示
-  const seen = new Set(models.map((mm) => mm.id))
-  for (const id of custom) {
-    if (!seen.has(id)) {
-      seen.add(id)
-      models.push({ id, enabled: !disabled.has(id), custom: true })
-    }
-  }
-  modelsCache.set(s.id, { models, fetchedAt: Date.now() })
-  return models
-}
-
 function mod(s: LoadedSupplier): Record<string, unknown> {
   return (s.supplier as unknown as { __module?: Record<string, unknown> }).__module ?? {}
 }
@@ -136,7 +108,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     kind: 'exact',
     path: `${p}/models`,
     handler: async (_req, res) => {
-      const models = await cachedModels(s, store.get(s.id))
+      const models = await router.modelsOf(s.id)
       writeJson(res, 200, { ok: true, alias: s.getAlias(), models })
     },
   })
@@ -165,13 +137,13 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     handler: async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { id?: string; enabled?: boolean }
       const cfg = store.get(s.id)
-      const models = await cachedModels(s, cfg)
+      const models = await router.modelsOf(s.id)
       if (!body.id || !models.some((mm) => mm.id === body.id)) {
         writeJson(res, 400, { ok: false, error: '模型不存在' })
         return
       }
       store.setModelEnabled(s.id, body.id, !!body.enabled)
-      modelsCache.delete(s.id) // 启用状态变化后失效缓存
+      router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
     },
   })
@@ -187,13 +159,13 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         writeJson(res, 400, { ok: false, error: '模型 id 不能为空' })
         return
       }
-      const models = await cachedModels(s, store.get(s.id))
+      const models = await router.modelsOf(s.id)
       if (models.some((mm) => mm.id === id)) {
         writeJson(res, 400, { ok: false, error: `模型 ${id} 已存在` })
         return
       }
       store.addCustomModel(s.id, id)
-      modelsCache.delete(s.id)
+      router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
     },
   })
@@ -210,7 +182,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         return
       }
       store.removeCustomModel(s.id, body.id)
-      modelsCache.delete(s.id)
+      router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
     },
   })
@@ -221,9 +193,9 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     path: `${p}/models/bulk`,
     handler: async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { enabled?: boolean }
-      const models = await cachedModels(s, store.get(s.id))
+      const models = await router.modelsOf(s.id)
       store.setAllModelsEnabled(s.id, !!body.enabled, models.map((mm) => mm.id))
-      modelsCache.delete(s.id)
+      router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
     },
   })
@@ -270,7 +242,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     kind: 'exact',
     path: `${p}/models/fetch`,
     handler: async (_req, res) => {
-      const models = await cachedModels(s, store.get(s.id), true)
+      const models = await router.modelsOf(s.id, true)
       writeJson(res, 200, { ok: true, models })
     },
   })

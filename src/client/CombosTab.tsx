@@ -49,15 +49,17 @@ interface ComboForm {
 }
 
 export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.Element {
-  /** 当前供应商前缀（单供应商取第一个）。 */
-  const primaryAlias = aliases[0]?.alias ?? ''
-
-  /** 模型 → 所属供应商前缀（按 groups 分组匹配；找不到兜底 primaryAlias）。 */
+  /** 模型 → 所属供应商前缀（按 groups 分组匹配）。
+   *  组合只存裸 id，同名模型可能属于多个供应商，故优先取「已启用」的那个；
+   *  谁都没有的模型显示裸名——不能兜底套第一个供应商的前缀，那样前缀是假的。 */
   const aliasOf = (model: string): string => {
+    for (const g of groups) {
+      if (g.models.some(m => m.id === model && m.enabled)) return g.supplier.alias
+    }
     for (const g of groups) {
       if (g.models.some(m => m.id === model)) return g.supplier.alias
     }
-    return primaryAlias
+    return ''
   }
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<RouterCombo | null>(null)

@@ -11,7 +11,6 @@
 import type { ChatRequest, ModelInfo } from '../../router/types.ts'
 import type { AccountState, ChatOnceResult, SupplierEnv, SupplierModule, SupplierStatusNow } from '../contract.ts'
 
-const DEFAULT_ALIAS = 'oc'
 
 export const id = 'opencode'
 export const name = 'OpenCode Free'
@@ -61,7 +60,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
 
     /** 当前前缀（与 loader 包装一致：store 覆盖默认值）。 */
   function currentAlias(): string {
-    return env.store.get(id).alias || DEFAULT_ALIAS
+    return env.store.get(id).alias || id
   }
 
   /** 剥本供应商 alias 前缀（只剥自己的，模型 id 自带的斜杠保留）。 */
@@ -82,7 +81,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
     icon,
     status: (): SupplierStatusNow => ({ id, name, accounts: [] }),
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
-    getAlias: (): string => 'oc',
+    getAlias: (): string => id,
     // testModel 由 dsh-router 核心统一走 chatOnce 路径（无账号，无需回退）
     lastError: (): string | undefined => lastErr,
     /** 无账号供应商：uid 恒为空，只认 free 模型。 */

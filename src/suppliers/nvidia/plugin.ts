@@ -29,7 +29,6 @@ const BASE = 'https://integrate.api.nvidia.com/v1'
 const MODELS_URL = `${BASE}/models`
 const CHAT_URL = `${BASE}/chat/completions`
 /** 默认前缀（用户可在面板改；loader 包装会优先用 store 里的值）。 */
-const DEFAULT_ALIAS = 'nv'
 /** 非聊天用途的模型（护栏/翻译/解析/检测/图像生成等），聊天路由用不上，拉列表时过滤掉。 */
 const NON_CHAT_MODEL = /(guard|safety|moderation|translate|transcription|parse|detector|embed|rerank|diffusion|tts|asr|calibration)/i
 
@@ -68,7 +67,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
 
   /** 当前前缀（与 loader 包装一致：store 覆盖默认值）。 */
   function currentAlias(): string {
-    return env.store.get(id).alias || DEFAULT_ALIAS
+    return env.store.get(id).alias || id
   }
 
   // ---- 模型可用性探测（NIM 的 /v1/models 无状态字段，大量模型已下线/未授权） ----
@@ -218,7 +217,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
       return { id, name, accounts }
     },
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
-    getAlias: (): string => 'nv',
+    getAlias: (): string => id,
     async addApiKey(input: { name: string; apiKey: string }): Promise<{ ok: boolean; error?: string; account?: { uid: string; nickname: string } }> {
       const key = input.apiKey.trim()
       if (key === '') return { ok: false, error: 'API key 不能为空' }

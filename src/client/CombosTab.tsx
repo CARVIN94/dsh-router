@@ -49,17 +49,25 @@ interface ComboForm {
 }
 
 export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.Element {
-  /** 模型 → 所属供应商前缀（按 groups 分组匹配）。
-   *  组合只存裸 id，同名模型可能属于多个供应商，故优先取「已启用」的那个；
-   *  谁都没有的模型显示裸名——不能兜底套第一个供应商的前缀，那样前缀是假的。 */
-  const aliasOf = (model: string): string => {
-    for (const g of groups) {
-      if (g.models.some(m => m.id === model && m.enabled)) return g.supplier.alias
+  /**
+   * 存储值 → 展示全名 alias/model。
+   * 存储格式 = `supplierId,modelId`：精准，同名模型不会串台。
+   * 兼容旧数据的裸 modelId：查不到归属就显示裸名——不能兜底套第一个供应商的
+   * 前缀，那样前缀是假的。
+   */
+  const displayName = (stored: string): string => {
+    const comma = stored.indexOf(',')
+    if (comma > 0) {
+      const sid = stored.slice(0, comma)
+      const mid = stored.slice(comma + 1)
+      const g = groups.find(x => x.supplier.id === sid)
+      const alias = g?.supplier.alias ?? aliases.find(a => a.id === sid)?.alias ?? ''
+      return alias === '' ? mid : `${alias}/${mid}`
     }
-    for (const g of groups) {
-      if (g.models.some(m => m.id === model)) return g.supplier.alias
-    }
-    return ''
+    // 旧数据裸 id：按分组找归属（优先已启用的），找不到显示裸名
+    const hit = groups.find(g => g.models.some(m => m.id === stored && m.enabled))
+      ?? groups.find(g => g.models.some(m => m.id === stored))
+    return hit === undefined ? stored : `${hit.supplier.alias}/${stored}`
   }
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<RouterCombo | null>(null)
@@ -134,11 +142,13 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
     setForm(prev => ({ ...prev, ...patch }))
   }
 
-  const toggleModel = (id: string): void => {
+  /** 勾选：存 `supplierId,modelId`（精准归属，展示时才拼 alias）。 */
+  const toggleModel = (supplierId: string, id: string): void => {
+    const stored = `${supplierId},${id}`
     patchForm({
-      models: form.models.includes(id)
-        ? form.models.filter(m => m !== id)
-        : [...form.models, id],
+      models: form.models.includes(stored)
+        ? form.models.filter(m => m !== stored)
+        : [...form.models, stored],
     })
   }
 
@@ -313,7 +323,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                         {combo.models.slice(0, 4).map((model, i) => (
                           <span key={`${model}-${i}`} className="dshr-comboChip">
                             <span className="dshr-comboChipNum">{i + 1}</span>
-                            <span className="dshr-comboChipSupplier">{aliasOf(model) ? `${aliasOf(model)}/${model}` : model}</span>
+                            <span className="dshr-comboChipSupplier">{displayName(model)}</span>
                           </span>
                         ))}
                         {combo.models.length > 4 && (
@@ -384,7 +394,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                         >
                           <span className="dshr-comboGrip" title="拖拽排序"><Icon d={I.grip} size={14} /></span>
                           <span className="dshr-comboStepNum">{index + 1}</span>
-                          <code className="dshr-comboSelectedModel">{aliasOf(model) ? `${aliasOf(model)}/${model}` : model}</code>
+                          <code className="dshr-comboSelectedModel">{displayName(model)}</code>
                           <button type="button" className="dshr-iconBtn dshr-iconBtn-sm dshr-comboStepRemove" title="移除" onClick={() => removeModel(index)}>
                             <Icon d={I.delete} size={14} />
                           </button>
@@ -413,14 +423,14 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                       ? <p className="dshr-muted dshr-comboPickEmpty">没有可添加的模型</p>
                       : groups.map(g => {
                         const items = g.models.filter(m =>
-                          !form.models.includes(m.id) &&
+                          !form.models.includes(`${g.supplier.id},${m.id}`) &&
                           (modelQuery === '' || m.id.toLowerCase().includes(modelQuery.toLowerCase())))
                         if (items.length === 0) return null
                         return (
                           <div key={g.supplier.id} className="dshr-comboPickGroup">
                             <p className="dshr-comboPickGroupTitle">{g.supplier.name} · {g.supplier.alias}</p>
                             {items.map(m => (
-                              <button key={m.id} type="button" className="dshr-comboPickItem" onClick={() => toggleModel(m.id)}>
+                              <button key={m.id} type="button" className="dshr-comboPickItem" onClick={() => toggleModel(g.supplier.id, m.id)}>
                                 <span className="dshr-comboPickName">{m.id}</span>
                               </button>
                             ))}

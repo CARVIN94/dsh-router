@@ -29,10 +29,26 @@ interface ConfigFile {
 export class SupplierConfigStore {
   private fp = ''
   private bySupplier = new Map<string, SupplierConfig>()
+  /** 全部供应商 id（加载时同步），用于别名唯一性校验。 */
+  private knownIds = new Set<string>()
 
   constructor(stateFile: string) {
     this.fp = stateFile ? join(dirname(stateFile), 'supplier-config.json') : ''
     this.load()
+  }
+
+  /** 同步已知供应商 id 集合（加载供应商后调用）。 */
+  sync(supplierIds: string[]): void {
+    this.knownIds = new Set(supplierIds)
+  }
+
+  /** 各供应商当前生效的别名（未设置别名的用供应商 id）。 */
+  effectiveAliases(): Map<string, string> {
+    const out = new Map<string, string>()
+    for (const id of this.knownIds) {
+      out.set(id, this.bySupplier.get(id)?.alias || id)
+    }
+    return out
   }
 
   /** 读取某供应商配置(不存在则返回默认并注册)。 */
@@ -45,9 +61,21 @@ export class SupplierConfigStore {
     return cfg
   }
 
-  setAlias(supplierId: string, alias: string): void {
-    this.get(supplierId).alias = alias
+  /**
+   * 设置别名。别名必须唯一——它是对外模型全名的前缀（alias/model），
+   * 请求时用别名反查供应商，重复就会指错人。空别名表示用供应商 id（默认值）。
+   * @returns 冲突时返回占用的供应商 id
+   */
+  setAlias(supplierId: string, alias: string): { ok: boolean; conflictWith?: string } {
+    const clean = alias.trim()
+    // 空 = 用默认（供应商 id）；此时要确认没有别人显式占用了本供应商的 id 作别名
+    const effective = clean === '' ? supplierId : clean
+    for (const [id, cur] of this.effectiveAliases()) {
+      if (id !== supplierId && cur === effective) return { ok: false, conflictWith: id }
+    }
+    this.get(supplierId).alias = clean
     this.saveLocked()
+    return { ok: true }
   }
 
   setModelEnabled(supplierId: string, modelId: string, enabled: boolean): void {

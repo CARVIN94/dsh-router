@@ -23,7 +23,6 @@ const BASE = 'https://openrouter.ai/api/v1'
 const MODELS_URL = `${BASE}/models`
 const CHAT_URL = `${BASE}/chat/completions`
 /** 默认前缀（用户可在面板改；loader 包装会优先用 store 里的值）。 */
-const DEFAULT_ALIAS = 'or'
 
 /** 免费模型过滤（同 9Router openrouter-free）：pricing 全 0 且 context ≥ 200k。 */
 function isFreeModelMeta(m: { pricing?: { prompt?: string; completion?: string }; context_length?: number }): boolean {
@@ -70,7 +69,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
 
   /** 当前前缀（与 loader 包装一致：store 覆盖默认值）。 */
   function currentAlias(): string {
-    return env.store.get(id).alias || DEFAULT_ALIAS
+    return env.store.get(id).alias || id
   }
 
   async function refreshModels(): Promise<ModelInfo[]> {
@@ -122,7 +121,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
       return { id, name, accounts }
     },
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
-    getAlias: (): string => 'or',
+    getAlias: (): string => id,
     async addApiKey(input: { name: string; apiKey: string }): Promise<{ ok: boolean; error?: string; account?: { uid: string; nickname: string } }> {
       const key = input.apiKey.trim()
       if (key === '') return { ok: false, error: 'API key 不能为空' }

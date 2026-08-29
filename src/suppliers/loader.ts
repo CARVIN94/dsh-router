@@ -123,7 +123,8 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
         })),
       )
     },
-    getAlias: (): string => env.store.get(instance.id).alias || instance.getAlias(),
+    // 别名留空即用供应商 id（默认值）——别名是用户可改的展示前缀，唯一性由核心校验
+    getAlias: (): string => env.store.get(instance.id).alias || instance.id,
     customModelIds: (): string[] => [...env.store.get(instance.id).custom],
     accounts: (): SupplierAccountNow[] => instance.status().accounts,
     chatOnce: (uid: string, req: ChatRequest): Promise<ChatOnceResult> => instance.chatOnce(uid, req),

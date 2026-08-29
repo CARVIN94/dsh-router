@@ -143,12 +143,20 @@ export class Router {
                     .map((s) => s.supplier)
                     .filter((m) => typeof m === 'string' && m !== '')
                 : []
-            // 兼容旧版存的全名 alias/id：剥掉第一段前缀存裸 id（前缀随供应商动态变）。
-            // 用 indexOf 而非 lastIndexOf：模型 id 本身可含斜杠（如 nvidia 的
+            // 存储格式 = supplierId,modelId。旧数据的两种形态都在这里归一：
+            // - 旧版全名 alias/id → 用别名反查供应商，存 supplierId,id
+            // - 裸 id（上一版）→ 查不到供应商，保持裸 id，路由时降级为遍历
+            // 用 indexOf 而非 lastIndexOf：模型 id 本身可含斜杠（如
             // deepseek-ai/xxx），剥最后一段会把命名空间吃掉。
             const models = raw.map((m) => {
+              const comma = m.indexOf(',')
+              if (comma > 0) return m // 已是 supplierId,modelId
               const slash = m.indexOf('/')
-              return slash >= 0 ? m.slice(slash + 1) : m
+              if (slash <= 0) return m // 裸 id：保持，路由降级为遍历
+              const alias = m.slice(0, slash)
+              const modelId = m.slice(slash + 1)
+              const s = this.suppliers.find((x) => x.getAlias() === alias)
+              return s === undefined ? modelId : `${s.id},${modelId}`
             })
             return {
               id: c.id,
@@ -181,6 +189,8 @@ export class Router {
   add(supplier: Supplier): void {
     this.suppliers.push(supplier)
     this.suppliers.sort((a, b) => a.priority - b.priority)
+    // 让 store 知道全部供应商 id，别名唯一性校验才有得比较
+    this.store.sync(this.suppliers.map((s) => s.id))
   }
 
   /** 移除供应商（外部插件卸载时注销）。 */
@@ -308,12 +318,26 @@ export class Router {
    *  只剥「已知 alias + /」开头的前缀——模型 id 本身可以含斜杠
    *  （如 nvidia 的 `deepseek-ai/deepseek-v4-flash-0731`），用 lastIndexOf 会把
    *  命名空间一起吃掉，后面请求必然 404。 */
+  /**
+   * 归一组合模型名为存储格式 `supplierId,modelId`。
+   * 面板提交的是「供应商 id + 模型 id」两两组合（或旧数据的裸 id），
+   * 这里只做清理与校验，不再剥掉前缀——精准调用靠的就是供应商 id。
+   */
   private normalizeModelIds(models: string[]): string[] {
-    const aliases = this.suppliers.map((s) => s.getAlias()).filter((a) => a !== '')
-    return models.map((m) => {
-      const prefix = aliases.find((a) => m.startsWith(`${a}/`))
-      return prefix === undefined ? m : m.slice(prefix.length + 1)
-    })
+    return models
+      .map((m) => m.trim())
+      .filter((m) => m !== '')
+      .map((m) => {
+        const comma = m.indexOf(',')
+        if (comma > 0) return m
+        // 旧形态：alias/modelId 或裸 modelId → 尽量归到 supplierId,modelId
+        const slash = m.indexOf('/')
+        if (slash <= 0) return m
+        const alias = m.slice(0, slash)
+        const modelId = m.slice(slash + 1)
+        const s = this.suppliers.find((x) => x.getAlias() === alias)
+        return s === undefined ? modelId : `${s.id},${modelId}`
+      })
   }
 
   /** 创建组合（name 唯一，非 default）。 */
@@ -385,26 +409,70 @@ export class Router {
       writeJson(res, 503, openAIError('no_healthy_supplier', `combo ${JSON.stringify(req.model)}: all models unavailable`))
       return
     }
+    // 直接调用：模型全名 = alias/model。用别名反查供应商，精准调用；
+    // 别名查不到（拼错 / 供应商没加载）才退化为遍历，保持旧行为可用。
+    const slash = req.model.indexOf('/')
+    const alias = slash > 0 ? req.model.slice(0, slash) : ''
+    const target = alias === '' ? undefined : this.supplierByAlias(alias)
+    if (target !== undefined) {
+      const served = await this.chatWithTarget(target, req, res)
+      if (served) return
+      writeJson(res, 503, openAIError('no_healthy_supplier', `supplier ${JSON.stringify(target.id)}: all accounts unavailable`))
+      return
+    }
     const served = await this.chatWithModel(req, res, req.model)
     if (served) return
     writeJson(res, 503, openAIError('no_healthy_supplier', 'all suppliers unavailable'))
   }
 
-  /** 把 model 改写为组合选中的模型名后，遍历供应商 + 账号（策略全在核心）。 */
+  /** 调指定供应商。
+   *  模型名**原样**传给插件（不在这剥 alias/）——插件自己认得自己的别名
+   *  （如 traework 会剥第一段）。核心在这剥就会剥两次，把模型 id 里的
+   *  命名空间（如 org/name）吃掉。 */
+  private async chatWithTarget(s: Supplier, req: ChatRequest, res: ServerResponse): Promise<boolean> {
+    return await this.chatWithModel(req, res, `${s.id},${req.model}`)
+  }
+
+  /** 把 model 改写为组合选中的模型名后，找对应的供应商 + 账号（策略全在核心）。
+   *
+   *  `model` 形如 `supplierId,modelId`（组合的存储格式）：直接用 supplierId 定位，
+   *  不再挨个问供应商「这是不是你的模型」——精准调用，也避免同名模型串台。
+   *  兼容旧的裸 `modelId`（没有逗号）：降级为遍历，行为同以前。
+   */
   private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string): Promise<boolean> {
-    const clone: ChatRequest = { ...req, model }
+    const comma = model.indexOf(',')
+    const supplierId = comma > 0 ? model.slice(0, comma) : undefined
+    // 组合存的是供应商 id，但插件认的是自己的模型 id
+    const modelId = comma > 0 ? model.slice(comma + 1) : model
+
+    const clone: ChatRequest = { ...req, model: modelId }
     try {
       const obj = JSON.parse(req.rawBody) as Record<string, unknown>
-      obj.model = model
+      obj.model = modelId
       clone.rawBody = JSON.stringify(obj)
     } catch {
       clone.rawBody = req.rawBody
     }
+
+    if (supplierId !== undefined) {
+      // 精准：只调这一个供应商。查不到就是配置错了，直接失败（不遍历兜底——
+      // 遍历会让拼错的 id 静默落到别的供应商上，更难查）
+      const s = this.suppliers.find((x) => x.id === supplierId)
+      if (s === undefined) return false
+      return await this.chatWithSupplier(s, clone, res)
+    }
+
+    // 旧格式裸模型 id：退化为遍历
     for (const s of this.suppliers) {
       const served = await this.chatWithSupplier(s, clone, res)
       if (served) return true
     }
     return false
+  }
+
+  /** 按别名找供应商（对外模型全名 = alias/model）。别名唯一，故最多命中一个。 */
+  supplierByAlias(alias: string): Supplier | undefined {
+    return this.suppliers.find((s) => s.getAlias() === alias)
   }
 
   /**

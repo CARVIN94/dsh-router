@@ -121,11 +121,16 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
       const body = JSON.parse(await readBody(req)) as { alias?: string }
       const alias = body.alias ?? ''
       const clean = alias.trim()
-      if (clean === '' || !/^[A-Za-z0-9_-]+$/.test(clean)) {
+      // 空 = 用供应商 id（默认值），合法；非空则校验字符集
+      if (clean !== '' && !/^[A-Za-z0-9_-]+$/.test(clean)) {
         writeJson(res, 400, { ok: false, error: '前缀只能包含字母、数字、- 和 _' })
         return
       }
-      store.setAlias(s.id, clean)
+      const r = store.setAlias(s.id, clean)
+      if (!r.ok) {
+        writeJson(res, 400, { ok: false, error: `前缀已被供应商 ${JSON.stringify(r.conflictWith ?? '?')} 占用` })
+        return
+      }
       writeJson(res, 200, { ok: true })
     },
   })

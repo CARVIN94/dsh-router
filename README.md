@@ -32,6 +32,17 @@ OpenAI 兼容端点,把请求路由到内部供应商。装好即用,不用多�
 左侧边栏「记忆系统」上方有 **路由系统** 入口,点击打开中心栏面板:
 
 - **返回会话** — 左侧按钮,关闭面板回到聊天;
+- **概览** — 用量看板(默认页):
+  - 周期切换 **今日 / 24h / 7D / 30D**;
+  - 汇总卡:总请求(含成功率)、输入 Tokens、缓存 Tokens、输出 Tokens、平均耗时(含首字节);
+  - Token 趋势柱图(悬停看该时段明细);
+  - Top 榜:按供应商 / 按模型·组合(请求数带失败计数);
+  - 最近请求:时间 / 模型 / 供应商 / in↑ out↓ / 耗时;
+  - **清空** — 清掉全部用量统计(不影响供应商、账号、组合配置);
+  - 数据落盘 `data/usage.json`(按天聚合 + 最近 500 条明细 + 累计计数)。
+    token 口径:上游返回 `usage` 就用真值(分散在多帧时按字段取最大值合并);
+    上游不发时按 ~4 字符/token 估算,面板上标 `~`。**失败请求不估算**——
+    它没到上游,编造输入 token 只会把总量灌水;
 - **供应商** — 供应商卡片(内置 / 插件分组),点击进入详情:
   - **链接池** — 账号列表(冷却/禁用/健康数/积分),支持删除;
   - **加链接** — 按供应商能力弹出不同流程:URL 登录(生成链接 → 浏览器登录 → 回调)、
@@ -84,6 +95,9 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `/keys/toggle` | POST | `{id, isActive}` |
 | `/keys/delete` | POST | `{id}` |
 | `/settings` | GET/PATCH | `{requireApiKey}` |
+| `/stats` | GET | 用量统计 `?period=today\|24h\|7d\|30d`(汇总 + Top 榜 + 最近请求) |
+| `/stats/chart` | GET | 柱状图数据 `?period=…`(today/24h = 24 小时桶,7d/30d = 天桶) |
+| `/stats/clear` | POST | 清空全部用量统计 |
 | `/suppliers/:id/login` | POST | 生成登录链接 |
 | `/suppliers/:id/login/callback` | POST | `{callbackUrl}` → 加账号 |
 | `/suppliers/:id/models` | GET | 模型 + 启用状态 |

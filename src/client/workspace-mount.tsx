@@ -5,9 +5,8 @@
  * other sidebar panels (taskboard / ssh / mnemon) through the shared
  * `dsh-panel-activate` event.
  */
-import { useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { ROUTER_ACTIVE_ATTR, ROUTER_TITLE, ROUTER_VIEW_SELECTOR } from '../shared.ts'
+import { ROUTER_ACTIVE_ATTR } from '../shared.ts'
 import { RouterView } from './RouterView.tsx'
 import { mountRouterSidebarEntry } from './sidebar-entry.ts'
 import { RouterWorkspaceController } from './workspace-controller.ts'
@@ -24,13 +23,7 @@ function conversationColumn(): HTMLElement | undefined {
 
 function mountPanel(controller: RouterWorkspaceController): () => void {
   function Panel(): JSX.Element {
-    useEffect(() => {
-      // Keep the panel title in the browser tab for orientation, like the
-      // official panels do.
-      const original = document.title
-      document.title = ROUTER_TITLE
-      return () => { document.title = original }
-    }, [])
+    // 不改 document.title：这是宿主页面（会话）的标题，插件不该动它。
     return <RouterView onBack={() => controller.close()} />
   }
 

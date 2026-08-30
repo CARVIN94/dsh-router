@@ -251,20 +251,31 @@ test('落账：失败请求必须记（否则成功率永远是假的 100%）', 
 
 test('周期：today 用自然日零点切窗，24h 用滚动 24 小时', () => {
   const s = new UsageStore('')
-  const now = Date.now()
+  // 固定基准：今天 12:00。绝不能用「距今 N 小时」写死偏移——真实挂钟一过
+  // 23:00，「23 小时前」就落回今天，断言翻车（这个坑真踩过：本地 23:18 跑
+  // 测试红了，代码没问题，是测试依赖了挂钟）。基准取正午，两头都留够余量。
+  const base = new Date()
+  base.setHours(12, 0, 0, 0)
+  const now = base.getTime()
   const dayStart = new Date(now).setHours(0, 0, 0, 0)
-  // 30 小时前：既不在 today，也不在 24h 内
-  rec(s, { ts: now - 30 * 3600000 })
-  assert.equal(s.stats('today', now).requests, 0)
-  assert.equal(s.stats('24h', now).requests, 0)
-  // 23 小时前：不在 today，但在 24h 内
-  rec(s, { ts: now - 23 * 3600000 })
-  assert.equal(s.stats('today', now).requests, 0)
-  assert.equal(s.stats('24h', now).requests, 1)
-  // 今天凌晨：两者都算
-  rec(s, { ts: dayStart })
-  assert.equal(s.stats('today', now).requests, 1)
+
+  const yesterday = dayStart - 13 * 3600000 // 昨天 11:00（距今 25 小时）
+  const thisMorning = dayStart + 3600000 // 今天 01:00
+
+  rec(s, { ts: yesterday })
+  assert.equal(s.stats('today', now).requests, 0, '昨天的请求不该进 today')
+  assert.equal(s.stats('24h', now).requests, 0, '距今 25 小时不该进 24h')
+
+  rec(s, { ts: thisMorning })
+  assert.equal(s.stats('today', now).requests, 1, '今天 01:00 该进 today')
+  assert.equal(s.stats('24h', now).requests, 1, '今天 01:00 该进 24h')
+
+  rec(s, { ts: now })
+  assert.equal(s.stats('today', now).requests, 2)
   assert.equal(s.stats('24h', now).requests, 2)
+
+  // 7d/30d 走天桶：昨天的那条算得进来（today/24h 算不进来）
+  assert.equal(s.stats('7d', now).requests, 3)
 })
 
 test('周期：7d/30d 走天桶，明细环撑爆也不影响', () => {

@@ -19,8 +19,9 @@ import {
 import { SupplierDetail } from './SupplierDetail.tsx'
 import { EndpointTab } from './EndpointTab.tsx'
 import { CombosTab } from './CombosTab.tsx'
+import { StatsTab } from './StatsTab.tsx'
 
-type TabId = 'suppliers' | 'combos' | 'endpoint'
+type TabId = 'overview' | 'suppliers' | 'combos' | 'endpoint'
 
 interface Snapshot {
   health: RouterHealthResponse | null
@@ -42,7 +43,7 @@ interface RouterViewProps {
 }
 
 export function RouterView({ onBack }: RouterViewProps): JSX.Element {
-  const [tab, setTab] = useState<TabId>('suppliers')
+  const [tab, setTab] = useState<TabId>('overview')
   const [detailSupplier, setDetailSupplier] = useState<{ id: string; name: string; icon?: string } | null>(null)
   const [snapshot, setSnapshot] = useState<Snapshot>({ health: null, status: null, combos: null })
   const [refreshing, setRefreshing] = useState(false)
@@ -125,6 +126,9 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
       </header>
 
       <nav className="dshr-nav">
+        <button type="button" aria-current={tab === 'overview' ? 'page' : undefined} onClick={() => setTab('overview')}>
+          概览
+        </button>
         <button type="button" aria-current={tab === 'suppliers' ? 'page' : undefined} onClick={() => setTab('suppliers')}>
           供应商 <span className="dshr-navCount">{suppliers.length}</span>
         </button>
@@ -137,6 +141,15 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
       </nav>
 
       <div className="dshr-content">
+        {/* ---------------- 概览（用量看板） ---------------- */}
+        {tab === 'overview' && (
+          <StatsTab
+            active
+            refreshing={refreshing}
+            onRefresh={() => void refresh()}
+          />
+        )}
+
         {/* ---------------- 供应商 ---------------- */}
         {tab === 'suppliers' && (
           detailSupplier !== null

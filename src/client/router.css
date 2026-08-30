@@ -2103,3 +2103,318 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   width: 1px;
   background: var(--rs-line);
 }
+
+/* ============================================================
+   dsh-router — 概览（用量看板，9router Overview 风格）
+   ============================================================ */
+
+/* 周期切换 + 操作条 */
+.dshr-statsBar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.dshr-periods {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  background: var(--rs-layer-2);
+}
+
+.dshr-period {
+  min-width: 46px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+
+.dshr-period:hover { color: var(--rs-text); }
+
+.dshr-period-on {
+  color: var(--rs-text);
+  background: var(--rs-layer-1);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .06);
+}
+
+.dshr-statsBarRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dshr-lifetime {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 汇总卡（照 9router OverviewCards 的自适应五宫格） */
+.dshr-statGrid {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.dshr-statCard {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--rs-line);
+  border-radius: 10px;
+  background: var(--rs-layer-1);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .04);
+}
+
+.dshr-statLabel {
+  overflow: hidden;
+  color: var(--rs-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dshr-statValue {
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+
+.dshr-statHint {
+  color: var(--rs-faint);
+  font-size: 11px;
+}
+
+.dshr-statCard-primary .dshr-statValue { color: var(--rs-accent); }
+.dshr-statCard-ok .dshr-statValue { color: var(--rs-success); }
+.dshr-statCard-warn .dshr-statValue { color: var(--rs-warn); }
+.dshr-statCard-danger .dshr-statValue { color: var(--rs-danger); }
+
+.dshr-estimateNote {
+  margin: 0;
+  color: var(--rs-faint);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.dshr-estimateNote code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--rs-layer-2);
+  font-family: var(--rs-mono);
+}
+
+/* 趋势柱图（纯 div/SVG，不引图表库） */
+.dshr-barWrap {
+  position: relative;
+  padding: 14px 14px 10px;
+}
+
+.dshr-barBusy {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--rs-layer-1) 55%, transparent);
+  pointer-events: none;
+}
+
+.dshr-barChart {
+  display: flex;
+  height: 148px;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.dshr-barCol {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  cursor: default;
+}
+
+.dshr-barTrack {
+  display: flex;
+  width: 100%;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.dshr-barFill {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--rs-accent) 70%, transparent);
+  transition: background .12s ease, height .18s ease;
+}
+
+.dshr-barCol-hover .dshr-barFill { background: var(--rs-accent); }
+
+.dshr-barLabel {
+  flex: none;
+  overflow: hidden;
+  color: var(--rs-faint);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-barReadout {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 18px;
+  padding-top: 6px;
+  font-size: 11px;
+}
+
+.dshr-barEmpty {
+  display: flex;
+  height: 148px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--rs-faint);
+  font-size: 12px;
+}
+
+.dshr-barEmptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
+}
+
+/* Top 榜（供应商 / 模型并排，窄屏堆叠） */
+.dshr-rankPair {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.dshr-rankList,
+.dshr-recentList {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 14px 12px;
+}
+
+.dshr-rankRow,
+.dshr-recentRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rs-line);
+  font-size: 12px;
+}
+
+.dshr-rankRow:last-child,
+.dshr-recentRow:last-child { border-bottom: none; }
+
+/* 表头：不参与 hover，且不画分隔线（视觉上属于卡片头） */
+.dshr-rankHead {
+  border-bottom: 1px solid var(--rs-line);
+  color: var(--rs-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.dshr-rankRow:not(.dshr-rankHead):hover { background: var(--rs-hover); }
+
+.dshr-rankName {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-rankNum {
+  flex: none;
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dshr-rankFail { color: var(--rs-danger); }
+
+.dshr-tokenIn { color: var(--rs-accent); }
+.dshr-tokenOut { color: var(--rs-success); }
+
+/* 最近请求列宽（比 Top 榜宽，要放得下模型名） */
+.dshr-recentTime {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  width: 78px;
+  color: var(--rs-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dshr-recentModel {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-recentSupplier {
+  flex: none;
+  width: 92px;
+  overflow: hidden;
+  color: var(--rs-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dshr-recentRow-fail .dshr-recentModel { color: var(--rs-danger); }
+
+/* 状态点 */
+.dshr-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dshr-dot-ok { background: var(--rs-success); }
+.dshr-dot-fail { background: var(--rs-danger); }

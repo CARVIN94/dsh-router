@@ -142,6 +142,57 @@ test('未知供应商返回空，不抛错', async () => {
   assert.deepEqual(await router.modelsOf('nonexistent'), [])
 })
 
+/** 请求日志要能回答「这个组合到底用的哪个模型和账号」——排障全靠它。 */
+test('每次 chat 记一行：组合名 → 供应商/模型 (账号) 结果', async () => {
+  const lines: string[] = []
+  const router = new Router('', undefined, (m) => lines.push(m))
+  const ok = supplier('supA', [{ id: 'a-m' }])
+  addSupplier(router, ok.s)
+  assert.equal(router.createCombo('combo1', 'fallback', ['supA,a-m']).ok, true)
+
+  const res = {
+    writeHead: (): void => {},
+    write: (): boolean => true,
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'combo1', stream: false, rawBody: JSON.stringify({ model: 'combo1', messages: [] }) }, res)
+
+  assert.equal(lines.length, 1)
+  assert.match(lines[0] ?? '', /^chat "combo1" → supA\/a-m \(u1\) ok \d+ms$/, `日志格式不对: ${lines[0]}`)
+})
+
+test('失败的成员也要记，且带真实原因（不能笼统写 no account）', async () => {
+  const lines: string[] = []
+  const router = new Router('', undefined, (m) => lines.push(m))
+  const dead = supplier('dead', [{ id: 'dead-m' }])
+  dead.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({ start(c) { c.error(new Error('刚连上就断')) } }),
+  })
+  const live = supplier('live', [{ id: 'live-m' }])
+  addSupplier(router, dead.s)
+  addSupplier(router, live.s)
+  assert.equal(router.createCombo('c1', 'fallback', ['dead,dead-m', 'live,live-m']).ok, true)
+
+  const res = {
+    writeHead: (): void => {},
+    write: (): boolean => true,
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'c1', stream: true, rawBody: JSON.stringify({ model: 'c1', messages: [] }) }, res)
+
+  assert.equal(lines.length, 2, '每个成员一行')
+  assert.ok((lines[0] ?? '').includes('dead/dead-m 失败'), `失败成员要记: ${lines[0]}`)
+  assert.ok((lines[0] ?? '').includes('stream failed before first byte'), `要带真实原因: ${lines[0]}`)
+  assert.ok((lines[1] ?? '').includes('ok'), `成功的要记: ${lines[1]}`)
+})
+
 /**
  * 回归：上游「刚连上就断」时组合必须回退到下一个模型。
  * 之前 writeChatResult 先写响应头再 pipe，且把 pipe 错误吞掉 —— 于是返回

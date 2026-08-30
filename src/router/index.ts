@@ -11,6 +11,16 @@ import type { ChatOnceResult } from '../suppliers/contract.ts'
 import { AccountPool } from './account-pool.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
 
+/** 一次 chat 的追踪信息（记日志用，回答「到底用的哪个模型哪个号」）。 */
+interface ChatTrace {
+  /** 实际服务的账号 uid；无账号供应商为 '(no-account)'。 */
+  uid?: string
+  /** 失败重试次数。 */
+  attempts: number
+  /** 最后一次失败原因。 */
+  lastError?: string
+}
+
 /** 模型列表缓存有效期。 */
 const MODELS_TTL_MS = 60 * 1000
 
@@ -133,11 +143,23 @@ export class Router {
   private store: SupplierConfigStore
   /** 模型列表缓存（supplierId → 模型 + 拉取时间）。插件只管拉，不缓存。 */
   private modelsCache = new Map<string, { models: ModelWithEnabled[]; fetchedAt: number }>()
+  /** 请求日志出口（面板/宿主 logger）。 */
+  private log: (msg: string) => void
 
-  constructor(stateFile = '', store?: SupplierConfigStore) {
+  constructor(stateFile = '', store?: SupplierConfigStore, log?: (msg: string) => void) {
     this.combosFp = stateFile ? join(dirname(stateFile), 'combos.json') : ''
     this.store = store ?? new SupplierConfigStore(stateFile)
+    this.log = log ?? ((): void => {})
     this.loadCombos()
+  }
+
+  /**
+   * 请求追踪：每次 chat 记一行，回答「这个组合到底用的哪个模型和账号」。
+   * 排查「组合里某个模型不稳定」全靠它——没这个就只能猜。
+   * 格式刻意做成一行 grep 友好：`chat 请求model → supplier/model (uid) 结果 耗时`。
+   */
+  private logChat(reqModel: string, detail: string, ms: number): void {
+    this.log(`chat ${JSON.stringify(reqModel)} → ${detail} ${ms}ms`)
   }
 
   private loadCombos(): void {
@@ -472,8 +494,17 @@ export class Router {
       // 精准：只调这一个供应商。查不到就是配置错了，直接失败（不遍历兜底——
       // 遍历会让拼错的 id 静默落到别的供应商上，更难查）
       const s = this.suppliers.find((x) => x.id === supplierId)
-      if (s === undefined) return false
-      return await this.chatWithSupplier(s, clone, res)
+      if (s === undefined) {
+        this.logChat(req.model, `supplier ${JSON.stringify(supplierId)} 不存在`, 0)
+        return false
+      }
+      const t0 = Date.now()
+      const trace: ChatTrace = { attempts: 0 }
+      const served = await this.chatWithSupplier(s, clone, res, trace)
+      this.logChat(req.model, served
+        ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}`
+        : `${s.id}/${modelId} 失败 ${trace.lastError ?? 'no account'}`, Date.now() - t0)
+      return served
     }
 
     // 旧格式裸模型 id：退化为遍历
@@ -498,7 +529,7 @@ export class Router {
    * 之后出错不再换号——要彻底能回退就得在写头前缓冲判定，代价是首字节
    * 延迟，目前未做。
    */
-  private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse): Promise<boolean> {
+  private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse, trace?: ChatTrace): Promise<boolean> {
     const pool = s.pool
     const cfg = this.store.get(s.id)
     // 无账号供应商：直接调一次（uid 传空，插件忽略）
@@ -509,6 +540,7 @@ export class Router {
         pool.noteFailure('', r.state, r.message)
         return false
       }
+      if (trace !== undefined) trace.uid = '(no-account)'
       return await writeChatResult(res, r)
     }
     // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
@@ -522,15 +554,27 @@ export class Router {
       if (!r.ok) {
         // 模型不属于本供应商：整个供应商都跳过，换号重试没有意义，
         // 也不能记在账号头上（否则无关账号会被攒够错误冷却掉）
-        if (r.state === 'no_such_model') return false
+        if (r.state === 'no_such_model') {
+          if (trace !== undefined) trace.lastError = 'no_such_model'
+          return false
+        }
         pool.noteFailure(uid, r.state, r.message)
+        if (trace !== undefined) {
+          trace.attempts += 1
+          trace.lastError = `${r.state}: ${r.message}`
+        }
         continue
       }
       pool.noteSuccess(uid)
+      if (trace !== undefined) trace.uid = uid
       const committed = await writeChatResult(res, r)
       // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
       if (committed) return true
       pool.noteFailure(uid, 'transport', 'stream failed before first byte')
+      if (trace !== undefined) {
+        trace.attempts += 1
+        trace.lastError = 'stream failed before first byte'
+      }
     }
   }
 

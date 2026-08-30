@@ -55,44 +55,58 @@ function sinkRes(): ServerResponse & { status(): number; body(): string } {
 /**
  * 把 chatOnce 的结果写进 res（核心独占响应写入权）。
  * 流式：SSE 头 + pipe 上游已转好的 OpenAI SSE；非流式：原样写 JSON。
+ *
+ * @returns true = 响应已提交（客户端拿到东西了）；false = **一个字节都没写**
+ *   （响应头也还没发），调用方可以换账号/换模型重试。
+ *
+ * 流式**故意推迟到第一个字节才写响应头**：上游常见「连上了但立刻断」的情况，
+ * 先写头就等于把自己锁死在这一个账号上，组合就没法回退了——而客户端只拿到
+ * 一个空/截断的 SSE，表现为工具调用名是空串（`unknown tool ""`）。
+ *
+ * 天花板：一旦写出第一个字节就绑死（HTTP 语义），中途断流只能截断，
+ * 不能回退。要彻底解决得在写头前缓冲判定，代价是首字节延迟——未做。
  */
-async function writeChatResult(res: ServerResponse, r: ChatOnceResult): Promise<void> {
-  if (!r.ok) return // 失败不该走到这里（核心先判 ok 才写）
+async function writeChatResult(res: ServerResponse, r: ChatOnceResult): Promise<boolean> {
+  if (!r.ok) return false // 失败不该走到这里（核心先判 ok 才写）
   if (!('stream' in r)) {
     res.writeHead(r.status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
     res.end(r.body)
-    return
+    return true
   }
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  })
-  if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
-    ;(res as { flushHeaders: () => void }).flushHeaders()
-  }
+  let wroteAny = false
+  const writeChunk = (chunk: Uint8Array): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (!wroteAny) {
+        // 第一个字节到手，此刻才提交响应头
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        })
+        if (typeof (res as { flushHeaders?: () => void }).flushHeaders === 'function') {
+          ;(res as { flushHeaders: () => void }).flushHeaders()
+        }
+        wroteAny = true
+      }
+      if (res.write(chunk)) resolve()
+      else res.once('drain', resolve)
+    })
+
   // 流中途出错（客户端断开/上游断流）也要结束响应，否则连接悬挂
   const onError = (): void => {
     res.destroy()
   }
   res.once('error', onError)
   try {
-    await r.stream.pipeTo(
-      new WritableStream<Uint8Array>({
-        write: (chunk) =>
-          new Promise<void>((resolve) => {
-            if (res.write(chunk)) resolve()
-            else res.once('drain', resolve)
-          }),
-      }),
-    )
+    await r.stream.pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
   } catch {
-    // 尽力而为：流断了也要收尾
+    // 流断了：一个字节都没写的话，调用方还能换号重试——交给上层决定
   } finally {
     res.removeListener('error', onError)
-    res.end()
+    if (wroteAny) res.end()
   }
+  return wroteAny
 }
 
 /** 从上游响应体提取错误信息（OpenAI {error:{message}} 或 {code,msg}/{message}）。 */
@@ -479,9 +493,10 @@ export class Router {
    * 单个供应商内遍历账号（核心策略）：选号 → 调 chatOnce → 按返回的
    * AccountState 处置 → 失败换号；写响应只在成功后发生。
    *
-   * 流式一旦写出响应头就绑死（上游协议如此，9router 同样如此），所以
-   * 「拿到 ok:true 的流」即视为该账号成功，之后出错不再换号——要能回退
-   * 就得在写头前缓冲判定，代价是首字节延迟，目前未做。
+   * 流式**推迟到第一个字节才写响应头**，所以「上游刚连上就断」这种情况
+   * 还能换号重试；一旦写出第一个字节就绑死（HTTP 语义，9router 同样如此），
+   * 之后出错不再换号——要彻底能回退就得在写头前缓冲判定，代价是首字节
+   * 延迟，目前未做。
    */
   private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse): Promise<boolean> {
     const pool = s.pool
@@ -494,8 +509,7 @@ export class Router {
         pool.noteFailure('', r.state, r.message)
         return false
       }
-      await writeChatResult(res, r)
-      return true
+      return await writeChatResult(res, r)
     }
     // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
     // 不排除试过的就会原地打转——死循环等于整个服务挂住。
@@ -513,8 +527,10 @@ export class Router {
         continue
       }
       pool.noteSuccess(uid)
-      await writeChatResult(res, r)
-      return true
+      const committed = await writeChatResult(res, r)
+      // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
+      if (committed) return true
+      pool.noteFailure(uid, 'transport', 'stream failed before first byte')
     }
   }
 

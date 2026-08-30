@@ -143,6 +143,94 @@ test('未知供应商返回空，不抛错', async () => {
 })
 
 /**
+ * 回归：上游「刚连上就断」时组合必须回退到下一个模型。
+ * 之前 writeChatResult 先写响应头再 pipe，且把 pipe 错误吞掉 —— 于是返回
+ * 「成功」但一个字节都没写，客户端拿到空/截断的 SSE，表现为工具调用名是
+ * 空串（Tool call Error: unknown tool ""）。
+ */
+test('流在写出第一个字节前就断 → 组合回退到下一个模型', async () => {
+  const router = new Router('')
+  const dead = supplier('dead', [{ id: 'dead-m' }])
+  dead.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({ start(c) { c.error(new Error('上游刚连上就断')) } }),
+  })
+  const live = supplier('live', [{ id: 'live-m' }])
+  // 兜底模型要返回真的 SSE 流，才贴近组合的真实场景
+  live.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"兜底"}}]}\n\ndata: [DONE]\n\n'))
+        c.close()
+      },
+    }),
+  })
+  addSupplier(router, dead.s)
+  addSupplier(router, live.s)
+  assert.equal(router.createCombo('c1', 'fallback', ['dead,dead-m', 'live,live-m']).ok, true)
+
+  let out = ''
+  let heads = 0
+  const res = {
+    writeHead: (): void => { heads += 1 },
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'c1', stream: true, rawBody: JSON.stringify({ model: 'c1', messages: [] }) }, res)
+
+  assert.ok(out.includes('[DONE]'), `应拿到完整响应，实际: ${JSON.stringify(out)}`)
+  assert.equal(heads, 1, '响应头只应提交一次')
+})
+
+test('已写出字节后断流 → 诚实截断，不回退也不二次写头', async () => {
+  const router = new Router('')
+  const half = supplier('half', [{ id: 'half-m' }])
+  half.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      async start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"半截"}}]}\n\n'))
+        await new Promise((r) => setTimeout(r, 30)) // 确保字节已投递
+        c.error(new Error('上游中途断流'))
+      },
+    }),
+  })
+  const live = supplier('live', [{ id: 'live-m' }])
+  live.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"兜底"}}]}\n\ndata: [DONE]\n\n'))
+        c.close()
+      },
+    }),
+  })
+  addSupplier(router, half.s)
+  addSupplier(router, live.s)
+  assert.equal(router.createCombo('c2', 'fallback', ['half,half-m', 'live,live-m']).ok, true)
+
+  let out = ''
+  let heads = 0
+  const res = {
+    writeHead: (): void => { heads += 1 },
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'c2', stream: true, rawBody: JSON.stringify({ model: 'c2', messages: [] }) }, res)
+
+  assert.ok(out.includes('半截'), '已投递的字节要送达客户端')
+  assert.ok(!out.includes('[DONE]'), '已提交就不该再接第二个模型的内容（会串流）')
+  assert.equal(heads, 1, '响应头只能提交一次')
+})
+
+/**
  * 对照组：插件若用 unavailable 表示「不是我的模型」就会污染账号——
  * 这正是当初把 no_such_model 加进契约的原因（unavailable 在 RULES 里计数）。
  * 这条锁住「为什么必须区分这两个状态」，别退化回去。

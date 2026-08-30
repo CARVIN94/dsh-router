@@ -142,6 +142,80 @@ test('未知供应商返回空，不抛错', async () => {
   assert.deepEqual(await router.modelsOf('nonexistent'), [])
 })
 
+/**
+ * 回归：客户端要非流式、供应商只给流（如 codebuddy 强制 stream:true）时，
+ * 核心必须聚合成 JSON——响应写入归核心，协议错配得核心吸收。
+ * 否则客户端按 JSON 解析会在 SSE delta 里找不到工具名，报 unknown tool ""。
+ */
+test('要 JSON 却拿到流 → 聚合成非流式响应，工具名不丢', async () => {
+  const router = new Router('')
+  const cb = supplier('cb', [{ id: 'hy4-preview' }])
+  // 模拟只支持流式的供应商：name 在首块，arguments 分两段
+  cb.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) {
+        const enc = new TextEncoder()
+        c.enqueue(enc.encode('data: {"id":"cmpl-1","model":"hy4-preview","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"bash","arguments":""}}]}}]}\n\n'))
+        c.enqueue(enc.encode('data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"command\\": \\"ls -la\\"}"}}]}}]}\n\n'))
+        c.enqueue(enc.encode('data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"total_tokens":42}}\n\n'))
+        c.enqueue(enc.encode('data: [DONE]\n\n'))
+        c.close()
+      },
+    }),
+  })
+  addSupplier(router, cb.s)
+
+  let ctype = ''
+  let out = ''
+  const res = {
+    writeHead: (_c: number, h?: Record<string, string>): void => { ctype = h?.['Content-Type'] ?? '' },
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (b?: Uint8Array | string): void => { if (b !== undefined) out += Buffer.from(b).toString() },
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+
+  await router.chatCompletions({ model: 'cb/hy4-preview', stream: false, rawBody: JSON.stringify({ model: 'cb/hy4-preview', stream: false, messages: [] }) }, res)
+
+  assert.match(ctype, /application\/json/, `客户端要 JSON 就该给 JSON，实际 ${ctype}`)
+  const o = JSON.parse(out) as { choices?: Array<{ message?: { tool_calls?: Array<{ function?: { name?: string; arguments?: string } }> }; finish_reason?: string }>; usage?: unknown }
+  const tc = o.choices?.[0]?.message?.tool_calls?.[0]
+  assert.equal(tc?.function?.name, 'bash', '工具名必须保住（否则下游 unknown tool ""）')
+  assert.deepEqual(JSON.parse(tc?.function?.arguments ?? ''), { command: 'ls -la' }, '分段的 arguments 要拼成合法 JSON')
+  assert.equal(o.choices?.[0]?.finish_reason, 'tool_calls')
+  assert.ok(o.usage !== undefined, 'usage 要带上')
+})
+
+test('要流式就原样流式，不能被聚合（否则首字节延迟爆炸）', async () => {
+  const router = new Router('')
+  const cb = supplier('cb', [{ id: 'm' }])
+  cb.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n')); c.close() },
+    }),
+  })
+  addSupplier(router, cb.s)
+
+  let ctype = ''
+  let out = ''
+  const res = {
+    writeHead: (_c: number, h?: Record<string, string>): void => { ctype = h?.['Content-Type'] ?? '' },
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+
+  await router.chatCompletions({ model: 'cb/m', stream: true, rawBody: JSON.stringify({ model: 'cb/m', stream: true, messages: [] }) }, res)
+
+  assert.match(ctype, /event-stream/, '要流式就该给 SSE')
+  assert.ok(out.includes('data: [DONE]'), '原始 SSE 帧要原样透传')
+})
+
 /** 请求日志要能回答「这个组合到底用的哪个模型和账号」——排障全靠它。 */
 test('每次 chat 记一行：组合名 → 供应商/模型 (账号) 结果', async () => {
   const lines: string[] = []

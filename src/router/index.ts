@@ -63,6 +63,104 @@ function sinkRes(): ServerResponse & { status(): number; body(): string } {
 }
 
 /**
+ * 把 OpenAI SSE 流聚合成一次非流式响应体。
+ *
+ * 为什么核心要做这个：有些供应商**只支持流式**（如 codebuddy 强制 stream:true），
+ * 于是客户端要 JSON 时也会拿到流。核心独占响应写入权，就得把这个错配吸收掉——
+ * 否则客户端按 JSON 解析 `choices[0].message.tool_calls[].function.name`，
+ * 而名字藏在 SSE 的 `delta` 里，解析结果就是 name 为空（下游报
+ * `unknown tool ""`）。这是协议错配，不是丢数据。
+ */
+async function aggregateSSE(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const dec = new TextDecoder()
+  let id = ''
+  let model = ''
+  let created = Math.floor(Date.now() / 1000)
+  let content = ''
+  let reasoning = ''
+  let finish: string | null = null
+  let usage: unknown
+  // tool_calls 按 index 聚合：name 只在首个 delta 出现，arguments 逐段拼接
+  const calls = new Map<number, { id?: string; type?: string; name: string; args: string }>()
+
+  const reader = stream.getReader()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value as Uint8Array, { stream: true })
+    // SSE 以空行分帧
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (payload === '' || payload === '[DONE]') continue
+        let obj: Record<string, unknown>
+        try { obj = JSON.parse(payload) as Record<string, unknown> } catch { continue }
+        if (typeof obj.id === 'string' && obj.id !== '') id = obj.id
+        if (typeof obj.model === 'string' && obj.model !== '') model = obj.model
+        if (typeof obj.created === 'number') created = obj.created
+        if (obj.usage !== undefined) usage = obj.usage
+        const ch = (obj.choices as Array<Record<string, unknown>> | undefined)?.[0]
+        if (ch === undefined) continue
+        if (typeof ch.finish_reason === 'string') finish = ch.finish_reason
+        const delta = ch.delta as Record<string, unknown> | undefined
+        if (delta === undefined) {
+          // 少数实现把内容直接放在 message 里（非 delta）
+          const msg = ch.message as Record<string, unknown> | undefined
+          if (msg !== undefined) {
+            if (typeof msg.content === 'string') content += msg.content
+            if (typeof msg.reasoning_content === 'string') reasoning += msg.reasoning_content
+          }
+          continue
+        }
+        if (typeof delta.content === 'string') content += delta.content
+        if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content
+        const tcs = delta.tool_calls as Array<Record<string, unknown>> | undefined
+        if (!Array.isArray(tcs)) continue
+        for (const tc of tcs) {
+          const idx = typeof tc.index === 'number' ? tc.index : 0
+          const fn = tc.function as Record<string, unknown> | undefined
+          const prev = calls.get(idx) ?? { name: '', args: '' }
+          if (typeof tc.id === 'string' && tc.id !== '') prev.id = tc.id
+          if (typeof tc.type === 'string') prev.type = tc.type
+          if (typeof fn?.name === 'string' && fn.name !== '') prev.name = fn.name
+          if (typeof fn?.arguments === 'string') prev.args += fn.arguments
+          calls.set(idx, prev)
+        }
+      }
+    }
+  }
+
+  const toolCalls = [...calls.entries()]
+    .sort((a, b) => a[0] - b[0])
+    // 没名字的工具调用下游只能失败（unknown tool ""），聚合时一并丢掉
+    .filter(([, c]) => c.name !== '')
+    .map(([, c]) => ({
+      id: c.id ?? `call_${c.name}`,
+      type: c.type ?? 'function',
+      function: { name: c.name, arguments: c.args },
+    }))
+
+  const message: Record<string, unknown> = { role: 'assistant', content }
+  if (reasoning !== '') message.reasoning_content = reasoning
+  if (toolCalls.length > 0) message.tool_calls = toolCalls
+
+  const body: Record<string, unknown> = {
+    id: id !== '' ? id : `chatcmpl-${Date.now()}`,
+    object: 'chat.completion',
+    created,
+    model,
+    choices: [{ index: 0, message, finish_reason: finish ?? 'stop', logprobs: null }],
+  }
+  if (usage !== undefined) body.usage = usage
+  return JSON.stringify(body)
+}
+
+/**
  * 把 chatOnce 的结果写进 res（核心独占响应写入权）。
  * 流式：SSE 头 + pipe 上游已转好的 OpenAI SSE；非流式：原样写 JSON。
  *
@@ -76,13 +174,28 @@ function sinkRes(): ServerResponse & { status(): number; body(): string } {
  * 天花板：一旦写出第一个字节就绑死（HTTP 语义），中途断流只能截断，
  * 不能回退。要彻底解决得在写头前缓冲判定，代价是首字节延迟——未做。
  */
-async function writeChatResult(res: ServerResponse, r: ChatOnceResult): Promise<boolean> {
+async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStream: boolean): Promise<boolean> {
   if (!r.ok) return false // 失败不该走到这里（核心先判 ok 才写）
   if (!('stream' in r)) {
     res.writeHead(r.status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
     res.end(r.body)
     return true
   }
+  // 客户端要 JSON 但供应商只给流（如 codebuddy 强制 stream:true）→ 聚合成
+  // 一次非流式响应。核心独占响应写入权，这个协议错配必须由核心吸收，
+  // 否则客户端按 JSON 解析会在 SSE 的 delta 里找不到工具名。
+  if (!wantsStream) {
+    let body: string
+    try {
+      body = await aggregateSSE(r.stream)
+    } catch {
+      return false // 聚合失败 = 一个字节都没写，调用方可以换号重试
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+    res.end(body)
+    return true
+  }
+
   let wroteAny = false
   const writeChunk = (chunk: Uint8Array): Promise<void> =>
     new Promise<void>((resolve) => {
@@ -541,7 +654,7 @@ export class Router {
         return false
       }
       if (trace !== undefined) trace.uid = '(no-account)'
-      return await writeChatResult(res, r)
+      return await writeChatResult(res, r, req.stream)
     }
     // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
     // 不排除试过的就会原地打转——死循环等于整个服务挂住。
@@ -567,7 +680,7 @@ export class Router {
       }
       pool.noteSuccess(uid)
       if (trace !== undefined) trace.uid = uid
-      const committed = await writeChatResult(res, r)
+      const committed = await writeChatResult(res, r, req.stream)
       // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
       if (committed) return true
       pool.noteFailure(uid, 'transport', 'stream failed before first byte')

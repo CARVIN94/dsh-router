@@ -397,3 +397,59 @@ test('组合请求不污染无关供应商的账号（no_such_model 不记账）
   assert.equal(acc?.cooling, false, '不该被冷却')
   assert.equal(acc?.disabled, false, '不该被禁用')
 })
+
+/**
+ * 回归：CodeBuddy 上游的工具调用第二个 delta 会**显式发空串** name 和 id
+ * （OpenAI 规范里后续 delta 应当省略，客户端沿用首帧）。客户端（dsh）判空用
+ * `!== void 0`，空串过不了这个判断，首帧的 "bash" 就被 "" 冲掉 → 工具名变空，
+ * 下游报 `unknown tool ""`，而 arguments 独立累积所以「参数对、名字空」。
+ *
+ * 核心是流式响应的唯一写入方，必须在转发时把这些空字段剥掉。
+ * 帧数据取自真实上游（hy4-preview 工具调用）。
+ */
+test('流式：剥掉上游多发一次的空白 tool_call name/id', async () => {
+  const router = new Router('')
+  const cb = supplier('cb', [{ id: 'hy4-preview' }])
+  const REAL = [
+    'data: {"id":"cmb-1","model":"hy4-preview","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","tool_calls":[{"id":"chatcmpl-tool-a7ee5a0d3c361c7f","type":"function","function":{"name":"bash","arguments":""},"index":0}]},"finish_reason":""}]}\n\n',
+    'data: {"id":"cmb-1","model":"hy4-preview","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"","tool_calls":[{"id":"","function":{"name":"","arguments":"{\\"command\\": \\"echo hello\\"}"},"index":0}]},"finish_reason":"tool_calls"}]}\n\n',
+    'data: [DONE]\n\n',
+  ].join('')
+  cb.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode(REAL)); c.close() },
+    }),
+  })
+  addSupplier(router, cb.s)
+
+  let out = ''
+  const res = {
+    writeHead: (): void => {},
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'cb/hy4-preview', stream: true, rawBody: JSON.stringify({ model: 'cb/hy4-preview', stream: true, messages: [] }) }, res)
+
+  // 按 dsh 的合并规则跑一遍：name !== void 0 就覆盖
+  let name: string | undefined
+  let callId: string | undefined
+  let args = ''
+  for (const line of out.split('\n')) {
+    if (!line.startsWith('data: ')) continue
+    const payload = line.slice(6).trim()
+    if (payload === '[DONE]') continue
+    const o = JSON.parse(payload) as { choices?: Array<{ delta?: { tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } }> }
+    for (const tc of o.choices?.[0]?.delta?.tool_calls ?? []) {
+      if (tc.id !== undefined) callId = tc.id
+      if (tc.function?.name !== undefined) name = tc.function.name
+      args += tc.function?.arguments ?? ''
+    }
+  }
+  assert.equal(name, 'bash', `工具名必须保住（空了就会 unknown tool ""），实际 ${JSON.stringify(name)}`)
+  assert.equal(callId, 'chatcmpl-tool-a7ee5a0d3c361c7f', 'callId 也不能被空串冲掉')
+  assert.deepEqual(JSON.parse(args), { command: 'echo hello' }, 'arguments 正常累积')
+})

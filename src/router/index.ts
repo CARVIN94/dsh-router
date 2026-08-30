@@ -161,6 +161,79 @@ async function aggregateSSE(stream: ReadableStream<Uint8Array>): Promise<string>
 }
 
 /**
+ * 流式 SSE 逐帧归一化：剥掉上游多发一次的**空** tool_call 字段。
+ *
+ * 为什么必须做：CodeBuddy 上游的工具调用第二个 delta 会**显式发空串**
+ *   `{"function":{"name":"","arguments":"{...}"},"index":0}`（以及 `"id":""`）。
+ * OpenAI 规范里后续 delta 应当**省略**这些字段，客户端沿用首帧的名字；
+ * 而客户端（dsh）判空用的是 `name !== void 0`，空串过不了这个判断，于是首帧
+ * 的 "bash" 被第二帧的 "" 冲掉 —— 工具名变空，下游报 `unknown tool ""`，
+ * 而 arguments 是独立累积的，所以现象是「参数对、名字空」。
+ *
+ * 核心是流式响应的唯一写入方，这个上游不合规得核心吸收：把空串字段**删掉**
+ * （而不是留着空串），客户端看到的就是 undefined，不会覆盖。
+ *
+ * 只动 tool_calls 的空 name/id，其余原样透传；逐帧流式处理，不缓冲整条流
+ * （首字节延迟不受影响）。解析失败一律原样透传——宁可不改，也不能改坏。
+ */
+function normalizeSSEStream(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const enc = new TextEncoder()
+  const dec = new TextDecoder()
+  let buf = ''
+  return new ReadableStream<Uint8Array>({
+    start: async (ctrl) => {
+      const reader = stream.getReader()
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += dec.decode(value as Uint8Array, { stream: true })
+          let sep: number
+          // 按 SSE 空行分帧；跨 chunk 边界的不完整帧留在 buf 里等下一块
+          while ((sep = buf.indexOf('\n\n')) >= 0) {
+            const frame = buf.slice(0, sep + 2)
+            buf = buf.slice(sep + 2)
+            ctrl.enqueue(enc.encode(fixFrame(frame)))
+          }
+        }
+        if (buf !== '') ctrl.enqueue(enc.encode(fixFrame(buf)))
+      } finally {
+        reader.releaseLock()
+      }
+      ctrl.close()
+    },
+  })
+}
+
+/** 修一帧 SSE：只剥空的 name/id，出任何问题都原样返回。 */
+function fixFrame(frame: string): string {
+  // 绝大多数帧没有 tool_calls，先廉价字符串筛查，避免无谓的 JSON 解析
+  if (!frame.includes('tool_calls')) return frame
+  return frame
+    .split('\n')
+    .map((line) => {
+      if (!line.startsWith('data: ')) return line
+      const payload = line.slice(6).trim()
+      if (payload === '' || payload === '[DONE]') return line
+      let obj: Record<string, unknown>
+      try { obj = JSON.parse(payload) as Record<string, unknown> } catch { return line }
+      let changed = false
+      const choices = obj.choices as Array<Record<string, unknown>> | undefined
+      const delta = choices?.[0]?.delta as Record<string, unknown> | undefined
+      const tcs = delta?.tool_calls as Array<Record<string, unknown>> | undefined
+      if (Array.isArray(tcs)) {
+        for (const tc of tcs) {
+          if (tc.id === '') { delete tc.id; changed = true }
+          const fn = tc.function as Record<string, unknown> | undefined
+          if (fn !== null && typeof fn === 'object' && fn.name === '') { delete fn.name; changed = true }
+        }
+      }
+      return changed ? `data: ${JSON.stringify(obj)}` : line
+    })
+    .join('\n')
+}
+
+/**
  * 把 chatOnce 的结果写进 res（核心独占响应写入权）。
  * 流式：SSE 头 + pipe 上游已转好的 OpenAI SSE；非流式：原样写 JSON。
  *
@@ -222,7 +295,7 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
   }
   res.once('error', onError)
   try {
-    await r.stream.pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
+    await normalizeSSEStream(r.stream).pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
   } catch {
     // 流断了：一个字节都没写的话，调用方还能换号重试——交给上层决定
   } finally {

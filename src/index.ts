@@ -18,6 +18,9 @@
  *   PATCH /router/api/keys/:id                toggle key {isActive}
  *   GET  /router/api/settings                 { requireApiKey }
  *   PATCH /router/api/settings                { requireApiKey }
+ *   GET  /router/api/stats                    usage overview (period=today|24h|7d|30d)
+ *   GET  /router/api/stats/chart              usage bar chart buckets
+ *   POST /router/api/stats/clear              reset all usage stats
  *   POST /router/api/suppliers/:id/login                  generate login URL
  *   POST /router/api/suppliers/:id/login/callback         {callbackUrl} → add account
  *   GET  /router/api/suppliers/:id/models                 models with enabled state
@@ -28,7 +31,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
-import { ROUTER_API_BASE } from './shared.ts'
+import { ROUTER_API_BASE, type RouterPeriod } from './shared.ts'
 import { Router } from './router/index.ts'
 import { RouterAdapter } from './llm/adapter.ts'
 import { KeysStore } from './keys.ts'
@@ -405,6 +408,51 @@ export function apply(rawContext: unknown): void {
     writeJson(res, 200, { ok: true, requireApiKey: keys.requireApiKey })
   })
 
+  // ---- 概览看板：用量统计 ----
+
+  /** 解析并校验周期参数（不接受任意字符串）。 */
+  const periodOf = (raw: string | null): RouterPeriod => {
+    return raw === '24h' || raw === '7d' || raw === '30d' ? raw : 'today'
+  }
+
+  route(`${ROUTER_API_BASE}/stats`, (req, res) => {
+    const period = periodOf(new URL(req.url ?? '/', 'http://localhost').searchParams.get('period'))
+    const s = router.usage.stats(period)
+    writeJson(res, 200, {
+      ok: true,
+      period,
+      requests: s.requests,
+      okCount: s.ok,
+      failed: s.failed,
+      promptTokens: s.promptTokens,
+      completionTokens: s.completionTokens,
+      cachedTokens: s.cachedTokens,
+      avgDurationMs: s.avgDurationMs,
+      avgTtfbMs: s.avgTtfbMs,
+      estimatedInputs: s.estimatedInputs,
+      estimatedOutputs: s.estimatedOutputs,
+      lifetime: s.lifetime,
+      bySupplier: s.bySupplier,
+      byModel: s.byModel,
+      byRequested: s.byRequested,
+      recent: router.usage.recentList(20),
+    })
+  })
+
+  route(`${ROUTER_API_BASE}/stats/chart`, (req, res) => {
+    const period = periodOf(new URL(req.url ?? '/', 'http://localhost').searchParams.get('period'))
+    writeJson(res, 200, { ok: true, chart: router.usage.chart(period) })
+  })
+
+  route(`${ROUTER_API_BASE}/stats/clear`, async (req, res) => {
+    if (req.method !== 'POST') {
+      writeJson(res, 405, { ok: false, error: 'method not allowed' })
+      return
+    }
+    router.usage.clear()
+    writeJson(res, 200, { ok: true })
+  })
+
   // ---- 设置-模型：Router 提供方（固定卡片，插件注册，不可删）+ 模型目录（= 组合） ----
 
   // llm 缺失时（如测试环境）跳过，不影响 /v1 核心。
@@ -461,7 +509,7 @@ export function apply(rawContext: unknown): void {
   ctx.effect(
     () => () => {
       for (const dispose of disposers.splice(0)) dispose()
-      router.dispose()
+      router.dispose() // 内部会 flush 用量统计（防抖中的计数不能丢）
     },
     'dsh-router: teardown',
   )

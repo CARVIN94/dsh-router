@@ -150,3 +150,80 @@ export interface RouterLoginResponse {
   error?: string
   loginUrl?: string
 }
+
+/* ---------------- 概览看板（用量统计） ---------------- */
+
+/** 面板周期。 */
+export type RouterPeriod = 'today' | '24h' | '7d' | '30d'
+
+/** 一条请求明细（面板「最近请求」）。 */
+export interface RouterUsageRecord {
+  ts: number
+  supplier: string
+  model: string
+  /** 客户端原始请求的 model（组合场景下就是组合名）。 */
+  requested: string
+  ok: boolean
+  promptTokens: number
+  completionTokens: number
+  cachedTokens: number
+  /** 输入是估算的（上游没发 usage）。 */
+  inputEstimated: boolean
+  /** 输出是估算的。 */
+  outputEstimated: boolean
+  durationMs: number
+  /** 首字节延迟（ms）；非流式为 0。 */
+  ttfbMs: number
+  error?: string
+}
+
+/** Top 榜一行。 */
+export interface RouterRankRow {
+  name: string
+  requests: number
+  ok: number
+  failed: number
+  promptTokens: number
+  completionTokens: number
+  lastTs: number
+}
+
+/** `/router/api/stats` response. */
+export interface RouterStatsResponse {
+  ok: boolean
+  error?: string
+  period?: RouterPeriod
+  requests?: number
+  okCount?: number
+  failed?: number
+  promptTokens?: number
+  completionTokens?: number
+  cachedTokens?: number
+  /** 平均耗时（ms）。 */
+  avgDurationMs?: number
+  /** 平均首字节延迟（ms）。 */
+  avgTtfbMs?: number
+  /** 输入/输出为估算的请求数（面板据此提示）。 */
+  estimatedInputs?: number
+  estimatedOutputs?: number
+  /** 累计请求数（不受周期影响）。 */
+  lifetime?: number
+  bySupplier?: RouterRankRow[]
+  byModel?: RouterRankRow[]
+  byRequested?: RouterRankRow[]
+  recent?: RouterUsageRecord[]
+}
+
+/** `/router/api/stats/chart` 一桶。 */
+export interface RouterChartBucket {
+  label: string
+  requests: number
+  tokens: number
+}
+
+/** `/router/api/stats/chart` response. */
+export interface RouterChartResponse {
+  ok: boolean
+  error?: string
+  chart?: RouterChartBucket[]
+}

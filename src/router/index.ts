@@ -10,6 +10,8 @@ import type { Supplier, ChatRequest, ModelInfo, ModelWithEnabled, SupplierStatus
 import type { ChatOnceResult } from '../suppliers/contract.ts'
 import { AccountPool } from './account-pool.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
+import { UsageStore } from './usage-store.ts'
+import { tapStreamUsage, usageFromJsonBody, withEstimates, type UsageTokens } from './usage-tokens.ts'
 
 /** 一次 chat 的追踪信息（记日志用，回答「到底用的哪个模型哪个号」）。 */
 interface ChatTrace {
@@ -247,9 +249,10 @@ function fixFrame(frame: string): string {
  * 天花板：一旦写出第一个字节就绑死（HTTP 语义），中途断流只能截断，
  * 不能回退。要彻底解决得在写头前缓冲判定，代价是首字节延迟——未做。
  */
-async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStream: boolean): Promise<boolean> {
+async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStream: boolean, probe?: UsageProbe, startedAt = 0): Promise<boolean> {
   if (!r.ok) return false // 失败不该走到这里（核心先判 ok 才写）
   if (!('stream' in r)) {
+    if (probe !== undefined) probe.tokens = usageFromJsonBody(r.body)
     res.writeHead(r.status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
     res.end(r.body)
     return true
@@ -264,11 +267,14 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
     } catch {
       return false // 聚合失败 = 一个字节都没写，调用方可以换号重试
     }
+    if (probe !== undefined) probe.tokens = usageFromJsonBody(body)
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
     res.end(body)
     return true
   }
 
+  // 流式：边透传边统计（统计在 tee 之外的旁路做，首字节延迟不受影响）
+  const tapped = probe === undefined ? undefined : tapStreamUsage(r.stream, startedAt)
   let wroteAny = false
   const writeChunk = (chunk: Uint8Array): Promise<void> =>
     new Promise<void>((resolve) => {
@@ -295,12 +301,19 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
   }
   res.once('error', onError)
   try {
-    await normalizeSSEStream(r.stream).pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
+    await normalizeSSEStream(tapped?.stream ?? r.stream).pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
   } catch {
     // 流断了：一个字节都没写的话，调用方还能换号重试——交给上层决定
   } finally {
     res.removeListener('error', onError)
     if (wroteAny) res.end()
+    // 流走完才出得了 usage（上游多在最后一帧才发 usage）
+    if (probe !== undefined && tapped !== undefined) {
+      const got = await tapped.done()
+      probe.tokens = got.usage
+      probe.outputChars = got.outputChars
+      probe.ttfbMs = got.ttfbMs
+    }
   }
   return wroteAny
 }
@@ -318,6 +331,32 @@ function extractUpstreamError(body: string): string {
   return body.slice(0, 200)
 }
 
+/** 一次请求的用量观测。由 `chatCompletions` 建，一路传到 `writeChatResult`。
+ *
+ *  为什么是**每个客户端请求一条**而不是每次尝试一条：组合回退会依次试多个
+ *  供应商/账号，按尝试记账会把「1 个请求」记成「N 个请求」，请求数和成功率
+ *  全是假的。所以 probe 唯一，成功时由 `chatWithSupplier` 回填是哪个供应商
+ *  和账号成的，最后由 `chatCompletions` 落一次账。
+ */
+interface UsageProbe {
+  /** 客户端请求的 model（组合场景下就是组合名）。 */
+  requested: string
+  /** 实际服务的供应商（成功时回填）。 */
+  supplier: string
+  /** 实际调的模型（成功时回填）。 */
+  model: string
+  /** 实际服务的账号（成功时回填）。 */
+  uid: string
+  /** 上游给的 token（null = 上游没发，会走估算）。 */
+  tokens: UsageTokens | null
+  /** 输出内容字符数（上游没给输出 token 时用来估算）。 */
+  outputChars: number
+  /** 首字节延迟（ms）；非流式/一个字节都没收到时为 0。 */
+  ttfbMs: number
+  /** 请求开始时间。 */
+  startedAt: number
+}
+
 /** 路由器。 */
 export class Router {
   private suppliers: Supplier[] = []
@@ -331,11 +370,14 @@ export class Router {
   private modelsCache = new Map<string, { models: ModelWithEnabled[]; fetchedAt: number }>()
   /** 请求日志出口（面板/宿主 logger）。 */
   private log: (msg: string) => void
+  /** 用量统计（概览看板）。 */
+  usage: UsageStore
 
   constructor(stateFile = '', store?: SupplierConfigStore, log?: (msg: string) => void) {
     this.combosFp = stateFile ? join(dirname(stateFile), 'combos.json') : ''
     this.store = store ?? new SupplierConfigStore(stateFile)
     this.log = log ?? ((): void => {})
+    this.usage = new UsageStore(stateFile)
     this.loadCombos()
   }
 
@@ -615,6 +657,35 @@ export class Router {
    * - 否则 → 依次尝试供应商，直到某个返回 true（已写响应）或全部返回 false。
    */
   async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<void> {
+    // 每个客户端请求一条用量记录（组合回退会试多个供应商，但只落一次账）
+    const probe: UsageProbe = {
+      requested: req.model,
+      supplier: '',
+      model: '',
+      uid: '',
+      tokens: null,
+      outputChars: 0,
+      ttfbMs: 0,
+      startedAt: Date.now(),
+    }
+    const settle = (ok: boolean, error?: string): void => {
+      // 估算只在**请求真被服务**时才有意义：失败请求一个字节都没到上游
+      // （或上游直接拒了），拿请求体字符数给它编造输入 token 只会把
+      // token 总量灌水。成功但上游没发 usage 才走估算。
+      const usage = ok
+        ? withEstimates(probe.tokens, req.rawBody.length, probe.outputChars)
+        : { promptTokens: 0, completionTokens: 0, cachedTokens: 0, inputEstimated: false, outputEstimated: false }
+      this.usage.record({
+        supplier: probe.supplier,
+        model: probe.model,
+        requested: probe.requested,
+        ok,
+        durationMs: Date.now() - probe.startedAt,
+        ttfbMs: probe.ttfbMs,
+        ...(error === undefined ? {} : { error }),
+      }, usage)
+    }
+
     const combo = this.comboByName(req.model)
     if (combo) {
       // 组合：按策略选起点，然后按组合模型顺序回退
@@ -625,9 +696,13 @@ export class Router {
       for (let i = 0; i < combo.models.length; i++) {
         const model = combo.models[(start + i) % combo.models.length]
         if (model === undefined) continue
-        const served = await this.chatWithModel(req, res, model)
-        if (served) return
+        const served = await this.chatWithModel(req, res, model, probe)
+        if (served) {
+          settle(true)
+          return
+        }
       }
+      settle(false, 'combo: all models unavailable')
       writeJson(res, 503, openAIError('no_healthy_supplier', `combo ${JSON.stringify(req.model)}: all models unavailable`))
       return
     }
@@ -637,13 +712,21 @@ export class Router {
     const alias = slash > 0 ? req.model.slice(0, slash) : ''
     const target = alias === '' ? undefined : this.supplierByAlias(alias)
     if (target !== undefined) {
-      const served = await this.chatWithTarget(target, req, res)
-      if (served) return
+      const served = await this.chatWithTarget(target, req, res, probe)
+      if (served) {
+        settle(true)
+        return
+      }
+      settle(false, `supplier ${target.id}: all accounts unavailable`)
       writeJson(res, 503, openAIError('no_healthy_supplier', `supplier ${JSON.stringify(target.id)}: all accounts unavailable`))
       return
     }
-    const served = await this.chatWithModel(req, res, req.model)
-    if (served) return
+    const served = await this.chatWithModel(req, res, req.model, probe)
+    if (served) {
+      settle(true)
+      return
+    }
+    settle(false, 'all suppliers unavailable')
     writeJson(res, 503, openAIError('no_healthy_supplier', 'all suppliers unavailable'))
   }
 
@@ -651,8 +734,8 @@ export class Router {
    *  模型名**原样**传给插件（不在这剥 alias/）——插件自己认得自己的别名
    *  （如 traework 会剥第一段）。核心在这剥就会剥两次，把模型 id 里的
    *  命名空间（如 org/name）吃掉。 */
-  private async chatWithTarget(s: Supplier, req: ChatRequest, res: ServerResponse): Promise<boolean> {
-    return await this.chatWithModel(req, res, `${s.id},${req.model}`)
+  private async chatWithTarget(s: Supplier, req: ChatRequest, res: ServerResponse, probe?: UsageProbe): Promise<boolean> {
+    return await this.chatWithModel(req, res, `${s.id},${req.model}`, probe)
   }
 
   /** 把 model 改写为组合选中的模型名后，找对应的供应商 + 账号（策略全在核心）。
@@ -661,7 +744,7 @@ export class Router {
    *  不再挨个问供应商「这是不是你的模型」——精准调用，也避免同名模型串台。
    *  兼容旧的裸 `modelId`（没有逗号）：降级为遍历，行为同以前。
    */
-  private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string): Promise<boolean> {
+  private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string, probe?: UsageProbe): Promise<boolean> {
     const comma = model.indexOf(',')
     const supplierId = comma > 0 ? model.slice(0, comma) : undefined
     // 组合存的是供应商 id，但插件认的是自己的模型 id
@@ -686,7 +769,7 @@ export class Router {
       }
       const t0 = Date.now()
       const trace: ChatTrace = { attempts: 0 }
-      const served = await this.chatWithSupplier(s, clone, res, trace)
+      const served = await this.chatWithSupplier(s, clone, res, trace, probe)
       this.logChat(req.model, served
         ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}`
         : `${s.id}/${modelId} 失败 ${trace.lastError ?? 'no account'}`, Date.now() - t0)
@@ -695,7 +778,7 @@ export class Router {
 
     // 旧格式裸模型 id：退化为遍历
     for (const s of this.suppliers) {
-      const served = await this.chatWithSupplier(s, clone, res)
+      const served = await this.chatWithSupplier(s, clone, res, undefined, probe)
       if (served) return true
     }
     return false
@@ -715,7 +798,7 @@ export class Router {
    * 之后出错不再换号——要彻底能回退就得在写头前缓冲判定，代价是首字节
    * 延迟，目前未做。
    */
-  private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse, trace?: ChatTrace): Promise<boolean> {
+  private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse, trace?: ChatTrace, probe?: UsageProbe): Promise<boolean> {
     const pool = s.pool
     const cfg = this.store.get(s.id)
     // 无账号供应商：直接调一次（uid 传空，插件忽略）
@@ -727,7 +810,14 @@ export class Router {
         return false
       }
       if (trace !== undefined) trace.uid = '(no-account)'
-      return await writeChatResult(res, r, req.stream)
+      if (probe !== undefined) {
+        probe.supplier = s.id
+        // 记对外全名 alias/model：与直接调用路径一致。组合里存的是裸
+        // modelId，直接记会把同一个模型在 Top 榜上分裂成两行。
+        probe.model = `${s.getAlias()}/${req.model}`
+        probe.uid = ''
+      }
+      return await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
     }
     // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
     // 不排除试过的就会原地打转——死循环等于整个服务挂住。
@@ -753,7 +843,14 @@ export class Router {
       }
       pool.noteSuccess(uid)
       if (trace !== undefined) trace.uid = uid
-      const committed = await writeChatResult(res, r, req.stream)
+      if (probe !== undefined) {
+        probe.supplier = s.id
+        // 记对外全名 alias/model：与直接调用路径一致。组合里存的是裸
+        // modelId，直接记会把同一个模型在 Top 榜上分裂成两行。
+        probe.model = `${s.getAlias()}/${req.model}`
+        probe.uid = uid
+      }
+      const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
       // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
       if (committed) return true
       pool.noteFailure(uid, 'transport', 'stream failed before first byte')
@@ -797,5 +894,6 @@ export class Router {
   dispose(): void {
     for (const s of this.suppliers) s.dispose()
     this.suppliers = []
+    this.usage.flush()
   }
 }

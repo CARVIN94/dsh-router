@@ -1,6 +1,6 @@
 {
   "name": "dsh-router-core",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DSH plugin: a simplified 9router (AI routing gateway). Adds a 路由系统 (Routing System) sidebar entry beside 记忆系统; the panel shows suppliers, account pool, combos, and endpoint/API keys.",
   "type": "module",
   "repository": {

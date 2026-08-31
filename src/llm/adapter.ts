@@ -15,6 +15,7 @@ import {
   type LlmModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import { mergeUsage, normalizeUsage, toTokenUsage, type UsageTokens } from '../router/usage-tokens.ts'
 
 /** 模型目录来源：组合。 */
 export interface RouterAdapterSource {
@@ -107,15 +108,16 @@ interface OpenBlock {
   name?: string
 }
 
-/** openai SSE payload → DSH StreamChunk 流。 */
-async function* translate(payloads: Iterable<string>): AsyncGenerator<StreamChunk> {
+/** openai SSE payload → DSH StreamChunk 流。导出以便单测锁死 usage 契约。 */
+export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<StreamChunk> {
   let nextIndex = 0
   let textBlock: OpenBlock | undefined
   let reasoningBlock: OpenBlock | undefined
   const toolBlocks = new Map<number, OpenBlock>()
   const order: OpenBlock[] = []
   let pendingFinish: { kind: string; failure?: unknown } | undefined
-  let pendingUsage: unknown
+  /** 攒上游各帧的 usage（归一形态），[DONE] 时统一转成 DSH 契约。 */
+  let accumulated: UsageTokens | null = null
 
   const open = (kind: OpenBlock['kind']): OpenBlock => {
     const block: OpenBlock = { index: nextIndex++, kind, text: '' }
@@ -128,7 +130,15 @@ async function* translate(payloads: Iterable<string>): AsyncGenerator<StreamChun
       for (const block of order) {
         yield { type: 'block-end', index: block.index, block: closeBlock(block) }
       }
-      if (pendingUsage !== undefined) yield { type: 'usage', usage: pendingUsage as never }
+      if (accumulated !== null) {
+        // 转成 DSH 的 TokenUsage：**必须**转，不能把上游的 OpenAI 形态
+        // （prompt_tokens，且含缓存）原样透传。字段名和 DISJOINT 口径都
+        // 对不上，下游 token-meter 读到 undefined 会累加出 NaN，投影
+        // schema 校验一抛就是整条 session.history 失败（「历史加载失败」）。
+        // 转换结果为 null（三个数全 0）则整个省略 usage。见 toTokenUsage。
+        const usage = toTokenUsage(accumulated)
+        if (usage !== null) yield { type: 'usage', usage }
+      }
       const reason = pendingFinish ?? { kind: 'stop' }
       yield {
         type: 'finish',
@@ -188,7 +198,9 @@ async function* translate(payloads: Iterable<string>): AsyncGenerator<StreamChun
       }
       if (typeof choice.finish_reason === 'string') pendingFinish = mapFinishReason(choice.finish_reason)
     }
-    if (chunk.usage !== undefined) pendingUsage = chunk.usage
+    // 上游可能把 usage 拆在多个帧里（Claude 系：先给输入、后给输出），
+    // 所以是字段级 max 合并，不是覆盖。攒着，[DONE] 时统一转契约。
+    if (chunk.usage !== undefined) accumulated = mergeUsage(accumulated, normalizeUsage(chunk.usage))
   }
   throw new LlmError('SSE payload stream ended without [DONE]', 'STREAM_CLOSED')
 }
@@ -268,6 +280,6 @@ export class RouterAdapter extends LlmAdapter {
       throw new LlmError(`dsh-router /v1 returned ${resp.status}: ${detail.slice(0, 200)}`, 'TRANSPORT')
     }
     const text = resp.body === null ? '' : await resp.text()
-    yield* translate(parseSseText(text))
+    yield* translateSse(parseSseText(text))
   }
 }

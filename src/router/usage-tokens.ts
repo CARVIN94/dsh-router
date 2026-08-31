@@ -18,6 +18,7 @@
  *   - 不注入 `stream_options.include_usage`：那要改写客户端的请求体，
  *     个别上游不认这个字段。上游不发我们就估算，不动请求语义。
  */
+import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 
 /** 归一化后的用量（不含估算标记）。 */
 export interface UsageTokens {
@@ -157,6 +158,50 @@ export function usageFromJsonBody(body: string): UsageTokens | null {
     }
   }
   return merged
+}
+
+/**
+ * 归一用量 → DSH 的 `TokenUsage`（**必须**走这一步再交给 dsh-llm）。
+ *
+ * 为什么不能把上游 usage 原样透传：dsh-llm 的 `TokenUsage` 有两条硬性约定，
+ * 上游的 OpenAI 形态两条都踩：
+ *   1. 字段名是 `inputTokens` / `outputTokens`，不是 `prompt_tokens`；
+ *      名字对不上 → 下游读 `usage.inputTokens` 得 `undefined` → 累加出 `NaN`。
+ *   2. **DISJOINT 口径**：`inputTokens` 只算**未缓存**输入，缓存单列
+ *      `cacheReadTokens`/`cacheWriteTokens`（计费输入 = 三者之和）。
+ *      OpenAI 的 `prompt_tokens` 是**含**缓存的总量，直接当 inputTokens
+ *      就是重复计费。
+ *
+ * 后果不只是「数字不好看」：token-meter 的投影 schema 是
+ * `z.number().int().nonnegative()`，`NaN` 一进去校验就抛，整条
+ * `session.history` RPC 失败 —— 表现为「历史加载失败：history unavailable
+ * for session ... expected number, received NaN」。所以这里是**写入侧**
+ * 的防线：宁可丢掉这一帧 usage，也不能往会话日志里写 NaN。
+ *
+ * 天花板（刻意不做）：不区分 cacheRead/cacheWrite。上游多数只报读不报写，
+ * 拆不开的字段硬拆只会更错；哪天上游稳定给 `cache_creation_input_tokens`
+ * 再补 `cacheWriteTokens`（升级路径就在这）。
+ *
+ * @returns DSH 契约用量；三个数全为 0 时返回 null（= 这一帧没真数据）
+ */
+export function toTokenUsage(tokens: UsageTokens | null): TokenUsage | null {
+  if (tokens === null) return null
+  // promptTokens 含缓存（normalizeUsage 的口径），DISJOINT 要求减掉
+  const input = finiteInt(tokens.promptTokens - tokens.cachedTokens)
+  const output = finiteInt(tokens.completionTokens)
+  const cachedTokens = finiteInt(tokens.cachedTokens)
+  if (input === 0 && output === 0 && cachedTokens === 0) return null
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    ...(cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {}),
+  }
+}
+
+/** 取非负有限整数：NaN / Infinity / 负数一律归 0，小数取整。 */
+function finiteInt(v: number): number {
+  if (!Number.isFinite(v)) return 0
+  return Math.max(0, Math.round(v))
 }
 
 /** 一帧 SSE 里的可见文本内容（用于输出字符数估算）。 */

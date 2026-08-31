@@ -8,10 +8,12 @@
  *
  * **挂载在「设置」里**（`settings.section` 座位），所以布局规则跟中心栏劫持时期不同：
  *   - 没有 masthead / 返回会话按钮 —— 设置面板自带标题栏和关闭
- *   - **滚动归外壳**（`.VOzbGW_options`，overflow-y:auto）—— 这里只管内容流，
- *     不设 height/overflow，否则会和外壳抢滚动、内容被裁
- *   - 根节点外面套了一层 `display: contents`，所以根节点没有自己的盒子，
- *     不能用 height:100% / flex:1 撑满那套写法
+ *   - **tab 条固定、只有内容区滚**：根节点限高 `height:100%`，内容区
+ *     `flex:1 + min-height:0 + overflow-y:auto` 自己滚。
+ *     根节点**必须限高** —— 不限高内容会把外壳撑开，退化成整页滚、
+ *     tab 条跟着滚上去
+ *   - 根节点外面套了一层 `display: contents`（宿主 slot renderer 给的），
+ *     不过实测 `height:100%` 仍能穿过它解析到外壳高度
  *   - 内容宽度实测 564px（面板 612 − 左右 padding 24），卡片 grid 按这个宽度排
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'

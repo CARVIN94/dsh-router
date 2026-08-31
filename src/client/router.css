@@ -97,13 +97,23 @@
    dsh-router — 设置页容器（settings.section 座位）
    ============================================================ */
 
-/* 容器几何是浏览器实测的，改之前先想清楚（别凭感觉）：
+/* 容器几何（浏览器实测，改之前先量别凭感觉）：
    - 内容宽 564px（面板 612 − 左右 padding 24）
-   - 滚动归外壳 .VOzbGW_options（overflow-y:auto，视口 813 时可视高 703）
-   - 根节点外面套了一层 display:contents → 根节点没有自己的盒子
-   所以：不设 height / overflow / flex:1，只管内容流，让外壳滚。 */
+   - 外壳 .VOzbGW_options 是 `overflow-y:auto` + `flex:1 1 0%`，高度确定
+     （视口 813 时可视高 703~746）
+   - 根节点外面套了一层 display:contents（宿主 slot renderer 给的），**没有
+     盒子** —— 但实测 `height:100%` 仍能穿过它解析到外壳高度
+     （验过：root 从 1332px 溢出态变成 722px，正好填满容器）
+
+   布局规则：**tab 条固定，只有下面的内容区滚**。
+   所以根节点必须限高（不限高内容会把外壳撑开，变成整页滚），内容区再
+   min-height:0 + overflow-y:auto 自己滚。
+   关键字是 min-height:0 —— flex 子项默认 min-height:auto，不给 0 的话
+   子项缩不小，overflow 永远不触发。 */
 .dshr-settings {
   display: flex;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
   gap: 14px;
 }
@@ -118,6 +128,7 @@
    层级也反了（导航是页面级，周期是筛选级）。 */
 .dshr-tabs {
   display: flex;
+  flex: none;          /* 固定：内容区滚，tab 条不动 */
   align-items: center;
   gap: 4px;
   border-bottom: 1px solid var(--rs-line);
@@ -175,11 +186,15 @@
 
 .dshr-tabBack:hover { color: var(--rs-text); background: var(--rs-hover); }
 
-/* 内容区：不设高度、不设 overflow —— 滚动归外壳 */
+/* 内容区：吃掉剩余高度并**自己滚**，这样 tab 条永远留在顶部。
+   flex:1 + min-height:0 是必须的（见 .dshr-settings 的注释）。 */
 .dshr-settingsBody {
   display: flex;
   min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 /* ============================================================
@@ -535,9 +550,9 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
    dsh-router — 9router 风格 tab 内容（供应商 / 组合 / 端点与密钥）
    ============================================================ */
 
-/* tab 内容：设置页里**不自己滚动**（滚动归外壳 .VOzbGW_options），
-   也不撑高度（根节点外面是 display:contents，没有可撑的盒子）。
-   老的 .dshr-shell 中心栏挂载方式靠 .dshr-content 的 flex 给高度，那里再接管。 */
+/* tab 内容：设置页里**不自己滚** —— 滚动交给 .dshr-settingsBody（tab 条下方
+   那一块）。这里再给 overflow 就会出现嵌套滚动条（内容区一个、tabBody 一个）。
+   老的 .dshr-shell 中心栏挂载方式没有 settingsBody 那层，滚动由它自己承担。 */
 .dshr-tabBody {
   display: flex;
   min-width: 0;

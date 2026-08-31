@@ -311,7 +311,15 @@ test('流在写出第一个字节前就断 → 组合回退到下一个模型', 
   assert.equal(heads, 1, '响应头只应提交一次')
 })
 
-test('已写出字节后断流 → 诚实截断，不回退也不二次写头', async () => {
+/**
+ * 已写出字节后断流：诚实截断，不回退也不二次写头 —— 但要**补一个终止帧**。
+ *
+ * 客户端（dsh-llm adapter）严格等 `[DONE]` 才认为流正常结束；缺了就抛
+ * `SSE payload stream ended without [DONE]`，整轮判失败，已经吐出去的内容
+ * 全部作废。所以核心补终止帧：断流降级为「拿到截断内容并正常收尾」，
+ * 而不是「整轮白干」。
+ */
+test('已写出字节后断流 → 截断并补 [DONE]，不回退也不二次写头', async () => {
   const router = new Router('')
   const half = supplier('half', [{ id: 'half-m' }])
   half.s.chatOnce = async (): Promise<ChatOnceResult> => ({
@@ -351,8 +359,79 @@ test('已写出字节后断流 → 诚实截断，不回退也不二次写头', 
   await router.chatCompletions({ model: 'c2', stream: true, rawBody: JSON.stringify({ model: 'c2', messages: [] }) }, res)
 
   assert.ok(out.includes('半截'), '已投递的字节要送达客户端')
-  assert.ok(!out.includes('[DONE]'), '已提交就不该再接第二个模型的内容（会串流）')
+  assert.ok(out.includes('data: [DONE]'), '断流要补终止帧，否则客户端整轮判失败')
+  assert.equal(out.match(/\[DONE\]/g)?.length ?? 0, 1, '终止帧只能有一个（重复会坑客户端）')
+  assert.ok(!out.includes('兜底'), '已提交就不该再接第二个模型的内容（会串流）')
   assert.equal(heads, 1, '响应头只能提交一次')
+})
+
+/** 上游自己发了终止帧就别再补一个（重复 [DONE] 同样坑客户端）。 */
+test('上游已发 [DONE] → 不重复补', async () => {
+  const router = new Router('')
+  const s = supplier('sup', [{ id: 'm' }])
+  s.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"完整"}}]}\n\ndata: [DONE]\n\n'))
+        c.close()
+      },
+    }),
+  })
+  addSupplier(router, s.s)
+
+  let out = ''
+  const res = {
+    writeHead: (): void => {},
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'sup/m', stream: true, rawBody: JSON.stringify({ model: 'sup/m', messages: [] }) }, res)
+
+  assert.equal(out.match(/\[DONE\]/g)?.length ?? 0, 1, `终止帧不能重复，实际: ${JSON.stringify(out)}`)
+})
+
+/**
+ * 一个字节都没写出就断 → 绝不能补 [DONE]。
+ * 补了就等于把这次失败坐实成一个空响应，组合回退（换号/换模型）就废了。
+ */
+test('首字节前就断 → 不补 [DONE]，留给组合回退', async () => {
+  const router = new Router('')
+  const dead = supplier('dead', [{ id: 'dead-m' }])
+  dead.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({ start(c) { c.error(new Error('上游刚连上就断')) } }),
+  })
+  const live = supplier('live', [{ id: 'live-m' }])
+  live.s.chatOnce = async (): Promise<ChatOnceResult> => ({
+    ok: true,
+    stream: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"兜底"}}]}\n\ndata: [DONE]\n\n'))
+        c.close()
+      },
+    }),
+  })
+  addSupplier(router, dead.s)
+  addSupplier(router, live.s)
+  assert.equal(router.createCombo('c3', 'fallback', ['dead,dead-m', 'live,live-m']).ok, true)
+
+  let out = ''
+  const res = {
+    writeHead: (): void => {},
+    write: (b: Uint8Array | string): boolean => { out += Buffer.from(b).toString(); return true },
+    end: (): void => {},
+    once: (): void => {},
+    removeListener: (): void => {},
+    destroy: (): void => {},
+  } as unknown as ServerResponse
+  await router.chatCompletions({ model: 'c3', stream: true, rawBody: JSON.stringify({ model: 'c3', messages: [] }) }, res)
+
+  assert.equal(out.match(/\[DONE\]/g)?.length ?? 0, 1, '只有兜底那个流该有终止帧')
+  assert.ok(out.includes('兜底'), '必须回退到下一个模型')
 })
 
 /**

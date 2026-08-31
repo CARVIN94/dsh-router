@@ -163,7 +163,9 @@ async function aggregateSSE(stream: ReadableStream<Uint8Array>): Promise<string>
 }
 
 /**
- * 流式 SSE 逐帧归一化：剥掉上游多发一次的**空** tool_call 字段。
+ * 流式 SSE 逐帧归一化：剥掉上游多发一次的**空** tool_call 字段，
+ * 并记住上游有没有发终止帧（`data: [DONE]`）—— 断流时核心要据此补发，
+ * 见 `writeChatResult`。
  *
  * 为什么必须做：CodeBuddy 上游的工具调用第二个 delta 会**显式发空串**
  *   `{"function":{"name":"","arguments":"{...}"},"index":0}`（以及 `"id":""`）。
@@ -178,11 +180,16 @@ async function aggregateSSE(stream: ReadableStream<Uint8Array>): Promise<string>
  * 只动 tool_calls 的空 name/id，其余原样透传；逐帧流式处理，不缓冲整条流
  * （首字节延迟不受影响）。解析失败一律原样透传——宁可不改，也不能改坏。
  */
-function normalizeSSEStream(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+function normalizeSSEStream(stream: ReadableStream<Uint8Array>): {
+  stream: ReadableStream<Uint8Array>
+  /** 上游（或最后一帧残留）里出现过终止帧？调用方在流结束后读。 */
+  sawDone: () => boolean
+} {
   const enc = new TextEncoder()
   const dec = new TextDecoder()
   let buf = ''
-  return new ReadableStream<Uint8Array>({
+  let sawDone = false
+  const out = new ReadableStream<Uint8Array>({
     start: async (ctrl) => {
       const reader = stream.getReader()
       try {
@@ -195,16 +202,26 @@ function normalizeSSEStream(stream: ReadableStream<Uint8Array>): ReadableStream<
           while ((sep = buf.indexOf('\n\n')) >= 0) {
             const frame = buf.slice(0, sep + 2)
             buf = buf.slice(sep + 2)
+            if (isDoneFrame(frame)) sawDone = true
             ctrl.enqueue(enc.encode(fixFrame(frame)))
           }
         }
-        if (buf !== '') ctrl.enqueue(enc.encode(fixFrame(buf)))
+        if (buf !== '') {
+          if (isDoneFrame(buf)) sawDone = true
+          ctrl.enqueue(enc.encode(fixFrame(buf)))
+        }
       } finally {
         reader.releaseLock()
       }
       ctrl.close()
     },
   })
+  return { stream: out, sawDone: () => sawDone }
+}
+
+/** 一帧 SSE 里有没有终止帧（宽松匹配：跨 chunk 的残留尾帧也认）。 */
+function isDoneFrame(frame: string): boolean {
+  return /(^|\n)data:[ \t]*\[DONE\][ \t]*(\n|$)/.test(frame)
 }
 
 /** 修一帧 SSE：只剥空的 name/id，出任何问题都原样返回。 */
@@ -246,6 +263,9 @@ function fixFrame(frame: string): string {
  * 先写头就等于把自己锁死在这一个账号上，组合就没法回退了——而客户端只拿到
  * 一个空/截断的 SSE，表现为工具调用名是空串（`unknown tool ""`）。
  *
+ * 截断时**补发终止帧**（见末尾 finally）：客户端严格等 `[DONE]`，缺了就
+ * 整轮判失败，已流式吐出的内容全废。
+ *
  * 天花板：一旦写出第一个字节就绑死（HTTP 语义），中途断流只能截断，
  * 不能回退。要彻底解决得在写头前缓冲判定，代价是首字节延迟——未做。
  */
@@ -276,8 +296,11 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
   // 流式：边透传边统计（统计在 tee 之外的旁路做，首字节延迟不受影响）
   const tapped = probe === undefined ? undefined : tapStreamUsage(r.stream, startedAt)
   let wroteAny = false
+  /** 响应已死（客户端断开/res 已销毁）：等 drain 的写入要立刻放弃，别吊死。 */
+  let dead = false
   const writeChunk = (chunk: Uint8Array): Promise<void> =>
     new Promise<void>((resolve) => {
+      if (dead) { resolve(); return }
       if (!wroteAny) {
         // 第一个字节到手，此刻才提交响应头
         res.writeHead(200, {
@@ -292,20 +315,37 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
         wroteAny = true
       }
       if (res.write(chunk)) resolve()
-      else res.once('drain', resolve)
+      else {
+        // 背压：等 drain。但连接可能在这期间断掉 —— 那时 'drain' 永不到来，
+        // 得靠 dead 标志（onError 里置位）兜住，否则这次请求会永远挂着。
+        const onDrain = (): void => { res.removeListener('error', onDrain); resolve() }
+        res.once('drain', onDrain)
+      }
     })
 
   // 流中途出错（客户端断开/上游断流）也要结束响应，否则连接悬挂
   const onError = (): void => {
+    dead = true
     res.destroy()
   }
   res.once('error', onError)
+  const norm = normalizeSSEStream(tapped?.stream ?? r.stream)
   try {
-    await normalizeSSEStream(tapped?.stream ?? r.stream).pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
+    await norm.stream.pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
   } catch {
     // 流断了：一个字节都没写的话，调用方还能换号重试——交给上层决定
   } finally {
     res.removeListener('error', onError)
+    // 断流也要给客户端一个终止帧。客户端（dsh-llm adapter）严格等
+    // `[DONE]`，缺了就整轮判失败（`SSE payload stream ended without
+    // [DONE]`），已经流式吐出去的内容全部作废。上游自己发了就不重复发
+    // （多发一个 [DONE] 同样坑客户端）。
+    //
+    // 只在**已提交响应**时补：一个字节都没写 = 还能换号重试，补了就等于
+    // 把这次失败坐实成一个空响应，组合回退就没了。
+    if (wroteAny && !norm.sawDone() && !dead && !res.writableEnded && !res.destroyed) {
+      await writeChunk(DONE_FRAME)
+    }
     if (wroteAny) res.end()
     // 流走完才出得了 usage（上游多在最后一帧才发 usage）
     if (probe !== undefined && tapped !== undefined) {
@@ -317,6 +357,9 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
   }
   return wroteAny
 }
+
+/** SSE 终止帧（断流兜底补发用）。 */
+const DONE_FRAME = new TextEncoder().encode('data: [DONE]\n\n')
 
 /** 从上游响应体提取错误信息（OpenAI {error:{message}} 或 {code,msg}/{message}）。 */
 function extractUpstreamError(body: string): string {

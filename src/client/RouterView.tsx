@@ -117,7 +117,7 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
                 </div>
                 <div className="dshr-supplierMeta">
                   {supplierAccounts.length > 0 && (
-                    <span className="dshr-muted">{supplierAccounts.length}/{healthy} 健康</span>
+                    <span className="dshr-muted">{healthy}/{supplierAccounts.length} 健康</span>
                   )}
                   <span className="dshr-chevron">›</span>
                 </div>

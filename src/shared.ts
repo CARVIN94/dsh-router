@@ -51,6 +51,18 @@ export interface RouterModelsResponse {
   models?: Array<{ id: string; context_length?: number }>
 }
 
+/** 一键签到：单个供应商的汇总结果（`/suppliers/:id/checkin` 的响应体）。 */
+export interface RouterCheckinResponse {
+  ok: boolean
+  error?: string
+  total: number
+  /** 真正 claim 成功的链接数。 */
+  succeeded: number
+  /** 今日已签到的链接数（幂等成功）。 */
+  already: number
+  results?: Array<{ uid: string; ok: boolean; status?: string; message?: string }>
+}
+
 /** `/router/api/health` response. */
 export interface RouterHealthResponse {
   ok: boolean

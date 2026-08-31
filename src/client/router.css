@@ -2354,6 +2354,62 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 .dshr-statCard-warn .dshr-statValue { color: var(--rs-warn); }
 .dshr-statCard-danger .dshr-statValue { color: var(--rs-danger); }
 
+/* 签到卡：跟统计卡同宽同高，但里面是按钮不是数字。
+   今日已点过 → 边框转成功色，一眼看出「今天点过了」 */
+.dshr-statCard-checkin { gap: 6px; }
+
+.dshr-statCard-done {
+  border-color: color-mix(in srgb, var(--rs-success) 45%, transparent);
+}
+
+/* 按钮撑满卡片宽度：卡片本来就窄，居左的小按钮看着像没对齐 */
+.dshr-checkinButton {
+  display: inline-flex;
+  width: 100%;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  color: var(--rs-text);
+  background: var(--rs-layer-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease, border-color .12s ease;
+}
+
+.dshr-checkinButton:hover:not(:disabled) {
+  border-color: var(--rs-accent);
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 8%, transparent);
+}
+
+.dshr-checkinButton:disabled { opacity: .6; cursor: default; }
+
+/* 已点过：按钮转成成功色柔和态（仍可再点） */
+.dshr-statCard-done .dshr-checkinButton {
+  border-color: color-mix(in srgb, var(--rs-success) 40%, transparent);
+  color: var(--rs-success);
+  background: color-mix(in srgb, var(--rs-success) 8%, transparent);
+}
+
+.dshr-checkinOk {
+  color: var(--rs-success);
+  font-size: 11px;
+}
+
+/* 失败明细可能很长：截断 + 悬停看全（title 在组件里） */
+.dshr-checkinErr {
+  overflow: hidden;
+  color: var(--rs-danger);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dshr-estimateNote {
   margin: 0;
   color: var(--rs-faint);

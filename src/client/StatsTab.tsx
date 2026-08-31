@@ -25,11 +25,13 @@ import {
   ROUTER_API_BASE,
   type RouterChartBucket,
   type RouterChartResponse,
+  type RouterHealthResponse,
   type RouterPeriod,
   type RouterRankRow,
   type RouterStatsResponse,
   type RouterUsageRecord,
 } from '../shared.ts'
+import { CheckinCard } from './CheckinCard.tsx'
 
 /* ---------------- SVG 图标 ---------------- */
 
@@ -366,9 +368,14 @@ interface StatsTabProps {
   refreshing: boolean
   /** 掩码：面板是否可见（不可见时不做周期轮询）。 */
   active: boolean
+  /**
+   * 供应商健康快照：签到卡要按 `checkinNow` 能力筛出可签到的供应商。
+   * 不传就不显示签到卡（老的中心栏挂载方式下 RouterView 也会传，这里留可选）。
+   */
+  health?: RouterHealthResponse | null
 }
 
-export function StatsTab({ onRefresh, refreshing, active }: StatsTabProps): JSX.Element {
+export function StatsTab({ onRefresh, refreshing, active, health }: StatsTabProps): JSX.Element {
   const [period, setPeriod] = useState<RouterPeriod>('today')
   const [stats, setStats] = useState<RouterStatsResponse | null>(null)
   const [chart, setChart] = useState<RouterChartBucket[]>([])
@@ -489,6 +496,9 @@ export function StatsTab({ onRefresh, refreshing, active }: StatsTabProps): JSX.
                 hint={(s?.avgTtfbMs ?? 0) > 0 ? `首字节 ${fmtDuration(s?.avgTtfbMs)}` : undefined}
                 tone="warn"
               />
+              {/* 签到卡放在最后：它是操作（按钮）不是指标，但跟指标同宽同高度，
+                  排在统计卡后面不会让人误以为是又一个 token 计数 */}
+              {health !== undefined && <CheckinCard health={health} onRefresh={onRefresh} />}
             </div>
 
             {estimated && (

@@ -147,6 +147,7 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
           <StatsTab
             active
             refreshing={refreshing}
+            health={snapshot.health}
             onRefresh={() => void refresh()}
           />
         )}

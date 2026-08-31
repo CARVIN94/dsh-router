@@ -48,12 +48,16 @@ const I = {
   empty: 'M4 4h16v16H4zM8 12h8M12 8v8',
 }
 
-/** 周期选项（9router 的 PERIODS）。 */
+/**
+ * 周期选项（9router 的 PERIODS）。
+ * `value` 是 `/stats?period=` 的参数值，别为了显示去动它；
+ * 显示文案统一中文（跟「今日」一致）。
+ */
 const PERIODS: Array<{ value: RouterPeriod; label: string }> = [
   { value: 'today', label: '今日' },
-  { value: '24h', label: '24h' },
-  { value: '7d', label: '7D' },
-  { value: '30d', label: '30D' },
+  { value: '24h', label: '24 小时' },
+  { value: '7d', label: '7 天' },
+  { value: '30d', label: '30 天' },
 ]
 
 /** 「最近请求」显示条数（后端给了 20 条，面板只看最近的这些）。 */
@@ -151,7 +155,7 @@ function LineChart({ buckets, busy }: { buckets: RouterChartBucket[]; busy: bool
   const areaPath = pts.length > 0
     ? `${linePath}L${xOf(n - 1)},${TREND_H - TREND_PAD_B}L${xOf(0)},${TREND_H - TREND_PAD_B}Z`
     : ''
-  // 标签最多 ~8 个，最后一个一定显示（7d 全显示，24 小时每 3 小时一个）；
+  // 标签最多 ~8 个，最后一个一定显示（7 天周期全显示，24 小时每 3 小时一个）；
   // 末尾那个离倒数第二格太近时会叠字，这时让位给最后一格
   const labelStep = Math.max(1, Math.ceil(n / 8))
   const showLabel = (i: number): boolean => i === n - 1 || (i % labelStep === 0 && n - 1 - i >= labelStep / 2)

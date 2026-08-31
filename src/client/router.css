@@ -112,49 +112,54 @@
 .dshr-settings *::before,
 .dshr-settings *::after { box-sizing: border-box; }
 
-/* 二级 tab：设置页自带页面标题，这里只做分区切换 */
+/* 主导航 = tab 条。照 DSH 原生的内容区 tab（插件页那套 pbvGtq_tab）：
+   容器一条 1px 底部分隔线，激活项用 ::after 画 2px 下划线压在线上。
+   刻意**不用**填充色块——那会跟下面的周期按钮组撞成同一种控件，
+   层级也反了（导航是页面级，周期是筛选级）。 */
 .dshr-tabs {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  background: var(--rs-layer-2);
+  gap: 4px;
+  border-bottom: 1px solid var(--rs-line);
 }
 
 .dshr-tab {
+  position: relative;
   min-width: 0;
-  height: 28px;
+  height: 36px;
   padding: 0 12px;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--rs-muted);
   background: transparent;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   white-space: nowrap;
   cursor: pointer;
-  transition: color .12s ease, background .12s ease, filter .12s ease;
+  transition: color .12s ease;
 }
 
-/* 未激活悬停：跟周期按钮一个套路（主文字色 + --rs-hover） */
-.dshr-tab:not(.dshr-tab-on):hover {
-  color: var(--rs-text);
-  background: var(--rs-hover);
-}
+.dshr-tab:hover { color: var(--rs-text); }
 
-/* 激活态必须双类：下面有 `.dshr-shell button { color: inherit; font: inherit }`
-   (1,1)，单类的 .dshr-tab-on 只有 (1,0)，白字和 600 字重会被吃掉 */
+/* 激活：主文字色 + 2px 下划线（bottom:-1px 压在容器的分隔线上）。
+   双类是因为上面有 `.dshr-settings button { color: inherit; font: inherit }` (1,1)，
+   单类的 .dshr-tab-on 只有 (1,0)，颜色和字号会被吃掉。 */
 .dshr-settings .dshr-tab-on {
-  color: #fff;
-  background: var(--rs-accent);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--rs-text);
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.dshr-settings .dshr-tab-on:hover { filter: brightness(1.08); }
+.dshr-settings .dshr-tab-on::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  content: '';
+  background: var(--rs-text);
+}
 
 .dshr-tabBack {
   height: 26px;
@@ -216,15 +221,28 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   background: var(--rs-bg);
 }
 
+.dshr-settings *,
+.dshr-settings *::before,
+.dshr-settings *::after,
 .dshr-shell *,
 .dshr-shell *::before,
 .dshr-shell *::after { box-sizing: border-box; }
 
+/* 按钮/表单重置 + 聚焦环：两个挂载容器都要覆盖。
+   只写 .dshr-shell 的话设置页整套控件样式全掉（踩过：周期按钮变裸文字）。 */
+.dshr-settings button,
+.dshr-settings input,
+.dshr-settings select,
+.dshr-settings textarea,
 .dshr-shell button,
 .dshr-shell input,
 .dshr-shell select,
 .dshr-shell textarea { color: inherit; font: inherit; }
 
+.dshr-settings button:focus-visible,
+.dshr-settings input:focus-visible,
+.dshr-settings select:focus-visible,
+.dshr-settings textarea:focus-visible,
 .dshr-shell button:focus-visible,
 .dshr-shell input:focus-visible,
 .dshr-shell select:focus-visible,
@@ -941,6 +959,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 @keyframes dshrModalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
 
 /* 按钮 */
+.dshr-settings .dshr-primaryButton,
 .dshr-shell .dshr-primaryButton {
   display: inline-flex;
   height: 30px;
@@ -958,9 +977,12 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   transition: filter .12s ease;
 }
 
+.dshr-settings .dshr-primaryButton:hover,
 .dshr-shell .dshr-primaryButton:hover { filter: brightness(1.08); }
+.dshr-settings .dshr-primaryButton:disabled,
 .dshr-shell .dshr-primaryButton:disabled { opacity: .55; cursor: default; }
 
+.dshr-settings .dshr-dangerButton,
 .dshr-shell .dshr-dangerButton {
   display: inline-flex;
   height: 30px;
@@ -978,6 +1000,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   transition: filter .12s ease;
 }
 
+.dshr-settings .dshr-dangerButton:hover,
 .dshr-shell .dshr-dangerButton:hover { filter: brightness(1.1); }
 
 /* 登录步骤 */
@@ -2222,11 +2245,15 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   background: var(--rs-layer-2);
 }
 
-/* 周期按钮三态。特异性阶梯（类/伪类数 , 元素数）：
-   文件顶部有 `.dshr-shell button { color: inherit; font: inherit }` = (1,1)，
+/* 周期按钮三态（按钮组：一组互斥的筛选按钮，不是导航 tab）。
+   特异性阶梯（类/伪类数 , 元素数）：
+   文件顶部有 `.dshr-settings button { color: inherit; font: inherit }` = (1,1)，
    单类的 .dshr-period (1,0) 会被它打死（白字、600 字重全丢），所以下面每条
-   都必须带 .dshr-shell 抬到 (2,0) 以上。
+   都必须带挂载容器（.dshr-settings / .dshr-shell）抬到 (2,0) 以上。
+   **两个容器都要写**：只写 .dshr-shell 的话设置页里这套样式全掉
+   （踩过：周期按钮退化成浏览器默认按钮）。
    两种 hover 用 :not() 做成互斥，谁赢跟源码顺序无关（免得以后有人挪块就翻车）。 */
+.dshr-settings .dshr-period,
 .dshr-shell .dshr-period {
   min-width: 46px;
   height: 26px;
@@ -2242,12 +2269,14 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 }
 
 /* 未激活悬停：跟 .dshr-miniButton / .dshr-iconButton 一个套路（主文字色 + --rs-hover 底） */
+.dshr-settings .dshr-period:not(.dshr-period-on):hover,
 .dshr-shell .dshr-period:not(.dshr-period-on):hover {
   color: var(--rs-text);
   background: var(--rs-hover);
 }
 
 /* 激活：强调色块 + 白字。底色用 layer-1 时跟卡片同色，根本看不出选中了哪个 */
+.dshr-settings .dshr-period-on,
 .dshr-shell .dshr-period-on {
   color: #fff;
   background: var(--rs-accent);
@@ -2256,6 +2285,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 }
 
 /* 激活态被悬停：跟 .dshr-primaryButton 一样提亮，表示「它还是能点的」 */
+.dshr-settings .dshr-period-on:hover,
 .dshr-shell .dshr-period-on:hover {
   color: #fff;
   background: var(--rs-accent);

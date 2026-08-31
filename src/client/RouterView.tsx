@@ -122,7 +122,7 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
   return (
     <div className="dshr-settings">
       {/* tab 切换：设置页已有页面标题，这里只做二级切换 */}
-      <nav className="dshr-tabs" role="tablist" aria-label="路由系统分区">
+      <nav className="dshr-tabs" role="tablist" aria-label="路由分区">
         <button type="button" role="tab" aria-selected={tab === 'overview'} className={`dshr-tab${tab === 'overview' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('overview')}>
           概览
         </button>

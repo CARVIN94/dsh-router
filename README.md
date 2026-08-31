@@ -1,14 +1,14 @@
 # dsh-router
 
-**插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进
-DSH web(和「记忆系统」同侧边栏),在 `http://localhost:3080/v1` 上原生暴露
-OpenAI 兼容端点,把请求路由到内部供应商。装好即用,不用多开一个 9router、
-不用维护第二个端口、不用在网关和 DSH 之间搬配置。
+**插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进 DSH web,
+在 `http://localhost:3080/v1` 上原生暴露 OpenAI 兼容端点,把请求路由到内部供应商。
+管理界面在**设置 → 路由**(官方设置页座位,不是自己开的页面)。装好即用,
+不用多开一个 9router、不用维护第二个端口、不用在网关和 DSH 之间搬配置。
 
 ## 为什么更优雅
 
 - **零额外进程**:dsh-router 就是 DSH 插件,随 `dsh web` 启停,天然同源
-  (`/router/api/*` 无 CORS、面板内嵌侧边栏),不像 9router 要独立跑一个
+  (`/router/api/*` 无 CORS、面板嵌在设置里),不像 9router 要独立跑一个
   Next.js 服务再对接;
 - **供应商即插即拔**:内置供应商(如 opencode / openrouter / nvidia)随插件分发;
   更多供应商 = 装一个 DSH 插件(`dsh-router-*`)经 cordis service
@@ -29,9 +29,8 @@ OpenAI 兼容端点,把请求路由到内部供应商。装好即用,不用多�
 > 供应商开发与接入规范见 [`docs/suppliers.md`](docs/suppliers.md)
 > （契约 / 加载顺序 / 模型统一策略 / 内置供应商参考实现）。
 
-左侧边栏「记忆系统」上方有 **路由系统** 入口,点击打开中心栏面板:
+面板挂在 **设置 → 路由**(官方 `settings.section` 座位,排在「模型」下面):
 
-- **返回会话** — 左侧按钮,关闭面板回到聊天;
 - **概览** — 用量看板(默认页):
   - 周期切换 **今日 / 24 小时 / 7 天 / 30 天**;
   - 汇总卡:总请求(含成功率)、输入 Tokens、输出 Tokens、缓存 Tokens、平均耗时(含首字节);
@@ -111,9 +110,10 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 ```
 浏览器(client 半)
-  └─ 侧边栏「路由系统」+ 中心栏面板(RouterView, 含返回会话按钮)
-       ├─ StatsTab          概览:用量看板(周期切换 + 汇总卡 + 折线趋势 + Top 榜 + 最近请求)
-       ├─ RouterView        tab: 概览 / 供应商 / 组合 / 端点与密钥
+  └─ 设置 → 路由(settings.section 座位, order 10, 排在「模型」下面)
+       ├─ RouterSettingsSection  注册入口(settings-section.tsx)
+       ├─ RouterView        tab: 概览 / 供应商 / 组合 / 端点与密钥(tab 条:下划线指示器)
+            ├─ StatsTab          概览:用量看板(周期按钮组 + 汇总卡 + 折线趋势 + Top 榜 + 最近请求)
        ├─ SupplierDetail    供应商详情:链接池 + 加链接 + 可用模型
        ├─ EndpointTab       端点 URL + requireApiKey + 密钥管理
        └─ fetch /router/api/*            (同源,无 CORS)
@@ -173,7 +173,7 @@ dsh plugin --profile web add dsh-router-core
 该命令会在 profile 里 `pnpm add`,并自动把 `dsh-router-core` 加入
 `dsh.profile.bundles`(包声明了 `dsh.bundle.patch`,即 `cordis.patch.yml`)。
 
-然后**重启 `dsh web`**。侧边栏出现「路由系统」入口,打开即面板。
+然后**重启 `dsh web`**。打开设置面板,左侧导航「模型」下面会出现 **路由**。
 
 > 更多供应商:DSH 插件形态的供应商各自发 npm 包,同样 `dsh plugin --profile web add <包名>`
 > 即可;供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md)。

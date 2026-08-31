@@ -15,7 +15,7 @@ export const ROUTER_VIEW_SELECTOR = '[data-dsh-router-view]'
 export const ROUTER_ACTIVE_ATTR = 'data-dsh-router-active'
 
 /** The panel's visible title (also the sidebar entry label). */
-export const ROUTER_TITLE = '路由系统'
+export const ROUTER_TITLE = '路由'
 
 /** Same-origin API base the client panel fetches (host half serves it). */
 export const ROUTER_API_BASE = '/router/api'

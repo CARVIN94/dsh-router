@@ -1,7 +1,7 @@
 /**
  * Client half of dsh-router.
  *
- * 挂载点是「设置 → 路由系统」（官方 `settings.section` 座位），不再是侧边栏
+ * 挂载点是「设置 → 路由」（官方 `settings.section` 座位），不再是侧边栏
  * DOM 注入 + 中心栏劫持。`slots` / `locale` 由宿主运行时提供（profile 的
  * node_modules 里 @deepseek-ai 是空的：这些包不入 node_modules，按
  * package.json 的 dsh.client.inject 声明即可）。
@@ -29,15 +29,21 @@ interface Ctx {
   effect: (fn: () => (() => void) | void, label?: string) => void
 }
 
-/** 挂载「设置 → 路由系统」页；拿不到 slots 时返回 undefined 表示跳过。 */
+/** 挂载「设置 → 路由」页；拿不到 slots 时返回 undefined 表示跳过。 */
 function mountSettingsSection(ctx: Ctx): (() => void) | undefined {
   const slots = ctx.slots
   if (slots === undefined) return undefined
+  // order 10 = 与「模型」「远程访问」同值，靠注册顺序定先后，实测排成
+  //   模型 → 路由 → 远程访问（正是要的位置）。
+  // 排序规则（宿主实现）：priority ?? 0 优先，再 order ?? 0，数值升序，
+  //   同值保持注册顺序。所以想插在两个同 order 的条目中间是做不到的——
+  //   试过 9.99（跑到模型上面）、10.001/10.05/11（都跑到远程访问后面）。
+  //   只能取同值，让注册顺序决定。
   return slots.inject('settings.section', () => slots.register({
     name: 'settings.section',
     id: 'dsh-router',
-    order: 60,
-    label: '路由系统',
+    order: 10,
+    label: '路由',
   }, RouterSettingsSection))
 }
 

@@ -182,6 +182,26 @@ js 只需把失败原因记下来并通过 `lastError()` 暴露,核心就能给�
 - **失败请求不估算 token**:它没到上游,按请求体字符数编造输入 token 只会
   把总量灌水。请求数、成功率、耗时照常统计。
 
+### `usage` 字段形态:归一由核心做,别自己改
+
+上游 `usage` 字段名各家不同(`prompt_tokens` / `input_tokens` /
+`promptTokenCount` / `cache_read_input_tokens` …, 还有 OpenAI 的
+`prompt_tokens_details.cached_tokens`),核心的 `normalizeUsage` 已经全部认。
+**js 原样透传就行,不要自己换算字段名。**
+
+缓存口径特别注意(这是唯一需要 js 理解的语义差异):
+
+- **OpenAI 系**:`prompt_tokens` **已含**缓存 → 归一后 prompt 含缓存
+- **Claude 系**:`input_tokens` **不含**缓存,缓存单报
+  `cache_read_input_tokens` → 核心把它折进来,统一成「prompt 含缓存」
+
+所以下游两处口径都自洽:面板「缓存 Tokens」是「输入 Tokens」的**子集**
+(不是并列的第三种),而交给 DSH 会话的 `TokenUsage` 走 **DISJOINT 口径**
+(`inputTokens` 只算未缓存 + 单列 `cacheReadTokens`),由 `toTokenUsage`
+在写入侧换算。这条换算不做会出真故障:DSH 的 token-meter 投影 schema 是
+`z.number().int().nonnegative()`,NaN 一进去校验就抛,整条 `session.history`
+RPC 失败,表现为「历史加载失败」。
+
 ## 刷新链接池(核心通用,js 不实现)
 
 面板链接池的「刷新」按钮是核心的活,js 不用做任何事:

@@ -35,7 +35,8 @@ OpenAI 兼容端点,把请求路由到内部供应商。装好即用,不用多�
 - **概览** — 用量看板(默认页):
   - 周期切换 **今日 / 24h / 7D / 30D**;
   - 汇总卡:总请求(含成功率)、输入 Tokens、输出 Tokens、缓存 Tokens、平均耗时(含首字节);
-  - Token 趋势折线图(悬停看该时段明细);
+  - Token 趋势折线图:鼠标悬停 / 触摸点选 / 键盘 `←` `→`(`Home` `End` 到两端,`Esc` 取消)
+    看每个时段;读数和峰值用 K/M 缩写,精确值在悬停提示里;
   - Top 榜:按供应商 / 按模型(请求数带失败计数);
   - 最近请求:时间 / 模型 / 供应商 / in↑ out↓ / 耗时,显示最近 10 条;
   - **清空** — 清掉全部用量统计(不影响供应商、账号、组合配置);
@@ -43,6 +44,9 @@ OpenAI 兼容端点,把请求路由到内部供应商。装好即用,不用多�
     token 口径:上游返回 `usage` 就用真值(分散在多帧时按字段取最大值合并);
     上游不发时按 ~4 字符/token 估算,面板上标 `~`。**失败请求不估算**——
     它没到上游,编造输入 token 只会把总量灌水;
+    缓存口径:OpenAI 系 `prompt_tokens` **含**缓存,Claude 系不含(单报
+    `cache_read_input_tokens`),归一时统一折成「prompt 含缓存」,
+    所以「缓存 Tokens」是「输入 Tokens」的**子集**,不是并列的第三种;
 - **供应商** — 供应商卡片(内置 / 插件分组),点击进入详情:
   - **链接池** — 账号列表(冷却/禁用/健康数/积分),支持删除;
   - **加链接** — 按供应商能力弹出不同流程:URL 登录(生成链接 → 浏览器登录 → 回调)、
@@ -95,8 +99,8 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `/keys/toggle` | POST | `{id, isActive}` |
 | `/keys/delete` | POST | `{id}` |
 | `/settings` | GET/PATCH | `{requireApiKey}` |
-| `/stats` | GET | 用量统计 `?period=today\|24h\|7d\|30d`(汇总 + Top 榜 + 最近请求) |
-| `/stats/chart` | GET | 柱状图数据 `?period=…`(today/24h = 24 小时桶,7d/30d = 天桶) |
+| `/stats` | GET | 用量统计 `?period=today\|24h\|7d\|30d`(汇总 + Top 榜 + 最近请求 20 条) |
+| `/stats/chart` | GET | 趋势图数据 `?period=…`(today/24h = 24 小时桶,7d/30d = 天桶) |
 | `/stats/clear` | POST | 清空全部用量统计 |
 | `/suppliers/:id/login` | POST | 生成登录链接 |
 | `/suppliers/:id/login/callback` | POST | `{callbackUrl}` → 加账号 |
@@ -108,12 +112,15 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 ```
 浏览器(client 半)
   └─ 侧边栏「路由系统」+ 中心栏面板(RouterView, 含返回会话按钮)
-       ├─ RouterView        tab: 供应商 / 组合 / 端点与密钥
+       ├─ StatsTab          概览:用量看板(周期切换 + 汇总卡 + 折线趋势 + Top 榜 + 最近请求)
+       ├─ RouterView        tab: 概览 / 供应商 / 组合 / 端点与密钥
        ├─ SupplierDetail    供应商详情:链接池 + 加链接 + 可用模型
        ├─ EndpointTab       端点 URL + requireApiKey + 密钥管理
        └─ fetch /router/api/*            (同源,无 CORS)
             └─ host 半(src/index.ts)
                  ├─ /v1/models + /v1/chat/completions   (OpenAI 兼容, KeysStore 鉴权)
+                 │    └─ RouterAdapter(src/llm/adapter.ts)  OpenAI SSE → DSH StreamChunk
+                 │         (usage 经 toTokenUsage 转 DSH 契约,见 docs/suppliers.md)
                  ├─ KeysStore(src/keys.ts)              密钥库 + requireApiKey
                  └─ Router(路由器) → suppliers[]
                       ├─ OpenCodeSupplier(lib/suppliers/opencode.js) 无账号免费直连

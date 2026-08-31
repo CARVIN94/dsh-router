@@ -17,6 +17,21 @@ import {
   type RouterHealthResponse,
 } from '../shared.ts'
 
+/* ---------------- SVG 图标 ---------------- */
+
+function Icon({ d, size = 14 }: { d: string; size?: number }): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  )
+}
+
+const I = {
+  check: 'M4 12.5l5 5L20 6.5',
+  loading: 'M12 3a9 9 0 1 0 9 9',
+}
+
 /** localStorage key：值 = 本地日期 YYYY-MM-DD。 */
 const CHECKIN_STAMP_KEY = 'dsh-router:checkin-stamp'
 
@@ -108,10 +123,33 @@ export function CheckinCard({ health, onRefresh }: CheckinCardProps): JSX.Elemen
     setBusy(false)
   }
 
+  /**
+   * 第三行文案：所有状态/结果都压在这一行里，行数恒定。
+   * 优先级：失败 > 本次结果 > 今日已点 > 默认供应商数。
+   * 失败时截断显示（全量挂 title），不换行。
+   */
+  const hintText = (): string => {
+    if (targets.length === 0) return '没有支持签到的供应商'
+    if (busy) return '签到中…'
+    if (error !== '') return `失败 · ${error}`
+    if (result !== '') return result
+    return clickedToday ? `今日已点 · ${targets.length} 个供应商` : `${targets.length} 个供应商`
+  }
+
+  /** 悬停说明：成功/失败都在这儿补全，正文只放得下一行 */
+  const hintTitle = (): string => {
+    if (targets.length === 0) return '没有供应商实现了 checkinNow 能力'
+    const lines = [`对 ${targets.length} 个支持签到的供应商逐个签到：${targets.map((t) => t.name).join('、')}`]
+    if (clickedToday) lines.push('今天在这个浏览器点过签到（不代表上游一定签上了）')
+    if (result !== '') lines.push(`上次结果：${result}`)
+    if (error !== '') lines.push(`失败：${error}`)
+    return lines.join('\n')
+  }
+
   return (
     <div
       className={`dshr-statCard dshr-statCard-checkin${clickedToday ? ' dshr-statCard-done' : ''}`}
-      title={clickedToday ? '今天在这个浏览器点过签到（不代表上游一定签上了）' : '对所有支持签到的供应商逐个签到'}
+      title={hintTitle()}
     >
       <span className="dshr-statLabel">签到</span>
       {targets.length === 0
@@ -121,23 +159,22 @@ export function CheckinCard({ health, onRefresh }: CheckinCardProps): JSX.Elemen
         : (
           <button
             type="button"
-            className="dshr-checkinButton"
+            className={`dshr-checkinButton${busy ? ' dshr-checkinButton-busy' : ''}`}
             onClick={() => { void run() }}
             disabled={busy}
+            title={hintTitle()}
           >
-            {busy ? <span className="dshr-spin">↻</span> : <span aria-hidden="true">✓</span>}
+            <span className={busy ? 'dshr-spin' : undefined}>
+              <Icon d={busy ? I.loading : I.check} size={14} />
+            </span>
             {busy ? '签到中…' : '一键签到'}
           </button>
         )}
-      <span className="dshr-statHint">
-        {targets.length === 0
-          ? '没有支持签到的供应商'
-          : clickedToday
-            ? `今日已点 · ${targets.length} 个供应商`
-            : `${targets.length} 个供应商`}
+      {/* 恒定第三行：状态/结果全塞进 hint，不成功后多出一行
+          —— 汇总卡是 3 行结构（label / value / hint），多一行就跟邻卡不齐 */}
+      <span className={`dshr-statHint${error !== '' ? ' dshr-statHint-err' : ''}`} title={error !== '' ? error : undefined}>
+        {hintText()}
       </span>
-      {result !== '' && <span className="dshr-checkinOk">{result}</span>}
-      {error !== '' && <span className="dshr-checkinErr" title={error}>{error}</span>}
     </div>
   )
 }

@@ -2355,8 +2355,10 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 .dshr-statCard-danger .dshr-statValue { color: var(--rs-danger); }
 
 /* 签到卡：跟统计卡同宽同高，但里面是按钮不是数字。
+   gap 沿用卡片的 3px（不覆写）—— 之前改成 6px 让这一行比别的高 6px，
+   两行卡片因此不齐（92 vs 98px）。
    今日已点过 → 边框转成功色，一眼看出「今天点过了」 */
-.dshr-statCard-checkin { gap: 6px; }
+.dshr-statCard-checkin { gap: 3px; }
 
 .dshr-statCard-done {
   border-color: color-mix(in srgb, var(--rs-success) 45%, transparent);
@@ -2366,6 +2368,8 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 .dshr-checkinButton {
   display: inline-flex;
   width: 100%;
+  /* 26px ≈ .dshr-statValue 的行高（22px × 1.2），让按钮那一行跟数字的
+     那一行一样高，卡片整体高度才跟邻卡一致 */
   height: 26px;
   align-items: center;
   justify-content: center;
@@ -2396,18 +2400,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   background: color-mix(in srgb, var(--rs-success) 8%, transparent);
 }
 
-.dshr-checkinOk {
-  color: var(--rs-success);
-  font-size: 11px;
-}
-
-/* 失败明细可能很长：截断 + 悬停看全（title 在组件里） */
-.dshr-checkinErr {
+/* 结果/失败都压在 hint 那一行里（卡片行数必须跟邻卡一致）：
+   失败时才转红，其余沿用 hint 的弱色，不成功后多出一行 */
+.dshr-statHint-err {
   overflow: hidden;
   color: var(--rs-danger);
-  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 忙碌态：按钮转成弱色，跟「已点过」的成功色区分开 */
+.dshr-checkinButton-busy {
+  color: var(--rs-faint);
+  background: var(--rs-layer-2);
+  border-color: var(--rs-line);
 }
 
 .dshr-estimateNote {

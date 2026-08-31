@@ -2682,3 +2682,26 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 .dshr-dot-ok { background: var(--rs-success); }
 .dshr-dot-fail { background: var(--rs-danger); }
+
+/* ============================================================
+   dsh-router — 设置导航图标（换掉宿主的默认齿轮）
+   ============================================================ */
+
+/* DSH 0.1.x 的 settings.section 注册只认 id / order / label，图标是宿主按
+   「内置 id 白名单」选的，插件传不了 —— 外部 section 一律拿到通用齿轮。
+   settings-nav-icon.ts 给本插件那一行打上标记，这里用 currentColor mask
+   渲染路由字形：跟随宿主导航的 hover/active 配色，也保持 16px 图标节奏。
+   升级路径：等契约长出 icon 字段，删掉 settings-nav-icon.ts 和这一整块。 */
+[data-dsh-router-settings-nav] > svg:first-child {
+  display: none;
+}
+
+[data-dsh-router-settings-nav]::before {
+  content: '';
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>") center / contain no-repeat;
+}

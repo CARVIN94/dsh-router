@@ -10,7 +10,14 @@
  */
 import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
+import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import './router.css'
+
+/**
+ * 设置导航里这一页的显示名。同时是注册 label 和「认领图标」时匹配的文案，
+ * 两处必须一致 —— 认领逻辑按可见文案找自己那一行（见 settings-nav-icon.ts）。
+ */
+const SECTION_LABEL = '路由'
 
 /**
  * 必须声明：Cordis 的 ctx 是 Proxy，未声明就访问 `ctx.slots` 会直接抛
@@ -43,7 +50,7 @@ function mountSettingsSection(ctx: Ctx): (() => void) | undefined {
     name: 'settings.section',
     id: 'dsh-router',
     order: 10,
-    label: '路由',
+    label: SECTION_LABEL,
   }, RouterSettingsSection))
 }
 
@@ -56,4 +63,6 @@ export function apply(ctx: Ctx): void {
     return
   }
   ctx.effect(() => disposeSettings, 'dsh-router: settings section')
+  // 换掉宿主的默认齿轮（契约没有 icon 字段，只能注册后认领自己的行）
+  ctx.effect(() => registerSettingsNavIcon(SECTION_LABEL), 'dsh-router: settings nav icon')
 }

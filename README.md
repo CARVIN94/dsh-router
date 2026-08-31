@@ -1,4 +1,18 @@
-# dsh-router
+<h1 align="center">dsh-router</h1>
+
+<p align="center">DeepSeek Harness 的 OpenAI 兼容路由插件</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-router-core"><img src="https://img.shields.io/npm/v/dsh-router-core?style=flat-square&logo=npm&label=npm" alt="npm version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <a href="#快速安装">快速安装</a> ·
+  <a href="#面板设置--路由">面板</a> ·
+  <a href="#api-端点openai-兼容3080v1">API 端点</a> ·
+  <a href="docs/suppliers.md">供应商开发</a>
+</p>
 
 **插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进 DSH web,
 在 `http://localhost:3080/v1` 上原生暴露 OpenAI 兼容端点,把请求路由到内部供应商。
@@ -7,29 +21,43 @@
 
 ![设置 → 路由 面板：概览（用量看板）、供应商、组合、端点与密钥](docs/screenshot.png)
 
-## 为什么更优雅
+## 快速安装
 
-- **零额外进程**:dsh-router 就是 DSH 插件,随 `dsh web` 启停,天然同源
-  (`/router/api/*` 无 CORS、面板嵌在设置里),不像 9router 要独立跑一个
-  Next.js 服务再对接;
-- **供应商即插即拔**:内置供应商(如 opencode / openrouter / nvidia)随插件分发;
-  更多供应商 = 装一个 DSH 插件(`dsh-router-*`)经 cordis service
-  `router.suppliers` 注册,面板自动出现、热加载/卸载;也可以放一个自定义
-  js 文件到 `~/.dsh/profiles/web/suppliers/` 就注册一个新供应商——
-  无需改核心代码、无需重编译;
-- **模型不内置**:供应商只实现差异化能力(列模型/调上游/登录),模型拉取与
-  缓存由核心统一管,不写死、不过时;
-- **策略只写一次**:组合回退、账号池(选号/冷却/禁用/连续错误累计)、响应写入、
-  凭证存储、模型管理都由核心提供。供应商 js 只对**单个账号**调一次上游并报告
-  成败,不自己遍历账号、不维护冷却表——否则每个插件都会长出一份互相不一致的
-  实现,而核心也就无从判断「该不该换号」;
-- **凭证 SQLite 单库**:`auths/credentials.sqlite`,供应商凭证不透明 blob,
-  核心统一生命周期,干净可备份;
-- **复用 9router 思路**:面板布局、组合 fallback、连接池/账号池、API key
-  管理都贴近 9router,但按 DSH「一切皆插件」的方式重组得更轻。
+需要支持 `dsh plugin` profile 插件机制的 DeepSeek Harness、Node.js `>= 20`,以及 `web` profile。
 
+```bash
+dsh plugin --profile web add dsh-router-core
+```
+
+然后**重启 `dsh web`**。打开设置面板,左侧导航「模型」下面会出现 **路由**。
+
+> 更多供应商:DSH 插件形态的供应商各自发 npm 包,同样
+> `dsh plugin --profile web add <包名>` 即可;供应商接入与开发见
+> [`docs/suppliers.md`](docs/suppliers.md)。
+>
+> 本地开发版:不用 npm,直接 `dependencies` 加
+> `"dsh-router-core": "link:/path/to/dsh-router"` 指向本地仓库。
+
+## 它解决什么问题
+
+| 能力 | 说明 |
+|---|---|
+| 零额外进程 | 就是 DSH 插件,随 `dsh web` 启停,天然同源(`/router/api/*` 无 CORS、面板嵌在设置里)。 |
+| 供应商即插即拔 | 内置供应商随插件分发;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`。 |
+| 模型不内置 | 供应商只实现差异化能力,模型拉取与缓存由核心统一管,不写死、不过时。 |
+| 策略只写一次 | 组合回退、账号池(选号/冷却/禁用/连续错误累计)、响应写入、凭证存储、模型管理都由核心提供。供应商 js 只对**单个账号**调一次上游并报告成败,不自己遍历账号、不维护冷却表——否则每个插件都会长出一份互相不一致的实现,而核心也就无从判断「该不该换号」。 |
+| 凭证单库 | `auths/credentials.sqlite`,供应商凭证不透明 blob,核心统一生命周期,干净可备份。 |
+| 组合即模型 | 建好的组合自动带出为 DSH 模型目录里的 `router` provider 选项,设置 → 模型直接选组合名即可。 |
+| 用量可观测 | 面板概览看板:周期切换、汇总卡、趋势折线、Top 榜、最近请求。 |
+
+> 面板布局、组合 fallback、连接池/账号池、API key 管理都贴近
+> [9router](https://github.com/decolua/9router),但按 DSH「一切皆插件」的方式
+> 重组得更轻。
+>
 > 供应商开发与接入规范见 [`docs/suppliers.md`](docs/suppliers.md)
 > （契约 / 加载顺序 / 模型统一策略 / 内置供应商参考实现）。
+
+## 面板(设置 → 路由)
 
 面板挂在 **设置 → 路由**(官方 `settings.section` 座位,排在「模型」下面):
 
@@ -162,38 +190,32 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `TW2A_STATE_FILE` | `data/state.json` | 状态持久化(同目录放 keys.json / combos.json / supplier-config.json) |
 | `TW2A_API_KEY` | 空 | /v1 Bearer 鉴权(与库内 key 等效) |
 
-## 构建
+## 与 DSH 的边界
 
-```bash
-pnpm install
-pnpm build        # lib/index.js(host) + lib/client.js / lib/client-registry.js(browser)
-pnpm typecheck
-```
-
-## 安装(DSH)
-
-用 dsh CLI 装到 profile(web 是 DSH 插件宿主):
-
-```bash
-dsh plugin --profile web add dsh-router-core
-```
-
-该命令会在 profile 里 `pnpm add`,并自动把 `dsh-router-core` 加入
-`dsh.profile.bundles`(包声明了 `dsh.bundle.patch`,即 `cordis.patch.yml`)。
-
-然后**重启 `dsh web`**。打开设置面板,左侧导航「模型」下面会出现 **路由**。
-
-> 更多供应商:DSH 插件形态的供应商各自发 npm 包,同样 `dsh plugin --profile web add <包名>`
-> 即可;供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md)。
->
-> 本地开发版:不用 npm,直接 `dependencies` 加
-> `"dsh-router-core": "link:/path/to/dsh-router"` 指向本地仓库。
+- dsh-router 复用 DSH 的 Web Server 与设置面板座位,不启动第二个应用或代理系统。
+- 供应商 js 不改 DSH 的 prompt、工具 schema 或权限;它只负责「把上游协议翻译成
+  OpenAI 形态」,路由/回退/存储归核心。
+- 数据分两处:`data/` 下的状态与用量 JSON(删了只是没统计了),以及
+  `auths/credentials.sqlite`(删了要重新登录所有供应商)。
+- 内置 patch 仅支持 DSH 的 `web` profile。
 
 ## 前提
 
 - 凭证由 dsh-router 核心统一管(SQLite 库 `<dataDir>/auths/credentials.sqlite`);
 - 供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md);
 - 重启 DSH 后 `/v1/*` 即生效;面板管理账号、模型与密钥。
+
+## 开发
+
+```bash
+pnpm install
+pnpm build        # lib/index.js(host) + lib/client.js / lib/client-registry.js(browser)
+pnpm typecheck
+pnpm test         # node --test "src/**/*.test.ts"
+```
+
+需要一个供应商最小实现作参考时,看 [`examples/suppliers/echo.js`](examples/suppliers/echo.js);
+完整契约、加载顺序与模型策略见 [`docs/suppliers.md`](docs/suppliers.md)。
 
 ## 致谢
 
@@ -202,3 +224,7 @@ dsh plugin --profile web add dsh-router-core
 - [decolua/9router](https://github.com/decolua/9router) —— 本地 AI 路由网关,面板/组合/连接池/凭证等思路的来源;
 - [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) —— DSH「一切皆插件」的宿主框架;
 - [omdsh-dev/dsh-mnemon](https://github.com/omdsh-dev/dsh-mnemon) —— DSH 插件形态与侧边栏入口的参考。
+
+## 许可证
+
+[MIT](LICENSE)

@@ -132,6 +132,13 @@
   align-items: center;
   gap: 4px;
   border-bottom: 1px solid var(--rs-line);
+  /* 右端跟卡片对齐（实测数字，别凭感觉调）：
+       root = 564；内容区因 padding-right 8px → 内容可视宽 556；
+       卡片再贴着可视区排 → 548。
+     tab 条是 .dshr-settings 的直接子项，起点是 root（564），
+     要落到 548 就得让掉 8(padding) + 8(滚动条) = 16px。
+     写成 margin 而不用 padding，是为了不把分隔线画到 padding 区域外。 */
+  margin-right: 16px;
 }
 
 .dshr-tab {
@@ -195,6 +202,29 @@
   flex: 1 1 auto;
   flex-direction: column;
   overflow-y: auto;
+  /* 恒定预留滚动条槽位。
+     实测不设它时 clientWidth 在 564（内容短、无滚动条）和 556（内容长、有滚动条）
+     之间跳，卡片宽也跟着 556/548 跳 —— 切 tab 时内容会横向抖一下。
+     不支持 scrollbar-gutter 的浏览器只是退化成「照样占宽」，不会坏。 */
+  scrollbar-gutter: stable;
+  /* 右内边距：内容别贴到滚动条上。滚动条宽 8px 且占布局宽度
+     （offsetWidth 564 vs clientWidth 556），不撑开的话内容右边缘正好压在它上面。 */
+  padding-right: 8px;
+}
+
+/* 细滚动条：跟 .dshr-content / .dshr-modalBody 一个套路 */
+.dshr-settingsBody::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dshr-settingsBody::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--rs-line-strong);
+}
+
+.dshr-settingsBody::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* ============================================================

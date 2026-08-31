@@ -64,46 +64,10 @@
 }
 
 /* ============================================================
-   dsh-router — center-column panel
+   dsh-router — 主题变量（设置页 .dshr-settings / 老中心栏 .dshr-shell 共用）
    ============================================================ */
 
-[data-pane='conversation'] {
-  position: relative;
-}
-
-.dshDesktopConversationSurface {
-  position: relative;
-}
-
-[data-dsh-router-view] {
-  position: absolute;
-  z-index: 60;
-  inset: 0;
-  display: none;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
-}
-
-.dshr-panelView {
-  isolation: isolate;
-}
-
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-dsh-router-view] {
-  display: block;
-}
-
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-pane='conversation'] > :not([data-dsh-router-view]),
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [class*='centerCol'] > :not([data-dsh-router-view]),
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) .dshDesktopConversationSurface > :not([data-dsh-router-view]) {
-  display: none !important;
-}
-
-/* ============================================================
-   dsh-router — panel shell
-   ============================================================ */
-
+.dshr-settings,
 .dshr-shell {
   --rs-bg: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
   --rs-layer-1: var(--dsw-alias-bg-layer-1);
@@ -123,16 +87,133 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   --rs-mono: var(--ds-font-family-code, 'SFMono-Regular', Consolas, monospace);
   --rs-sans: var(--dsw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
   box-sizing: border-box;
+  min-width: 0;
+  color: var(--rs-text);
+  font: 13px/1.55 var(--rs-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================================
+   dsh-router — 设置页容器（settings.section 座位）
+   ============================================================ */
+
+/* 容器几何是浏览器实测的，改之前先想清楚（别凭感觉）：
+   - 内容宽 564px（面板 612 − 左右 padding 24）
+   - 滚动归外壳 .VOzbGW_options（overflow-y:auto，视口 813 时可视高 703）
+   - 根节点外面套了一层 display:contents → 根节点没有自己的盒子
+   所以：不设 height / overflow / flex:1，只管内容流，让外壳滚。 */
+.dshr-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dshr-settings *,
+.dshr-settings *::before,
+.dshr-settings *::after { box-sizing: border-box; }
+
+/* 二级 tab：设置页自带页面标题，这里只做分区切换 */
+.dshr-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--rs-line);
+  border-radius: 8px;
+  background: var(--rs-layer-2);
+}
+
+.dshr-tab {
+  min-width: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease, filter .12s ease;
+}
+
+/* 未激活悬停：跟周期按钮一个套路（主文字色 + --rs-hover） */
+.dshr-tab:not(.dshr-tab-on):hover {
+  color: var(--rs-text);
+  background: var(--rs-hover);
+}
+
+/* 激活态必须双类：下面有 `.dshr-shell button { color: inherit; font: inherit }`
+   (1,1)，单类的 .dshr-tab-on 只有 (1,0)，白字和 600 字重会被吃掉 */
+.dshr-settings .dshr-tab-on {
+  color: #fff;
+  background: var(--rs-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dshr-settings .dshr-tab-on:hover { filter: brightness(1.08); }
+
+.dshr-tabBack {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--rs-line);
+  border-radius: 6px;
+  color: var(--rs-muted);
+  background: transparent;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dshr-tabBack:hover { color: var(--rs-text); background: var(--rs-hover); }
+
+/* 内容区：不设高度、不设 overflow —— 滚动归外壳 */
+.dshr-settingsBody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* ============================================================
+   dsh-router — 老的中心栏劫持骨架（settings 不可用时的回退，非主路径）
+   ============================================================ */
+
+[data-pane='conversation'] { position: relative; }
+.dshDesktopConversationSurface { position: relative; }
+
+[data-dsh-router-view] {
+  position: absolute;
+  z-index: 60;
+  inset: 0;
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
+}
+
+.dshr-panelView { isolation: isolate; }
+
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-dsh-router-view] {
+  display: block;
+}
+
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-pane='conversation'] > :not([data-dsh-router-view]),
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [class*='centerCol'] > :not([data-dsh-router-view]),
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) .dshDesktopConversationSurface > :not([data-dsh-router-view]) {
+  display: none !important;
+}
+
+.dshr-shell {
   display: flex;
   height: 100%;
-  min-width: 0;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  color: var(--rs-text);
   background: var(--rs-bg);
-  font: 13px/1.55 var(--rs-sans);
-  -webkit-tap-highlight-color: transparent;
 }
 
 .dshr-shell *,
@@ -396,6 +477,14 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   padding: 14px 18px;
 }
 
+/* 设置页里横向 padding 归零：内容区已经贴着容器边，再加 18px 会把卡片挤成
+   1 列、图表也跟着变窄。上下 padding 保留。 */
+.dshr-settings .dshr-modelGrid,
+.dshr-settings .dshr-tableWrap {
+  padding-right: 0;
+  padding-left: 0;
+}
+
 .dshr-modelCard {
   display: flex;
   min-width: 0;
@@ -428,13 +517,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
    dsh-router — 9router 风格 tab 内容（供应商 / 组合 / 端点与密钥）
    ============================================================ */
 
+/* tab 内容：设置页里**不自己滚动**（滚动归外壳 .VOzbGW_options），
+   也不撑高度（根节点外面是 display:contents，没有可撑的盒子）。
+   老的 .dshr-shell 中心栏挂载方式靠 .dshr-content 的 flex 给高度，那里再接管。 */
 .dshr-tabBody {
   display: flex;
-  flex: 1 1 auto;      /* 填满 content;自身滚动 */
   min-width: 0;
-  min-height: 0;
   flex-direction: column;
   gap: 14px;
+  padding: 0;
+}
+
+.dshr-shell .dshr-tabBody {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 14px 18px;
   overflow-y: auto;
 }

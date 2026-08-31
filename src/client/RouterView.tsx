@@ -1,17 +1,22 @@
 /**
  * 路由系统 (Routing System) panel — a simplified 9router.
  *
- * Three tabs fed by the host half (/router/api/*), mirroring 9router's
- * dashboard: 供应商 (supplier cards → detail: accounts + add-account + models),
- * 组合 (combo fallback chains), 端点与密钥 (endpoint URL + API keys + auth).
+ * Four tabs fed by the host half (/router/api/*), mirroring 9router's
+ * dashboard: 概览 (usage), 供应商 (supplier cards → detail: accounts +
+ * add-account + models), 组合 (combo fallback chains),
+ * 端点与密钥 (endpoint URL + API keys + auth).
  *
- * Masthead: 返回会话 button on the LEFT, refresh on the right.
- * No online/offline concept — suppliers render whatever state they have.
+ * **挂载在「设置」里**（`settings.section` 座位），所以布局规则跟中心栏劫持时期不同：
+ *   - 没有 masthead / 返回会话按钮 —— 设置面板自带标题栏和关闭
+ *   - **滚动归外壳**（`.VOzbGW_options`，overflow-y:auto）—— 这里只管内容流，
+ *     不设 height/overflow，否则会和外壳抢滚动、内容被裁
+ *   - 根节点外面套了一层 `display: contents`，所以根节点没有自己的盒子，
+ *     不能用 height:100% / flex:1 撑满那套写法
+ *   - 内容宽度实测 564px（面板 612 − 左右 padding 24），卡片 grid 按这个宽度排
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ROUTER_API_BASE,
-  ROUTER_TITLE,
   type RouterCombosResponse,
   type RouterHealthResponse,
   type RouterStatusResponse,
@@ -38,8 +43,11 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 interface RouterViewProps {
-  /** 关闭面板、返回会话。 */
-  onBack: () => void
+  /**
+   * 设置页不提供「返回会话」（关闭由设置面板自己负责），所以这里是可选的：
+   * 中心栏劫持那套老挂载方式还留着时会传。
+   */
+  onBack?: () => void
 }
 
 export function RouterView({ onBack }: RouterViewProps): JSX.Element {
@@ -112,35 +120,28 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
   }
 
   return (
-    <div className="dshr-shell">
-      <header className="dshr-masthead">
-        <button type="button" className="dshr-backButton" onClick={onBack} title="返回会话">
-          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M10 3 5 8l5 5" />
-          </svg>
-          <span>返回会话</span>
-        </button>
-        <div className="dshr-brand">
-          <div className="dshr-brandTitle">{ROUTER_TITLE}</div>
-        </div>
-      </header>
-
-      <nav className="dshr-nav">
-        <button type="button" aria-current={tab === 'overview' ? 'page' : undefined} onClick={() => setTab('overview')}>
+    <div className="dshr-settings">
+      {/* tab 切换：设置页已有页面标题，这里只做二级切换 */}
+      <nav className="dshr-tabs" role="tablist" aria-label="路由系统分区">
+        <button type="button" role="tab" aria-selected={tab === 'overview'} className={`dshr-tab${tab === 'overview' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('overview')}>
           概览
         </button>
-        <button type="button" aria-current={tab === 'suppliers' ? 'page' : undefined} onClick={() => setTab('suppliers')}>
+        <button type="button" role="tab" aria-selected={tab === 'suppliers'} className={`dshr-tab${tab === 'suppliers' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('suppliers')}>
           供应商 <span className="dshr-navCount">{suppliers.length}</span>
         </button>
-        <button type="button" aria-current={tab === 'combos' ? 'page' : undefined} onClick={() => setTab('combos')}>
+        <button type="button" role="tab" aria-selected={tab === 'combos'} className={`dshr-tab${tab === 'combos' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('combos')}>
           组合 <span className="dshr-navCount">{combos.length}</span>
         </button>
-        <button type="button" aria-current={tab === 'endpoint' ? 'page' : undefined} onClick={() => setTab('endpoint')}>
+        <button type="button" role="tab" aria-selected={tab === 'endpoint'} className={`dshr-tab${tab === 'endpoint' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('endpoint')}>
           端点与密钥
         </button>
+        {/* 返回会话只在老的中心栏挂载方式下出现（设置页有关闭按钮） */}
+        {onBack !== undefined && (
+          <button type="button" className="dshr-tabBack" onClick={onBack}>返回会话</button>
+        )}
       </nav>
 
-      <div className="dshr-content">
+      <div className="dshr-settingsBody">
         {/* ---------------- 概览（用量看板） ---------------- */}
         {tab === 'overview' && (
           <StatsTab

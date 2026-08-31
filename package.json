@@ -48,6 +48,7 @@
     "lib/types/**/*.d.ts",
     "src",
     "cordis.patch.yml",
+    "docs",
     "README.md",
     "LICENSE"
   ],

@@ -288,6 +288,112 @@ test('周期：7d/30d 走天桶，明细环撑爆也不影响', () => {
   assert.equal(s.recentList(1000).length, 500) // 明细环只留 500
 })
 
+test('周期：today/24h 走小时桶，明细环撑爆也不影响（回归：今日曾被截断成 500）', () => {
+  const s = new UsageStore('')
+  const now = Date.now()
+  // 塞 600 条（> RING_CAP 500），全在今天
+  for (let i = 0; i < 600; i += 1) rec(s, { ts: now })
+  assert.equal(s.stats('today', now).requests, 600, 'today 必须精确，不能受明细环容量限制')
+  assert.equal(s.stats('24h', now).requests, 600)
+  assert.equal(s.stats('7d', now).requests, 600)
+  assert.equal(s.stats('30d', now).requests, 600)
+  assert.equal(s.recentList(1000).length, 500, '明细环仍然只留 500（它只服务最近列表）')
+})
+
+test('周期：today 精确，不会把昨天算进来', () => {
+  const s = new UsageStore('')
+  // 基准取正午：两头都留够余量，免得真实挂钟一过 23 点测试就翻车（踩过）
+  const base = new Date()
+  base.setHours(12, 0, 0, 0)
+  const now = base.getTime()
+  const dayStart = new Date(now).setHours(0, 0, 0, 0)
+
+  // 昨天 22:00 一批、今天 08/09 点各一批 —— 每批都逼近 RING_CAP
+  for (let i = 0; i < 300; i += 1) rec(s, { ts: dayStart - 2 * 3600000 })
+  for (let i = 0; i < 300; i += 1) rec(s, { ts: dayStart + 8 * 3600000 })
+  for (let i = 0; i < 300; i += 1) rec(s, { ts: dayStart + 9 * 3600000 })
+
+  assert.equal(s.stats('today', now).requests, 600, 'today 只算今天')
+  assert.equal(s.stats('7d', now).requests, 900)
+  // 24h 从今天 12:00 往前滚：昨天 22:00 那批距今 14 小时，还在窗口内
+  assert.equal(s.stats('24h', now).requests, 900)
+})
+
+test('图表：today 的小时桶按整点归位，不再靠明细环', () => {
+  const s = new UsageStore('')
+  const base = new Date()
+  base.setHours(12, 0, 0, 0)
+  const now = base.getTime()
+  const dayStart = new Date(now).setHours(0, 0, 0, 0)
+
+  for (let i = 0; i < 600; i += 1) rec(s, { ts: dayStart + 9 * 3600000 + 1000 }) // 今天 09:00 那格
+
+  const ch = s.chart('today', now)
+  assert.equal(ch.length, 24)
+  assert.equal(ch[9]?.requests, 600, '全落 09:00 那格')
+  assert.equal(ch[9]?.tokens, 600 * 15)
+  assert.equal(ch[10]?.requests, 0)
+  assert.equal(ch.reduce((n, b) => n + b.requests, 0), 600, '各格之和 = today 总数')
+})
+
+test('落盘：旧文件没有 hours 字段也能读（没有迁移，补空即可）', () => {
+  const dir = `${process.env.TMPDIR ?? '/tmp'}/dshr-usage-${Math.random().toString(36).slice(2)}`
+  mkdirSync(dir, { recursive: true })
+  const fp = `${dir}/state.json`
+  // 手写一份「老格式」：天桶没有 hours（升级前落盘的就是这样）
+  writeFileSync(
+    `${dir}/usage.json`,
+    JSON.stringify({
+      days: { [localDateKey(Date.now())]: { requests: 3, ok: 3, failed: 0, bySupplier: {} } },
+      recent: [],
+      lifetime: 3,
+    }),
+  )
+  const s = new UsageStore(fp)
+  // 天桶口径照常：老数据一天都不会丢
+  assert.equal(s.stats('7d').requests, 3)
+  assert.equal(s.stats('today').requests, 3, 'today 走天桶，老数据照读')
+  // 小时粒度是永久缺失的（明细环回溯不回去）→ 24h 整桶兜底，不编数据
+  assert.equal(s.stats('24h').requests, 3, '小时桶不齐 → 整桶计入，不报比 today 更小的数')
+  assert.equal(s.chart('today').length, 24, '图表格子数不变')
+  assert.equal(s.chart('today').reduce((n, b) => n + b.requests, 0), 0, '没有小时粒度就不瞎填')
+  // 新请求照常累加，补上的 hours 立刻生效
+  rec(s, { ts: Date.now() })
+  assert.equal(s.stats('today').requests, 4)
+  assert.equal(s.chart('today').reduce((n, b) => n + b.requests, 0), 1)
+})
+
+test('周期：24h 跨天时，小时粒度齐的走小时格、不齐的整桶兜底', () => {
+  const dir = `${process.env.TMPDIR ?? '/tmp'}/dshr-usage-${Math.random().toString(36).slice(2)}`
+  mkdirSync(dir, { recursive: true })
+  const fp = `${dir}/state.json`
+  const now = Date.now()
+  const dayStart = new Date(now).setHours(0, 0, 0, 0)
+  const yesterdayKey = localDateKey(dayStart - 12 * 3600000)
+
+  // 昨天是「老数据」：天桶有 400 条但没有小时粒度
+  writeFileSync(
+    `${dir}/usage.json`,
+    JSON.stringify({
+      days: {
+        [yesterdayKey]: { requests: 400, ok: 400, failed: 0, bySupplier: {}, byModel: {}, byRequested: {} },
+      },
+      recent: [],
+      lifetime: 400,
+    }),
+  )
+  const s = new UsageStore(fp)
+  // 今天补 300 条（有小时粒度），全在当前小时，一定落在 24h 窗口内
+  for (let i = 0; i < 300; i += 1) rec(s, { ts: now })
+
+  assert.equal(s.stats('today').requests, 300, 'today 只算今天')
+  // 窗口含昨天 12:00 之后那截 → 但昨天没小时粒度，只能整桶（400）计入
+  const d24 = s.stats('24h').requests
+  assert.ok(d24 >= 300, '24h 绝不能小于 today')
+  assert.ok(d24 <= 700, '24h 也绝不能超总数')
+  assert.equal(d24, 700, '昨天整桶 400 + 今天 300')
+})
+
 test('Top 榜：按请求数降序，且三个维度各自聚合', () => {
   const s = new UsageStore('')
   rec(s, { supplier: 'a', model: 'm1', requested: 'combo-x' })

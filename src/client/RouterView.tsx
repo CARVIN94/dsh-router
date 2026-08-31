@@ -103,7 +103,15 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
               <section key={supplier.id} className="dshr-supplierCard" onClick={() => setDetailSupplier(supplier)}>
                 <div className="dshr-supplierRow">
                   {supplier.icon !== undefined && (
-                    <img className="dshr-supplierIcon" src={supplier.icon} alt="" />
+                    <img
+                      className="dshr-supplierIcon"
+                      src={supplier.icon}
+                      alt=""
+                      // 加载失败就藏起来（别留碎图）。图标不是关键信息，
+                      // 旁边有供应商名字。历史上的坑：icon 曾是
+                      // http://localhost:20128/... 这种外链，9router 没跑就全是坏图。
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                    />
                   )}
                   <div className="dshr-supplierName">{supplier.name}</div>
                 </div>

@@ -560,7 +560,15 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
         <div className="dshr-providerTitleRow">
           <div className="dshr-providerIcon">
             {supplier.icon !== undefined
-              ? <img className="dshr-providerImg" src={supplier.icon} alt="" />
+              ? (
+                <img
+                  className="dshr-providerImg"
+                  src={supplier.icon}
+                  alt=""
+                  // 同上：失败就藏，露出备用图标位置（不显示碎图）
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
+              )
               : <Icon d={I.link} size={22} />}
           </div>
           <div className="dshr-providerMeta">

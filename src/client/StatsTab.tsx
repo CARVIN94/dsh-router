@@ -2,7 +2,7 @@
  * 概览 —— 仿 9router `Dashboard → Usage → Overview` 的统计看板。
  *
  * 布局/交互跟其它 tab 一致（同一套 `.dshr-card` / `.dshr-tabBody`）：
- * 周期切换 → 汇总卡 → 趋势柱图 → Top 榜 → 最近请求。
+ * 周期切换 → 汇总卡 → 趋势折线图 → Top 榜 → 最近请求。
  *
  * 两个 9router 有而我们刻意不做的（天花板，非遗漏）：
  *   - 成本估算：9router 有 pricingRepo 全表，dsh-router 没有价格数据，
@@ -13,7 +13,14 @@
  * token 口径见 `router/usage-tokens.ts`：上游不发 usage 时按字符数估算，
  * 估算过的字段标 `~`，鼠标悬停会说明。
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import {
   ROUTER_API_BASE,
   type RouterChartBucket,
@@ -48,6 +55,9 @@ const PERIODS: Array<{ value: RouterPeriod; label: string }> = [
   { value: '7d', label: '7D' },
   { value: '30d', label: '30D' },
 ]
+
+/** 「最近请求」显示条数（后端给了 20 条，面板只看最近的这些）。 */
+const RECENT_LIMIT = 10
 
 /** 千分位。 */
 function fmt(n: number | undefined): string {
@@ -105,55 +115,151 @@ function StatCard({ label, value, hint, tone = 'default', title }: StatCardProps
   )
 }
 
-/* ---------------- 趋势柱图（纯 SVG，不引图表库） ---------------- */
+/* ---------------- 趋势折线图（纯 SVG，不引图表库） ---------------- */
 
-function BarChart({ buckets, busy }: { buckets: RouterChartBucket[]; busy: boolean }): JSX.Element {
+/**
+ * 视口坐标固定，SVG 用 `preserveAspectRatio="none"` 横向拉满容器：
+ * 线宽靠 `vector-effect="non-scaling-stroke"` 抵消拉伸，数值点/悬停辅助线
+ * 用 HTML 绝对定位叠在 SVG 上（否则圆点会被拉成椭圆）。
+ *
+ * 交互：指针（鼠标/触摸/笔）取最近桶，键盘 ←/→/Home/End 逐格走，Esc 取消。
+ * 天花板：只画一条 tokens 折线（桶里没有输入/输出分项），要分线得先改
+ * `/stats/chart` 的桶结构。
+ */
+const TREND_W = 640
+const TREND_H = 150
+const TREND_PAD_X = 12
+const TREND_PAD_T = 12
+const TREND_PAD_B = 8
+
+function LineChart({ buckets, busy }: { buckets: RouterChartBucket[]; busy: boolean }): JSX.Element {
   const [hover, setHover] = useState<number | null>(null)
+  const n = buckets.length
   const max = Math.max(1, ...buckets.map((b) => b.tokens))
   const hasData = buckets.some((b) => b.requests > 0 || b.tokens > 0)
   const active = hover === null ? undefined : buckets[hover]
 
+  const innerW = TREND_W - TREND_PAD_X * 2
+  const innerH = TREND_H - TREND_PAD_T - TREND_PAD_B
+  const xOf = (i: number): number => TREND_PAD_X + (n <= 1 ? innerW / 2 : (i * innerW) / (n - 1))
+  const yOf = (v: number): number => TREND_PAD_T + (1 - v / max) * innerH
+  const pctX = (i: number): string => `${(xOf(i) / TREND_W) * 100}%`
+  const pctY = (v: number): string => `${(yOf(v) / TREND_H) * 100}%`
+
+  const pts = buckets.map((b, i) => `${xOf(i)},${yOf(b.tokens)}`)
+  const linePath = pts.length > 0 ? `M${pts.join('L')}` : ''
+  const areaPath = pts.length > 0
+    ? `${linePath}L${xOf(n - 1)},${TREND_H - TREND_PAD_B}L${xOf(0)},${TREND_H - TREND_PAD_B}Z`
+    : ''
+  // 标签最多 ~8 个，最后一个一定显示（7d 全显示，24 小时每 3 小时一个）；
+  // 末尾那个离倒数第二格太近时会叠字，这时让位给最后一格
+  const labelStep = Math.max(1, Math.ceil(n / 8))
+  const showLabel = (i: number): boolean => i === n - 1 || (i % labelStep === 0 && n - 1 - i >= labelStep / 2)
+
+  /** 取离指针最近的桶：比给每桶铺一个透明 rect 省 DOM，30 天也只有一层。 */
+  const pick = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = ((e.clientX - rect.left) / rect.width) * TREND_W
+    const i = n <= 1 ? 0 : Math.round(((x - TREND_PAD_X) / innerW) * (n - 1))
+    setHover(Math.min(n - 1, Math.max(0, i)))
+  }
+
+  /** 键盘逐格走：函数式更新，连按不会读到过期的 hover。 */
+  const step = (delta: number): void => {
+    setHover((cur) => (n === 0 ? null : Math.min(n - 1, Math.max(0, (cur ?? n - 1) + delta))))
+  }
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const actions: Record<string, () => void> = {
+      ArrowLeft: () => step(-1),
+      ArrowRight: () => step(1),
+      Home: () => setHover(0),
+      End: () => setHover(n - 1),
+      Escape: () => setHover(null),
+    }
+    const act = actions[e.key]
+    if (act === undefined) return
+    e.preventDefault()
+    act()
+  }
+
   return (
-    <div className="dshr-barWrap">
-      {busy && buckets.length > 0 && <div className="dshr-barBusy" aria-hidden="true" />}
+    <div className="dshr-trendWrap">
+      {busy && n > 0 && <div className="dshr-trendBusy" aria-hidden="true" />}
       {!hasData
         ? (
-          <div className="dshr-barEmpty">
-            <span className="dshr-barEmptyIcon"><Icon d={I.empty} size={26} /></span>
+          <div className="dshr-trendEmpty">
+            <span className="dshr-trendEmptyIcon"><Icon d={I.empty} size={26} /></span>
             这个周期还没有请求
           </div>
         )
         : (
           <>
-            <div className="dshr-barChart" onMouseLeave={() => setHover(null)}>
-              {buckets.map((b, i) => {
-                const pct = b.tokens === 0 ? 0 : Math.max(2, Math.round((b.tokens / max) * 100))
-                return (
-                  // 索引作 key：桶是按时间顺序固定位置的，本来就没有稳定 id
-                  <div
-                    key={i}
-                    className={`dshr-barCol${hover === i ? ' dshr-barCol-hover' : ''}`}
-                    onMouseEnter={() => setHover(i)}
-                  >
-                    <div className="dshr-barTrack">
-                      <div className="dshr-barFill" style={{ height: `${pct}%` }} />
-                    </div>
-                    {/* 标签太密：7d/30d 隔一个显示，today/24h 每 4 小时一个 */}
-                    {(buckets.length > 24 || i % 4 === 0 || i === buckets.length - 1) && (
-                      <span className="dshr-barLabel">{b.label}</span>
-                    )}
-                  </div>
-                )
-              })}
+            <div
+              className="dshr-linePlot"
+              role="img"
+              aria-label={`Token 趋势：${n} 个时段，峰值 ${fmtShort(max)} tokens`}
+              tabIndex={0}
+              onPointerMove={pick}
+              onPointerDown={pick}
+              // 触摸抬起也会触发 pointerleave：清掉读数等于白点一下，所以只认鼠标
+              onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHover(null) }}
+              onBlur={() => setHover(null)}
+              onKeyDown={onKeyDown}
+            >
+              <svg className="dshr-lineSvg" viewBox={`0 0 ${TREND_W} ${TREND_H}`} preserveAspectRatio="none" aria-hidden="true">
+                {/* 三条水平参照线：只给刻度感，读数看悬停（峰值标在右上角） */}
+                {[0, 0.5, 1].map((f) => (
+                  <line
+                    key={f}
+                    className="dshr-lineGrid"
+                    x1={0}
+                    x2={TREND_W}
+                    y1={yOf(max * f)}
+                    y2={yOf(max * f)}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+                <path className="dshr-lineArea" d={areaPath} />
+                <path className="dshr-linePath" d={linePath} vectorEffect="non-scaling-stroke" />
+              </svg>
+              {/* 峰值：给读数一个量级参照，否则「45.2K」看不出高不高 */}
+              <span className="dshr-linePeak">峰值 {fmtShort(max)}</span>
+              {/* 空心点只画在桶少时：30 个点会糊成一条 */}
+              {n <= 24 && buckets.map((b, i) => (
+                // 索引作 key：桶是按时间顺序固定位置的，本来就没有稳定 id
+                <span key={i} className="dshr-linePoint" style={{ left: pctX(i), top: pctY(b.tokens) }} />
+              ))}
+              {hover !== null && active !== undefined && (
+                <>
+                  <span className="dshr-lineGuide" style={{ left: pctX(hover) }} />
+                  <span className="dshr-lineDot" style={{ left: pctX(hover), top: pctY(active.tokens) }} />
+                </>
+              )}
             </div>
-            <div className="dshr-barReadout">
+            <div className="dshr-lineLabels">
+              {buckets.map((b, i) => (showLabel(i) && (
+                <span
+                  key={i}
+                  className={`dshr-lineLabel${hover === i ? ' dshr-lineLabel-on' : ''}`}
+                  style={{ left: pctX(i) }}
+                >
+                  {b.label}
+                </span>
+              )))}
+            </div>
+            <div
+              className="dshr-trendReadout"
+              // 缩写会丢精度，精确值放在 title 里
+              title={active === undefined ? undefined : `${fmt(active.requests)} 请求 · ${fmt(active.tokens)} tokens`}
+            >
               {active === undefined
-                ? <span className="dshr-muted">悬停柱子看该时段明细</span>
+                ? <span className="dshr-muted">悬停或按 ←/→ 看每个时段</span>
                 : (
                   <>
                     <strong>{active.label}</strong>
-                    <span className="dshr-muted"> · {fmt(active.requests)} 请求</span>
-                    <span className="dshr-muted"> · {fmt(active.tokens)} tokens</span>
+                    <span className="dshr-muted"> · {fmtShort(active.requests)} 请求</span>
+                    <span className="dshr-muted"> · {fmtShort(active.tokens)} tokens</span>
                   </>
                 )}
             </div>
@@ -365,13 +471,14 @@ export function StatsTab({ onRefresh, refreshing, active }: StatsTabProps): JSX.
                 tone="primary"
                 title="包含缓存命中的输入"
               />
-              <StatCard label="缓存 Tokens" value={fmtShort(s?.cachedTokens)} hint="命中缓存的输入部分" tone="ok" />
               <StatCard
                 label="输出 Tokens"
                 value={fmtShort(s?.completionTokens)}
                 hint={(s?.estimatedOutputs ?? 0) > 0 ? '~ 含估算' : undefined}
                 tone="ok"
               />
+              {/* 缓存排在输入/输出之后：它是输入的子集，不是并列的第三种 token */}
+              <StatCard label="缓存 Tokens" value={fmtShort(s?.cachedTokens)} hint="命中缓存的输入部分" tone="default" />
               <StatCard
                 label="平均耗时"
                 value={fmtDuration(s?.avgDurationMs)}
@@ -386,23 +493,23 @@ export function StatsTab({ onRefresh, refreshing, active }: StatsTabProps): JSX.
               </p>
             )}
 
-            {/* 趋势柱图 */}
+            {/* 趋势折线图 */}
             <section className="dshr-card">
               <div className="dshr-cardHead">
                 <span className="dshr-cardIcon"><Icon d={I.chart} /></span>
                 <div className="dshr-cardTitle">Token 趋势</div>
                 <span className="dshr-cardMeta">{PERIODS.find((p) => p.value === period)?.label}</span>
               </div>
-              <BarChart buckets={chart} busy={loading} />
+              <LineChart buckets={chart} busy={loading} />
             </section>
 
             {/* Top 榜 */}
             <div className="dshr-rankPair">
               <RankTable title="按供应商" rows={s?.bySupplier ?? []} empty="这个周期还没有请求" />
-              <RankTable title="按模型 / 组合" rows={s?.byModel ?? []} empty="这个周期还没有请求" />
+              <RankTable title="按模型" rows={s?.byModel ?? []} empty="这个周期还没有请求" />
             </div>
 
-            <RecentTable rows={s?.recent ?? []} />
+            <RecentTable rows={(s?.recent ?? []).slice(0, RECENT_LIMIT)} />
           </>
         )}
     </div>

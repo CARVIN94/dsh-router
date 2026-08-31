@@ -2126,7 +2126,12 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   background: var(--rs-layer-2);
 }
 
-.dshr-period {
+/* 周期按钮三态。特异性阶梯（类/伪类数 , 元素数）：
+   文件顶部有 `.dshr-shell button { color: inherit; font: inherit }` = (1,1)，
+   单类的 .dshr-period (1,0) 会被它打死（白字、600 字重全丢），所以下面每条
+   都必须带 .dshr-shell 抬到 (2,0) 以上。
+   两种 hover 用 :not() 做成互斥，谁赢跟源码顺序无关（免得以后有人挪块就翻车）。 */
+.dshr-shell .dshr-period {
   min-width: 46px;
   height: 26px;
   padding: 0 10px;
@@ -2137,16 +2142,28 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: color .12s ease, background .12s ease;
+  transition: color .12s ease, background .12s ease, filter .12s ease;
 }
 
-.dshr-period:hover { color: var(--rs-text); }
-
-.dshr-period-on {
+/* 未激活悬停：跟 .dshr-miniButton / .dshr-iconButton 一个套路（主文字色 + --rs-hover 底） */
+.dshr-shell .dshr-period:not(.dshr-period-on):hover {
   color: var(--rs-text);
-  background: var(--rs-layer-1);
+  background: var(--rs-hover);
+}
+
+/* 激活：强调色块 + 白字。底色用 layer-1 时跟卡片同色，根本看不出选中了哪个 */
+.dshr-shell .dshr-period-on {
+  color: #fff;
+  background: var(--rs-accent);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgb(0 0 0 / .06);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .12);
+}
+
+/* 激活态被悬停：跟 .dshr-primaryButton 一样提亮，表示「它还是能点的」 */
+.dshr-shell .dshr-period-on:hover {
+  color: #fff;
+  background: var(--rs-accent);
+  filter: brightness(1.08);
 }
 
 .dshr-statsBarRight {
@@ -2225,65 +2242,130 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   font-family: var(--rs-mono);
 }
 
-/* 趋势柱图（纯 div/SVG，不引图表库） */
-.dshr-barWrap {
+/* 趋势折线图（纯 SVG + HTML 叠加层，不引图表库） */
+.dshr-trendWrap {
   position: relative;
   padding: 14px 14px 10px;
 }
 
-.dshr-barBusy {
+.dshr-trendBusy {
   position: absolute;
   inset: 0;
   background: color-mix(in srgb, var(--rs-layer-1) 55%, transparent);
   pointer-events: none;
 }
 
-.dshr-barChart {
-  display: flex;
-  height: 148px;
-  align-items: flex-end;
-  gap: 2px;
+/* 绘图区：高度跟 SVG 视口一致，叠加层用百分比定位才对得上 */
+.dshr-linePlot {
+  position: relative;
+  height: 150px;
+  cursor: crosshair;
 }
 
-.dshr-barCol {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+/* 键盘可达（←/→ 逐格）：聚焦环跟面板其它控件一致 */
+.dshr-linePlot:focus-visible {
+  outline: 2px solid var(--rs-accent);
+  outline-offset: 2px;
+}
+
+/* 峰值：给读数一个量级参照；半透明底是怕压在折线上看不清 */
+.dshr-linePeak {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: var(--rs-faint);
+  background: color-mix(in srgb, var(--rs-layer-1) 72%, transparent);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.dshr-lineSvg {
+  position: absolute;
+  display: block;
+  width: 100%;
   height: 100%;
-  cursor: default;
+  inset: 0;
+  overflow: visible;
 }
 
-.dshr-barTrack {
-  display: flex;
-  width: 100%;
-  flex: 1 1 auto;
-  align-items: flex-end;
-  min-height: 0;
+.dshr-lineGrid {
+  stroke: var(--rs-line);
+  stroke-dasharray: 3 3;
 }
 
-.dshr-barFill {
-  width: 100%;
-  min-height: 2px;
-  border-radius: 3px 3px 0 0;
-  background: color-mix(in srgb, var(--rs-accent) 70%, transparent);
-  transition: background .12s ease, height .18s ease;
+.dshr-lineArea {
+  fill: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+  stroke: none;
 }
 
-.dshr-barCol-hover .dshr-barFill { background: var(--rs-accent); }
+.dshr-linePath {
+  fill: none;
+  stroke: var(--rs-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
 
-.dshr-barLabel {
-  flex: none;
-  overflow: hidden;
+/* 数值点：空心小圆（SVG 会被横向拉伸，所以画在 HTML 层） */
+.dshr-linePoint {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border: 1.5px solid var(--rs-accent);
+  border-radius: 50%;
+  background: var(--rs-layer-1);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.dshr-lineGuide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rs-line-strong);
+  pointer-events: none;
+}
+
+.dshr-lineDot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--rs-layer-1);
+  border-radius: 50%;
+  background: var(--rs-accent);
+  box-shadow: 0 0 0 1px var(--rs-accent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.dshr-lineLabels {
+  position: relative;
+  height: 14px;
+  margin-top: 5px;
+}
+
+.dshr-lineLabel {
+  position: absolute;
+  top: 0;
+  overflow: visible;
   color: var(--rs-faint);
   font-size: 9px;
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  transform: translateX(-50%);
 }
 
-.dshr-barReadout {
+/* 选中的时段：标签跟着高亮，不用抬头对读数才知道看的是哪一段 */
+.dshr-lineLabel-on {
+  color: var(--rs-accent);
+  font-weight: 700;
+}
+
+.dshr-trendReadout {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -2292,9 +2374,9 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   font-size: 11px;
 }
 
-.dshr-barEmpty {
+.dshr-trendEmpty {
   display: flex;
-  height: 148px;
+  height: 150px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -2303,7 +2385,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   font-size: 12px;
 }
 
-.dshr-barEmptyIcon {
+.dshr-trendEmptyIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;

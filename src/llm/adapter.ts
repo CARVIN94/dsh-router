@@ -196,7 +196,15 @@ export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<
           argumentsDelta: fragment,
         }
       }
-      if (typeof choice.finish_reason === 'string') pendingFinish = mapFinishReason(choice.finish_reason)
+      if (typeof choice.finish_reason === 'string') {
+        // 只认真的终止原因：上游（CodeBuddy）会在中间帧发 `finish_reason: ""`，
+        // 它是「还没结束」而不是「以空原因结束」。当真原因收进来会被 mapFinishReason
+        // 的 default 分支变成 code:"" 的 error finish，agent-loop 拿它重建
+        // LlmError 时 dsh-llm 直接抛 `LlmError code must be a non-empty string`
+        // —— 界面就是「本轮运行失败 … UNKNOWN」。空的不收，也不许它冲掉真原因。
+        const mapped = mapFinishReason(choice.finish_reason)
+        if (mapped !== undefined) pendingFinish = mapped
+      }
     }
     // 上游可能把 usage 拆在多个帧里（Claude 系：先给输入、后给输出），
     // 所以是字段级 max 合并，不是覆盖。攒着，[DONE] 时统一转契约。
@@ -205,12 +213,23 @@ export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<
   throw new LlmError('SSE payload stream ended without [DONE]', 'STREAM_CLOSED')
 }
 
-function mapFinishReason(reason: string): { kind: string; failure?: unknown } {
+/** 上游 finish_reason → DSH finish reason；空串（「未终止」）返回 undefined。 */
+function mapFinishReason(reason: string): { kind: string; failure?: unknown } | undefined {
   switch (reason) {
+    case '': return undefined
     case 'stop': return { kind: 'stop' }
     case 'tool_calls': return { kind: 'tool-calls' }
     case 'length': return { kind: 'max-tokens' }
-    default: return { kind: 'error', failure: { message: `model stopped: ${reason}`, code: reason.toUpperCase() } }
+    // 未知原因也要能过 dsh-llm 的 `code` 非空校验：万一上游给的是空白或
+    // 纯符号（toUpperCase 后仍可能是怪东西），兜一个稳定码，别把空串交给
+    // agent-loop —— 它拿 code 重建 LlmError，空码 = 抛「本轮运行失败」。
+    default: {
+      const code = reason.trim().toUpperCase()
+      return {
+        kind: 'error',
+        failure: { message: `model stopped: ${reason}`, code: code === '' ? 'UNKNOWN_FINISH_REASON' : code },
+      }
+    }
   }
 }
 

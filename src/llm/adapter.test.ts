@@ -106,3 +106,43 @@ test('出口：上游压根不发 usage 时不硬凑 usage chunk', async () => {
   const sse = frame({ choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] })
   assert.equal(await usageOf(sse, '[DONE]'), undefined)
 })
+
+/* ---------------- finish reason ---------------- */
+
+/** 跑一遍 SSE 载荷序列，返回 finish chunk 的 reason。 */
+async function finishOf(...payloads: string[]): Promise<Record<string, unknown> | undefined> {
+  for await (const chunk of translateSse(payloads)) {
+    if (chunk.type === 'finish') return chunk.reason as unknown as Record<string, unknown>
+  }
+  return undefined
+}
+
+test('出口：中间帧的 finish_reason:"" 不是终止原因，不能变成 error finish', async () => {
+  // CodeBuddy 上游真实形态：首帧就带 finish_reason:""（意思是还没有终止原因）。
+  // 当真原因收下会产出 code:"" 的 error finish，agent-loop 拿它重建 LlmError
+  // 时 dsh-llm 直接抛 `LlmError code must be a non-empty string`，用户看到
+  // 「本轮运行失败 … UNKNOWN」。空串必须被忽略，落到默认 stop。
+  const reason = await finishOf(frame({ choices: [{ delta: { content: 'hi' }, finish_reason: '' }] }), '[DONE]')
+  assert.deepEqual(reason, { kind: 'stop' })
+})
+
+test('出口：空的 finish_reason 不许冲掉后面那个真终止原因', async () => {
+  // 同一条流里先 "" 后 "tool_calls"（models-cache.test.ts 里的真实帧序）
+  const reason = await finishOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{}' } }] }, finish_reason: '' }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+    '[DONE]',
+  )
+  assert.deepEqual(reason, { kind: 'tool-calls' })
+})
+
+test('出口：未知终止原因必须带非空 code（agent-loop 会拿它重建 LlmError）', async () => {
+  const reason = await finishOf(frame({ choices: [{ delta: { content: 'x' }, finish_reason: 'content_filter' }] }), '[DONE]')
+  assert.equal(reason?.kind, 'error')
+  const failure = reason?.failure as { message: string; code: string }
+  assert.equal(failure.code, 'CONTENT_FILTER')
+  // 空白原因也必须有码 —— 空码会让 dsh-llm 抛「本轮运行失败」
+  const blank = await finishOf(frame({ choices: [{ delta: { content: 'x' }, finish_reason: '   ' }] }), '[DONE]')
+  const blankCode = (blank?.failure as { code: string }).code
+  assert.ok(typeof blankCode === 'string' && blankCode.length > 0, `code 必须非空，实际 ${JSON.stringify(blankCode)}`)
+})

@@ -367,7 +367,10 @@ test('周期：24h 跨天时，小时粒度齐的走小时格、不齐的整桶�
   const dir = `${process.env.TMPDIR ?? '/tmp'}/dshr-usage-${Math.random().toString(36).slice(2)}`
   mkdirSync(dir, { recursive: true })
   const fp = `${dir}/state.json`
-  const now = Date.now()
+  // 时钟固定当天 12:00，不用 Date.now()：24h 是当前整点往前 23 格，
+  // 真实时钟在 23 点时窗口起点正好是今天 00:00，昨天整桶落在窗口外，
+  // 这条用例就会从 700 变成 300 —— 测试挂不挂取决于跑的时刻，不能接受。
+  const now = new Date().setHours(12, 30, 0, 0)
   const dayStart = new Date(now).setHours(0, 0, 0, 0)
   const yesterdayKey = localDateKey(dayStart - 12 * 3600000)
 
@@ -386,12 +389,18 @@ test('周期：24h 跨天时，小时粒度齐的走小时格、不齐的整桶�
   // 今天补 300 条（有小时粒度），全在当前小时，一定落在 24h 窗口内
   for (let i = 0; i < 300; i += 1) rec(s, { ts: now })
 
-  assert.equal(s.stats('today').requests, 300, 'today 只算今天')
+  assert.equal(s.stats('today', now).requests, 300, 'today 只算今天')
   // 窗口含昨天 12:00 之后那截 → 但昨天没小时粒度，只能整桶（400）计入
-  const d24 = s.stats('24h').requests
+  const d24 = s.stats('24h', now).requests
   assert.ok(d24 >= 300, '24h 绝不能小于 today')
   assert.ok(d24 <= 700, '24h 也绝不能超总数')
   assert.equal(d24, 700, '昨天整桶 400 + 今天 300')
+
+  // 反面对照：时钟移到 23 点，窗口不再含昨天，昨天那桶必须整桶退出
+  // （不是被算一半，也不是漏掉今天的 300）。锁死「整桶进/整桶出」。
+  const late = new Date().setHours(23, 30, 0, 0)
+  assert.equal(s.stats('24h', late).requests, 300, '窗口不含昨天时只剩今天')
+  assert.equal(s.stats('today', late).requests, 300, 'today 不受影响')
 })
 
 test('Top 榜：按请求数降序，且三个维度各自聚合', () => {

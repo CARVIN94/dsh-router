@@ -12,10 +12,16 @@
  */
 import type { AccountState, SupplierAccountNow } from '../suppliers/contract.ts'
 
-/** 各 AccountState 的处置：冷却时长 / 是否禁用 / 是否计入连续错误。 */
+/** 各 AccountState 的处置：冷却策略 / 是否禁用 / 是否计入连续错误。 */
 interface Rule {
-  /** 冷却时长（ms）；0 = 不冷却。 */
-  cooldownMs: number
+  /**
+   * 冷却策略：
+   *  - `number` 固定时长（ms）
+   *  - `'transient'` 瞬时短冷却（每次都冷，30s 量级）
+   *  - `'backoff'` 指数退避（反复限流越退越久）
+   *  - `0` 不冷却
+   */
+  cooldown: number | 'transient' | 'backoff'
   /** 是否永久禁用（需重新登录才能恢复）。 */
   disable: boolean
   /** 是否计入连续错误（攒够阈值自动冷却）。 */
@@ -26,21 +32,42 @@ const MINUTE = 60_000
 
 /**
  * 状态 → 处置表。**核心策略就在这一张表里**，插件只报状态不做决策。
- * 时长参考 9router 的 errorConfig（限流类短冷却、额度类长冷却），
- * 但 9router 按文本/状态匹配，这里按插件解读后的语义状态匹配，更准。
+ *
+ * 冷却策略对齐 9router 的 accountFallback / errorConfig：
+ *  - `rate_limit` 用**指数退避**（9router 的 `backoff: true`）：偶发限流只
+ *    短冷，持续限流越退越久，比固定 1 分钟两头不讨好要准。
+ *  - 未知/瞬时错误用**瞬时短冷却**（9router 默认分支 TRANSIENT_COOLDOWN_MS）：
+ *    每次失败都冻结，坏号不会留在池里被下一个请求再选中。原「计错误攒够
+ *    3 次才冷却」前两次完全不冷却，整池正是被这条路径拖垮的。
+ *
+ * 与 9router 的差别：9router 按错误文本/HTTP 状态匹配，这里按插件解读后的
+ * 语义状态匹配 —— 插件已经把 11133/11134 这类网关噪声归成 `rate_limit`，
+ * 核心不必再猜文本，更准。
  */
 const RULES: Record<AccountState, Rule> = {
-  ok: { cooldownMs: 0, disable: false, counts: false },
-  rate_limit: { cooldownMs: 1 * MINUTE, disable: false, counts: false },
-  quota: { cooldownMs: 10 * MINUTE, disable: false, counts: false },
-  session_dead: { cooldownMs: 0, disable: true, counts: false },
-  // 404/服务下线：只计错误不立刻冷却——偶发的自己恢复，真挂了攒够阈值再冷却
-  unavailable: { cooldownMs: 0, disable: false, counts: true },
-  transport: { cooldownMs: 0, disable: false, counts: true },
-  unknown: { cooldownMs: 0, disable: false, counts: true },
+  ok: { cooldown: 0, disable: false, counts: false },
+  rate_limit: { cooldown: 'backoff', disable: false, counts: false },
+  quota: { cooldown: 10 * MINUTE, disable: false, counts: false },
+  session_dead: { cooldown: 0, disable: true, counts: false },
+  // 404/服务下线、传输中断、未知：每次都瞬时短冷却（见上方 9router 对齐说明）
+  unavailable: { cooldown: 'transient', disable: false, counts: false },
+  transport: { cooldown: 'transient', disable: false, counts: false },
+  unknown: { cooldown: 'transient', disable: false, counts: false },
   // 模型不属于本供应商：不是账号的错，不冷却也不计数（核心据此换下一个供应商）
-  no_such_model: { cooldownMs: 0, disable: false, counts: false },
+  no_such_model: { cooldown: 0, disable: false, counts: false },
 }
+
+/**
+ * 瞬时/未知错误的冷却时长 —— 对齐 9router 的 TRANSIENT_COOLDOWN_MS。
+ * 取短值：这类错误大多是偶发的上游抖动，冷太久会把好号白白关掉；
+ * 但**必须冷**，否则坏号留在池里，每个请求都要先撞一次才知道它坏了。
+ */
+const TRANSIENT_COOLDOWN_MS = 30_000
+
+/** 限流退避：首次 2s，每次翻倍，上限 5 分钟（对齐 9router BACKOFF_CONFIG）。 */
+const BACKOFF_BASE_MS = 2_000
+const BACKOFF_MAX_MS = 5 * MINUTE
+const BACKOFF_MAX_LEVEL = 15
 
 /** 连续错误攒够这么多次就自动冷却（防止坏号被反复重试）。 */
 const ERR_THRESHOLD = 3
@@ -50,8 +77,13 @@ const ERR_COOLDOWN_MS = 5 * MINUTE
 interface Entry {
   until: number
   disabled: boolean
-  errCount: number
+  backoffLevel: number
   reason: string
+}
+
+/** 指数退避：等级 1 = BACKOFF_BASE_MS，每级翻倍，封顶 BACKOFF_MAX_MS。 */
+function backoffMs(level: number): number {
+  return Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, level - 1), BACKOFF_MAX_MS)
 }
 
 export class AccountPool {
@@ -61,7 +93,7 @@ export class AccountPool {
   private entry(uid: string): Entry {
     let e = this.entries.get(uid)
     if (!e) {
-      e = { until: 0, disabled: false, errCount: 0, reason: '' }
+      e = { until: 0, disabled: false, backoffLevel: 0, reason: '' }
       this.entries.set(uid, e)
     }
     return e
@@ -97,35 +129,35 @@ export class AccountPool {
     return uid
   }
 
-  /** 记录一次失败：按状态处置（冷却/禁用/错误累计）。 */
+  /** 记录一次失败：按状态处置（冷却/禁用/退避）。 */
   noteFailure(uid: string, state: AccountState, message: string): void {
     const rule = RULES[state]
     const e = this.entry(uid)
+    e.reason = message
     if (rule.disable) {
       e.disabled = true
-      e.reason = message
       return
     }
-    if (rule.cooldownMs > 0) {
-      e.until = Math.max(e.until, Date.now() + rule.cooldownMs)
-      e.reason = message
-      e.errCount = 0
+    if (rule.cooldown === 'backoff') {
+      // 连续被限流 → 等级递进冷却；成功（noteSuccess）会清零等级
+      e.backoffLevel = Math.min(e.backoffLevel + 1, BACKOFF_MAX_LEVEL)
+      e.until = Math.max(e.until, Date.now() + backoffMs(e.backoffLevel))
       return
     }
-    if (rule.counts) {
-      e.errCount += 1
-      e.reason = message
-      if (e.errCount >= ERR_THRESHOLD) {
-        e.until = Date.now() + ERR_COOLDOWN_MS
-        e.errCount = 0
-      }
+    if (rule.cooldown === 'transient') {
+      // 每次都冷（不再攒次数）：坏号不该留在池里等下一次撞
+      e.until = Math.max(e.until, Date.now() + TRANSIENT_COOLDOWN_MS)
+      return
+    }
+    if (rule.cooldown > 0) {
+      e.until = Math.max(e.until, Date.now() + rule.cooldown)
     }
   }
 
-  /** 记录一次成功：清零连续错误。 */
+  /** 记录一次成功：清零限流退避等级（好号不背历史惩罚）。 */
   noteSuccess(uid: string): void {
     const e = this.entries.get(uid)
-    if (e) e.errCount = 0
+    if (e) e.backoffLevel = 0
   }
 
   /** 手动冷却（面板/管理用途）。 */
@@ -133,7 +165,7 @@ export class AccountPool {
     const e = this.entry(uid)
     e.until = Date.now() + ms
     e.reason = reason
-    e.errCount = 0
+    e.backoffLevel = 0
   }
 
   /** 把核心的冷却/禁用/错误累计叠加到插件报告的「现在状态」上，产出面板态。 */
@@ -152,7 +184,8 @@ export class AccountPool {
         ...a,
         cooling,
         disabled: e?.disabled ?? false,
-        err_count: e?.errCount ?? 0,
+        // 面板展示为「连续错误」：现在承载的是限流退避等级（退避取代了原累计制）
+        err_count: e?.backoffLevel ?? 0,
         until: cooling && e ? new Date(e.until).toISOString() : undefined,
         reason: e?.reason !== '' ? e?.reason : undefined,
       }

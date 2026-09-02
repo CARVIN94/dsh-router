@@ -196,13 +196,21 @@ test('工具调用：参数分片发完才收尾，完整 JSON 原样保留', as
   assert.equal(calls[0]?.arguments, '{"command": "ls -la"}')
 })
 
-test('工具调用：参数残缺时绝不产出该调用（不能把半成品 JSON 交给工具）', async () => {
+test('工具调用：参数残缺时不产出可执行的调用（补发空收尾覆盖半成品）', async () => {
   // 真实故障形态：首片开块，[DONE] 就来了，参数停在 `{"command": "cd`
   const calls = await toolCallsOf(
     frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'bash', arguments: '{"command": "cd' } }] } }] }),
     '[DONE]',
   )
-  assert.equal(calls.length, 0, '残缺参数不能变成一次工具调用')
+  // 注意：产出的是**占位收尾**（空名 + `{}`），不是「不产出」。
+  // 只跳过 block-end 是拦不住的 —— BlockAssembler 会用累积 delta 重建出
+  // 半成品（见下面那条 BlockAssembler 级别的用例）。必须主动覆盖。
+  const dangerous = calls.filter((c) => {
+    try { JSON.parse(c.arguments ?? ''); return false } catch { return true }
+  })
+  assert.equal(dangerous.length, 0, `不能产出参数残缺的调用：${JSON.stringify(calls)}`)
+  assert.equal(calls[0]?.arguments, '{}', '残缺调用应被覆盖成空参数')
+  assert.equal(calls[0]?.name, '', '名字也要清空，避免被当成真调用')
 })
 
 test('工具调用：参数残缺时整轮判 error（agent-loop 好重试，而不是拿着残参执行）', async () => {
@@ -346,4 +354,158 @@ test('流式：一帧横跨两次 read() 也能拼回来（半包）', async () 
     if (c.type === 'text-delta') texts.push((c as { text: string }).text)
   }
   assert.equal(texts.join(''), 'hello', '跨块的半帧必须拼成完整内容')
+})
+
+/* ---------------- wire 请求构造（对照 9router 查出的缺陷） ---------------- */
+
+/**
+ * 为什么要有这一组：dsh-router 是「从结构化 options 重建 wire body」，
+ * 9router 是「客户端 body 原样透传」——前者的字段漏带不会报错，只会
+ * 悄悄降级，所以必须逐条锁死。这几条都是对照 9router 查出来的。
+ */
+
+/** 拦下 stream() 发给上游的 body，返回解析后的对象。 */
+async function captureBody(options: Record<string, unknown>): Promise<Record<string, unknown>> {
+  let captured: Record<string, unknown> = {}
+  globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
+    captured = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
+    return new Response('data: [DONE]\n\n', { status: 200 })
+  }) as typeof fetch
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [] })
+  for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000), ...options } as never)) {
+    void _c
+  }
+  return captured
+}
+
+test('wire：options.system 必须发给上游（agent-loop 走 system 槽位，不放 messages）', async () => {
+  // dsh-llm 契约：system 是**独立槽位**（types.d.ts "adapters map to the
+  // provider's system slot"），agent-loop 把它放 options.system。不读它，
+  // 模型每轮都拿不到身份/规则/工具用法约束，且不报错——最难查的一类。
+  const body = await captureBody({ system: '你是一个助手', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })
+  const msgs = body.messages as Array<{ role: string; content: string }>
+  assert.equal(msgs[0]?.role, 'system')
+  assert.equal(msgs[0]?.content, '你是一个助手', 'system 必须是消息列表的第一条')
+})
+
+test('wire：没给 system 时不塞空的 system 消息', async () => {
+  const body = await captureBody({ messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })
+  const msgs = body.messages as Array<{ role: string }>
+  assert.equal(msgs.some((m) => m.role === 'system'), false)
+})
+
+test('wire：reasoningEffort 要补 reasoning_summary:auto（CodeBuddy 只在两者齐备时吐推理）', async () => {
+  const body = await captureBody({ reasoningEffort: 'high', messages: [] })
+  assert.equal(body.reasoning_effort, 'high')
+  assert.equal(body.reasoning_summary, 'auto', '缺它 CodeBuddy 不吐推理内容')
+})
+
+test('wire：reasoningEffort 为 none/off 时删字段，且无请求时不硬加（否则触发内容过滤）', async () => {
+  // 9router #2071：对普通请求强加 reasoning_effort+summary 会让 CodeBuddy
+  // 触发内容过滤报错；"none" 网关不认，必须是删字段。
+  const none = await captureBody({ reasoningEffort: 'none', messages: [] })
+  assert.equal('reasoning_effort' in none, false, 'none 要删字段，不能传字符串')
+  assert.equal('reasoning_summary' in none, false)
+  const plain = await captureBody({ messages: [] })
+  assert.equal('reasoning_effort' in plain, false, '没要推理就不能加')
+})
+
+test('wire：空工具结果发空串，不伪造 (no output) 字面量', async () => {
+  // 模型会以为工具真打印了那句话 —— 对「bash 无输出」是误导。
+  const body = await captureBody({
+    messages: [{ role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }] }],
+  })
+  const tool = (body.messages as Array<{ role: string; content: string }>).find((m) => m.role === 'tool')
+  assert.equal(tool?.content, '', '空结果就该是空串')
+})
+
+/**
+ * 为什么要有这一条：只不发 `block-end` **并不能**拦住残缺调用。
+ *
+ * dsh-llm 的 BlockAssembler 对没有 block-end 的 index 会用累积的 delta
+ * **兜底重建**（lib/types/assembler.js）。实测：我们跳过了 block-end，
+ * 它照样组装出 `{"type":"tool-call","name":"bash","arguments":"{\"command\": \"rm -rf /"}`。
+ * 而 assembled() 只在 finish.kind === 'max-tokens' 时过滤 tool-call ——
+ * EMPTY_RESPONSE 的 error finish 不在过滤之列。
+ *
+ * 所以要拦住，必须**主动补发一个安全的 block-end**（空名 + `{}`），
+ * 让它覆盖掉 delta 累积出来的半成品。
+ */
+test('工具调用：残缺调用必须被 BlockAssembler 也判定为不可执行', async () => {
+  const { BlockAssembler } = await import('@deepseek-ai/dsh-llm')
+  const frames = [
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"command": "rm -rf /' } }] } }] }),
+    '[DONE]',
+  ]
+  const asm = new BlockAssembler()
+  for await (const c of translateSse(frames)) asm.push(c)
+  const assembled = (asm as unknown as { assembled: () => { blocks: Array<Record<string, unknown>> } }).assembled()
+  const blocks = assembled.blocks ?? []
+  const dangerous = blocks.filter((b) => {
+    if (b.type !== 'tool-call') return false
+    const args = typeof b.arguments === 'string' ? b.arguments : JSON.stringify(b.arguments)
+    try { JSON.parse(args); return false } catch { return true } // 解析不了 = 半成品
+  })
+  assert.equal(dangerous.length, 0, `不能组装出参数残缺的调用：${JSON.stringify(blocks)}`)
+})
+
+test('流式：消费者提前退出必须 cancel 上游（releaseLock 不关 socket）', async () => {
+  // releaseLock() 只解除 JS 侧 reader 绑定，不通知传输层 —— 上游那条连接
+  // 会一直挂着。dsh-llm 在消费者提前退出时必走 iterator.return()，长会话
+  // 下每条中断泄漏一个 fd。
+  let cancelled = false
+  const body = new ReadableStream<Uint8Array>({
+    pull(c) { c.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"a"}}]}\n\n')) },
+    cancel() { cancelled = true },
+  })
+  const { RouterAdapter: RA } = await import('./adapter.ts')
+  globalThis.fetch = (async () => new Response(body, { status: 200 })) as typeof fetch
+  const adapter = new RA('http://x', { comboModels: async () => [] })
+  for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) {
+    void _c
+    break // 提前退出
+  }
+  await new Promise((r) => setTimeout(r, 50)) // 等 finally 里的 cancel 落地
+  assert.equal(cancelled, true, '必须 cancel 上游，否则 socket 泄漏')
+})
+
+test('流式：单个坏帧跳过，不毁掉整轮（对齐 9router 的容错）', async () => {
+  const enc = new TextEncoder()
+  const sse = `data: {"choices":[{"delta":{"content":"good"}}]}\n\ndata: {broken json\n\ndata: [DONE]\n\n`
+  globalThis.fetch = (async () => new Response(enc.encode(sse), { status: 200 })) as typeof fetch
+  const { RouterAdapter: RA } = await import('./adapter.ts')
+  const adapter = new RA('http://x', { comboModels: async () => [] })
+  const texts: string[] = []
+  for await (const c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) {
+    if (c.type === 'text-delta') texts.push((c as { text: string }).text)
+  }
+  assert.equal(texts.join(''), 'good', '好帧必须保住，不能因为一个坏帧全废')
+})
+
+test('流式：只有坏帧时才按断流处理，且 code 可重试', async () => {
+  const enc = new TextEncoder()
+  globalThis.fetch = (async () => new Response(enc.encode('data: {broken\n\n'), { status: 200 })) as typeof fetch
+  const { RouterAdapter: RA } = await import('./adapter.ts')
+  const adapter = new RA('http://x', { comboModels: async () => [] })
+  let code = ''
+  try {
+    for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) void _c
+  } catch (e) { code = (e as { code?: string }).code ?? '' }
+  assert.ok(RETRYABLE_CODES.includes(code), `code ${JSON.stringify(code)} 必须可重试`)
+})
+
+test('流式：上游不发空行分隔时也要能分帧（前瞻完整 JSON）', async () => {
+  // 部分上游/中间件只发 \n 不发 \n\n。两帧会被拼成 `{...}\n{...}` 而 parse
+  // 失败。9router 逐行取天然没这问题，我们按空行分帧，就得补前瞻回退。
+  const enc = new TextEncoder()
+  const a = 'data: {"choices":[{"delta":{"content":"A"}}]}\n'
+  const b = 'data: {"choices":[{"delta":{"content":"B"}}]}\n\ndata: [DONE]\n\n'
+  globalThis.fetch = (async () => new Response(enc.encode(a + b), { status: 200 })) as typeof fetch
+  const { RouterAdapter: RA } = await import('./adapter.ts')
+  const adapter = new RA('http://x', { comboModels: async () => [] })
+  const texts: string[] = []
+  for await (const c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) {
+    if (c.type === 'text-delta') texts.push((c as { text: string }).text)
+  }
+  assert.equal(texts.join(''), 'AB', '两帧都要收到')
 })

@@ -231,3 +231,66 @@ test('用量统计：组合里的裸 id 仍记成 alias/model（旧行为不变�
   const rec = router.usage.recentList(1)[0]
   assert.equal(rec?.model, 'bbb/b-model', '裸 id 要补上 alias 前缀，否则 Top 榜分裂')
 })
+
+/**
+ * 为什么要有这一组：学 9router combo.js 的「瞬时故障降级前先喘口气」
+ * （其注释原话：fixes: combo falls through on transient 503）。
+ *
+ * 过载的上游往往几百毫秒内就恢复。立刻换下一个模型，会让整个组合在几
+ * 毫秒内被依次打穿 —— 最后一个模型也失败时，用户看到的就是全灭 503。
+ * 等待只针对**瞬时**故障：模型不属于本供应商（no_such_model）不是故障，
+ * 等它纯属浪费时间。
+ */
+
+/** 造一个总是以指定状态失败的供应商（可记调用时刻，用于验证等待）。 */
+function failingSpy(id: string, modelId: string, state: 'transport' | 'unavailable' | 'no_such_model') {
+  const at: number[] = []
+  return {
+    calls: 0,
+    at,
+    s: {
+      id, name: id, priority: 0, pool: new AccountPool(),
+      status: () => ({ id, name: id, accounts: [{ uid: `${id}-u1`, credits: 0, state: 'ok' }] }),
+      listModels: async () => [{ id: modelId }],
+      modelsWithEnabled: async () => [{ id: modelId, enabled: true }],
+      getAlias: () => id,
+      accounts: () => [{ uid: `${id}-u1`, credits: 0, state: 'ok' }],
+      chatOnce: async (_uid: string, _req: { rawBody: string }) => {
+        at.push(Date.now())
+        return { ok: false, state, message: `${state} boom` } as ChatOnceResult
+      },
+      dispose: () => {},
+    },
+  }
+}
+
+test('组合：瞬时故障降级前会等一等，不是毫秒级打穿整个组合', async () => {
+  const router = new Router('')
+  const m1 = failingSpy('s1', 'm1', 'transport')
+  const m2 = failingSpy('s2', 'm2', 'unavailable')
+  add(router, m1.s); add(router, m2.s)
+  router.createCombo('combo', 'fallback', ['s1,m1', 's2,m2'])
+
+  const t0 = Date.now()
+  await router.chatCompletions(reqWith('combo'), fakeRes())
+  const elapsed = Date.now() - t0
+
+  // 两个都失败 → 全灭；但 s1 瞬时失败后应等一个窗口再试 s2
+  assert.equal(m1.at.length, 1)
+  assert.equal(m2.at.length, 1)
+  assert.ok(elapsed >= 1000, `瞬时故障降级前应等待（实际 ${elapsed}ms），否则组合会被瞬间打穿`)
+})
+
+test('组合：no_such_model 不是故障，降级不该等', async () => {
+  const router = new Router('')
+  const m1 = failingSpy('s1', 'm1', 'no_such_model')
+  const m2 = failingSpy('s2', 'm2', 'no_such_model')
+  add(router, m1.s); add(router, m2.s)
+  router.createCombo('combo', 'fallback', ['s1,m1', 's2,m2'])
+
+  const t0 = Date.now()
+  await router.chatCompletions(reqWith('combo'), fakeRes())
+  const elapsed = Date.now() - t0
+
+  assert.ok(elapsed < 1000, `模型不存在是配置问题不是故障，不该等（实际 ${elapsed}ms）`)
+})

@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import type { Supplier, ChatRequest, ModelInfo, ModelWithEnabled, SupplierStatus, Combo } from './types.ts'
 import type { ChatOnceResult } from '../suppliers/contract.ts'
+import type { AccountState } from '../suppliers/contract.ts'
 import { AccountPool } from './account-pool.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
 import { UsageStore } from './usage-store.ts'
@@ -21,6 +22,8 @@ interface ChatTrace {
   attempts: number
   /** 最后一次失败原因。 */
   lastError?: string
+  /** 最后一次失败的状态（组合据此判断要不要「喘口气」再降级）。 */
+  lastState?: AccountState
 }
 
 /** 模型列表缓存有效期。 */
@@ -50,6 +53,22 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
  */
 function stripAlias(model: string, alias: string): string {
   return alias !== '' && model.startsWith(`${alias}/`) ? model.slice(alias.length + 1) : model
+}
+
+/**
+ * 组合降级前的「喘口气」等待：瞬时故障给上游一个恢复窗口再换下一个模型。
+ *
+ * 学 9router combo.js 的同名处理（注释原话：fixes: combo falls through on
+ * transient 503）—— 过载的上游往往几百毫秒内就恢复，立刻换下一个模型会
+ * 让整个组合在几毫秒内被打穿，最后全灭返回 503。
+ *
+ * 只对**瞬时**故障等：连接层失败 / 上游不可用（对应 9router 的 502/503/504）。
+ * 模型不属于本供应商（no_such_model）绝不能等 —— 它不是故障，等纯属浪费。
+ */
+const TRANSIENT_SETTLE_MS = 2_000
+
+function isTransient(state: AccountState): boolean {
+  return state === 'transport' || state === 'unavailable'
 }
 
 /** 丢弃响应的假 ServerResponse（测试模型用：记录状态+内容，用于判定成败）。 */
@@ -753,10 +772,16 @@ export class Router {
       for (let i = 0; i < combo.models.length; i++) {
         const model = combo.models[(start + i) % combo.models.length]
         if (model === undefined) continue
-        const served = await this.chatWithModel(req, res, model, probe)
+        const trace: ChatTrace = { attempts: 0 }
+        const served = await this.chatWithModel(req, res, model, probe, trace)
         if (served) {
           settle(true)
           return
+        }
+        // 瞬时故障：先给上游一个恢复窗口再换下一个模型。否则过载的上游
+        // 会被整个组合在几毫秒内依次打穿 —— 最后一次失败就是全灭 503。
+        if (trace.lastState !== undefined && isTransient(trace.lastState) && i < combo.models.length - 1) {
+          await new Promise((r) => setTimeout(r, TRANSIENT_SETTLE_MS))
         }
       }
       settle(false, 'combo: all models unavailable')
@@ -801,7 +826,12 @@ export class Router {
    *  不再挨个问供应商「这是不是你的模型」——精准调用，也避免同名模型串台。
    *  兼容旧的裸 `modelId`（没有逗号）：降级为遍历，行为同以前。
    */
-  private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string, probe?: UsageProbe): Promise<boolean> {
+  /**
+   * @param outTrace 可选出参：把这次调用的追踪信息带回去（组合据此判断
+   *   要不要「喘口气」再降级）。裸 id 遍历路径不填（多供应商混在一起，
+   *   失败状态没有单一归属）。
+   */
+  private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string, probe?: UsageProbe, outTrace?: ChatTrace): Promise<boolean> {
     const comma = model.indexOf(',')
     const supplierId = comma > 0 ? model.slice(0, comma) : undefined
     // 组合存的是供应商 id，但插件认的是自己的模型 id
@@ -827,6 +857,11 @@ export class Router {
       const t0 = Date.now()
       const trace: ChatTrace = { attempts: 0 }
       const served = await this.chatWithSupplier(s, clone, res, trace, probe)
+      if (outTrace !== undefined) {
+        outTrace.attempts = trace.attempts
+        outTrace.lastError = trace.lastError
+        outTrace.lastState = trace.lastState
+      }
       this.logChat(req.model, served
         ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}`
         : `${s.id}/${modelId} 失败 ${trace.lastError ?? 'no account'}`, Date.now() - t0)
@@ -863,6 +898,7 @@ export class Router {
       const r = await s.chatOnce('', req)
       if (!r.ok) {
         if (r.state === 'no_such_model') return false // 不是我的模型：换供应商，不记账
+        if (trace !== undefined) trace.lastState = r.state
         pool.noteFailure('', r.state, r.message)
         return false
       }
@@ -897,6 +933,7 @@ export class Router {
         pool.noteFailure(uid, r.state, r.message)
         if (trace !== undefined) {
           trace.attempts += 1
+          trace.lastState = r.state
           trace.lastError = `${r.state}: ${r.message}`
         }
         continue
@@ -917,6 +954,7 @@ export class Router {
       pool.noteFailure(uid, 'transport', 'stream failed before first byte')
       if (trace !== undefined) {
         trace.attempts += 1
+        trace.lastState = 'transport'
         trace.lastError = 'stream failed before first byte'
       }
     }

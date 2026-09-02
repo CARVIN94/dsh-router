@@ -11,6 +11,7 @@ import {
   EMPTY_RESPONSE_CODE,
   LlmAdapter,
   LlmError,
+  attributionHeaders,
   type GenerateOptions,
   type LlmModelInfo,
   type StreamChunk,
@@ -22,29 +23,23 @@ export interface RouterAdapterSource {
   comboModels: () => Promise<Array<{ id: string; name?: string }>>
 }
 
-/** 解析 SSE 文本，产出 `data:` 载荷（含结尾 [DONE]）。 */
-function* parseSseText(text: string): Generator<string> {
-  let data = ''
-  for (const line of text.split('\n')) {
-    if (line.startsWith('data:')) {
-      const value = line.slice(5).trimStart()
-      if (data.length > 0) data += '\n'
-      data += value
-      continue
-    }
-    if (line === '' && data.length > 0) {
-      yield data
-      data = ''
-    }
-  }
-  if (data.length > 0) yield data
-}
-
-/** 把 DSH 消息序列化成 openai 兼容 wire 消息（纯文本 + tool）。 */
-function wireMessages(options: GenerateOptions): Array<Record<string, unknown>> {
+/**
+ * 把 DSH 消息序列化成 openai 兼容 wire 消息（纯文本 + tool）。
+ *
+ * `system` 必须由调用方从 `options.system` 传进来：agent-loop 把系统提示词
+ * 放在 **options.system 这个独立槽位**，不放进 messages（见 dsh-llm
+ * types.d.ts 的 `system?: string` —— 注释原话 "adapters map to the
+ * provider's system slot"）。不读这个槽位，模型每一轮都拿不到身份/规则/
+ * 工具用法约束，且**不会报错**，只是行为悄悄降级。
+ */
+function wireMessages(options: GenerateOptions, system?: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = []
+  if (typeof system === 'string' && system !== '') {
+    out.push({ role: 'system', content: system })
+  }
   for (const message of options.messages) {
     if (message.role === 'system') {
+      // 手写调用也可能把 system 塞进 messages（one-shot 场景），照旧支持
       out.push({ role: 'system', content: flattenText(message.content) })
       continue
     }
@@ -70,7 +65,9 @@ function wireMessages(options: GenerateOptions): Array<Record<string, unknown>> 
     const toolResults = message.content.filter((b) => b.type === 'tool-result')
     if (text.length > 0 || toolResults.length === 0) out.push({ role: 'user', content: text })
     for (const result of toolResults) {
-      out.push({ role: 'tool', tool_call_id: result.toolCallId, content: flattenText(result.content) || '(no output)' })
+      // 空结果就发空串，不要替换成 '(no output)' 之类的字面量 —— 模型会
+      // 以为工具真的打印了那句话（9router 也是补 content: ""）。
+      out.push({ role: 'tool', tool_call_id: result.toolCallId, content: flattenText(result.content) })
     }
   }
   return out
@@ -78,7 +75,7 @@ function wireMessages(options: GenerateOptions): Array<Record<string, unknown>> 
 
 /** 组装 wire 请求体。 */
 function wireRequest(options: GenerateOptions): Record<string, unknown> {
-  const messages = wireMessages(options)
+  const messages = wireMessages(options, options.system)
   const body: Record<string, unknown> = {
     model: options.model,
     messages,
@@ -93,7 +90,31 @@ function wireRequest(options: GenerateOptions): Record<string, unknown> {
   if (options.temperature !== undefined) body.temperature = options.temperature
   if (options.maxTokens !== undefined) body.max_tokens = options.maxTokens
   if (options.stop !== undefined) body.stop = options.stop
+  applyReasoning(body, options.reasoningEffort)
   return body
+}
+
+/**
+ * 推理强度 → CodeBuddy 的 OpenAI 风格参数。
+ *
+ * 照 9router `executors/codebuddy-cn.js` 的处理：CodeBuddy 只有同时收到
+ * `reasoning_effort` + `reasoning_summary:"auto"` 才吐推理内容，而 harness
+ * 只给 `reasoning_effort`，从不下发 `reasoning_summary`。
+ *
+ * 关键陷阱（9router 注释里的 #2071）：**不能无条件加**。对没要推理的普通
+ * 请求强行加 `reasoning_effort:"medium"` + `reasoning_summary`，会让
+ * CodeBuddy 触发内容过滤直接报错。`none`/`off` 也必须是**删字段**而不是传
+ * `"none"` —— 网关没有这个值。
+ */
+function applyReasoning(body: Record<string, unknown>, effort: string | undefined): void {
+  if (effort === undefined || effort === '') return
+  if (effort === 'none' || effort === 'off') {
+    delete body.reasoning_effort
+    delete body.reasoning_summary
+    return
+  }
+  body.reasoning_effort = effort
+  body.reasoning_summary = 'auto'
 }
 
 function flattenText(blocks: readonly { type: string; text?: string }[]): string {
@@ -124,10 +145,15 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
   let pendingFinish: { kind: string; failure?: unknown } | undefined
   /** 攒上游各帧的 usage（归一形态），[DONE] 时统一转成 DSH 契约。 */
   let accumulated: UsageTokens | null = null
+  /** 解析失败的帧数（坏帧跳过，不硬抛；全是坏帧才当断流处理）。 */
+  let malformed = 0
+  /** 有没有产出过任何内容块（content/reasoning/tool-call）。 */
+  let produced = false
 
   const open = (kind: OpenBlock['kind']): OpenBlock => {
     const block: OpenBlock = { index: nextIndex++, kind, text: '' }
     order.push(block)
+    produced = true
     return block
   }
 
@@ -145,6 +171,20 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
       const dropped = order.length - complete.length
       for (const block of complete) {
         yield { type: 'block-end', index: block.index, block: closeBlock(block) }
+      }
+      // 残缺的块**必须补发一个安全的 block-end**，光不发是不够的：
+      // dsh-llm 的 BlockAssembler 对缺 block-end 的 index 会用累积的 delta
+      // 兜底重建（lib/types/assembler.js），照样组装出 `{"command": "rm -rf /`
+      // 这种半成品；而 assembled() 只在 finish.kind === 'max-tokens' 时过滤
+      // tool-call —— EMPTY_RESPONSE 的 error finish 不过滤。
+      // 补一个空名 + `{}` 的收尾，让它**覆盖**掉 delta 累积值。
+      for (const block of order) {
+        if (block.kind !== 'tool-call' || completeJson(block.text)) continue
+        yield {
+          type: 'block-end',
+          index: block.index,
+          block: { type: 'tool-call', id: CallId(block.callId ?? ''), name: '', arguments: '{}' },
+        }
       }
       if (dropped > 0) {
         // 整轮判 error：让 agent-loop 重试（拿残参执行是错的，静默装作成功更错）
@@ -185,7 +225,14 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
     try {
       chunk = JSON.parse(payload) as typeof chunk
     } catch {
-      throw new LlmError(`malformed SSE payload: ${payload.slice(0, 120)}`, 'MALFORMED_RESPONSE')
+      // 坏帧**跳过**，不要抛：一帧坏 JSON 毁掉整轮，已流式吐出的内容全废
+      // （9router 也是 catch 后继续，见 mitm/handlers/base.js 的
+      // "Skip unparseable lines"）。上游断流时最后一帧常常就是半截的，
+      // 硬抛等于把可恢复的失败变成必失败 —— 而且 MALFORMED_RESPONSE 不在
+      // dsh-llm 的可重试白名单里，抛了也一次都不重试。
+      // 真的一帧都没解析成功时，流末按断流处理（见下方）。
+      malformed += 1
+      continue
     }
     for (const choice of chunk.choices ?? []) {
       const delta = choice.delta ?? {}
@@ -242,11 +289,12 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
     // 所以是字段级 max 合并，不是覆盖。攒着，[DONE] 时统一转契约。
     if (chunk.usage !== undefined) accumulated = mergeUsage(accumulated, normalizeUsage(chunk.usage))
   }
-  // 码必须是 TRANSPORT（不是自造的 STREAM_CLOSED）：只有 dsh-llm 默认可
-  // 重试白名单里的码才会被重试（EMPTY_RESPONSE / RATE_LIMIT / SERVER /
-  // TIMEOUT / TRANSPORT）。自造码一次都不重试，断流就直接抛给用户 ——
-  // 而断流恰恰是**最该重试**的一类故障（半截响应、连接被切）。
-  throw new LlmError('SSE payload stream ended without [DONE]', 'TRANSPORT')
+  // 码必须是 TRANSPORT（不是自造的 STREAM_CLOSED / MALFORMED_RESPONSE）：
+  // 只有 dsh-llm 默认可重试白名单里的码才会被重试（EMPTY_RESPONSE /
+  // RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT）。自造码一次都不重试，
+  // 断流就直接抛给用户 —— 而断流恰恰是**最该重试**的一类故障。
+  const detail = malformed > 0 ? ` (${malformed} frame(s) unparseable)` : ''
+  throw new LlmError(`SSE payload stream ended without [DONE]${detail}`, 'TRANSPORT')
 }
 
 /** 上游 finish_reason → DSH finish reason；空串（「未终止」）返回 undefined。 */
@@ -340,7 +388,14 @@ export class RouterAdapter extends LlmAdapter {
     try {
       resp = await fetch(`${this.baseURL}/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+        // attributionHeaders() 是 dsh-llm 对 adapter 的硬契约：每个 provider
+        // 请求都必须带（LlmAdapter 类注释原话）。它给出
+        // `user-agent: deepseek-harness/<ver> (+url)`。
+        headers: {
+          ...attributionHeaders(),
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       })
@@ -355,6 +410,21 @@ export class RouterAdapter extends LlmAdapter {
     }
     if (resp.body === null) return
     yield* translateSse(ssePayloads(resp.body))
+  }
+}
+
+/**
+ * 已攒的 payload 是否已经是完整的（`[DONE]` 或一个能解析的 JSON 对象）。
+ *
+ * 只用于「缺空行分隔」时的前瞻回退，不校验业务结构 —— 那是 translateSse 的事。
+ */
+function looksComplete(payload: string): boolean {
+  if (payload === '[DONE]') return true
+  try {
+    JSON.parse(payload)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -386,6 +456,14 @@ async function* ssePayloads(body: ReadableStream<Uint8Array>): AsyncGenerator<st
       for (const line of lines) {
         const t = line.trim()
         if (t.startsWith('data:')) {
+          // 前瞻回退：部分上游不发空行分隔，直接连着发下一帧。这时若已攒的
+          // payload 本身是个完整 JSON，就先把它交出去 —— 否则两帧会被拼成
+          // `{...}\n{...}` 而 parse 失败，整轮报废（9router 逐行取，天然
+          // 没这问题；我们按空行分帧，就得补这个回退）。
+          if (payload.length > 0 && looksComplete(payload)) {
+            yield payload
+            payload = ''
+          }
           payload += (payload.length > 0 ? '\n' : '') + t.slice(5).trimStart()
           continue
         }
@@ -403,6 +481,13 @@ async function* ssePayloads(body: ReadableStream<Uint8Array>): AsyncGenerator<st
     }
     if (payload.length > 0) yield payload
   } finally {
-    reader.releaseLock()
+    // 释放锁**之后还必须 cancel**：releaseLock() 只解除 JS 侧的 reader 绑定，
+    // 不通知传输层 —— 上游那条 TCP 连接和 in-flight 请求会原样挂着。
+    // dsh-llm 在消费者提前退出时必走 `iterator.return()`（用户取消 /
+    // agent-loop 收敛 / 异常），于是每次中断泄漏一条到本地路由器的连接；
+    // 长会话下 fd 耗尽 → ECONNRESET / 端口耗尽。
+    // 顺序不能反：cancel() 要求没有活跃 reader，所以先 releaseLock。
+    try { reader.releaseLock() } catch { /* 有待定 read 时会抛，忽略 */ }
+    await body.cancel().catch(() => {})
   }
 }

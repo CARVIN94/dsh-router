@@ -11,8 +11,21 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { EMPTY_RESPONSE_CODE } from '@deepseek-ai/dsh-llm'
 import { toTokenUsage } from '../router/usage-tokens.ts'
 import { translateSse } from './adapter.ts'
+
+/**
+ * dsh-llm 默认可重试的错误码白名单（DEFAULT_RETRYABLE_CODES）。
+ *
+ * 这里**故意写死一份**而不是从依赖导入：白名单是重试能不能生效的判据，
+ * 从 dsh-llm 导入的话，依赖升级改了白名单，这条测试会跟着一起变绿，
+ * 而我们真正要锁的是「线上那份 policyKey 里的码」。
+ * 来源：线上会话日志 llm/retry 的 policyKey —— ["EMPTY_RESPONSE","RATE_LIMIT",
+ * "SERVER","TIMEOUT","TRANSPORT"]。若将来确实变了，同步改这里，并确认
+ * adapter 用的码还在新名单里。
+ */
+const RETRYABLE_CODES = ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT']
 
 /** 跑一遍 SSE 载荷序列，返回产出的 usage chunk（没有则 undefined）。 */
 async function usageOf(...payloads: string[]): Promise<Record<string, unknown> | undefined> {
@@ -200,6 +213,20 @@ test('工具调用：参数残缺时整轮判 error（agent-loop 好重试，而
   assert.equal(reason?.kind, 'error')
   const failure = reason?.failure as { message: string; code: string }
   assert.ok(typeof failure.code === 'string' && failure.code.length > 0, 'error code 必须非空')
+})
+
+test('工具调用：残缺的 error code 必须在默认可重试白名单里', async () => {
+  // 这是最容易踩的坑：造一个「看起来更精确」的新码（INCOMPLETE_TOOL_ARGS）
+  // 不在 dsh-llm 的默认 retryableCodes 里，结果**一次都不重试**，直接抛给
+  // 用户 —— 正好毁掉「判 error 好让 agent-loop 重试」的本意。
+  // 白名单来自线上会话日志的 policyKey；产出为空/不完整 → EMPTY_RESPONSE 最贴。
+  const reason = await finishOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'bash', arguments: '{"command": "cd' } }] } }] }),
+    '[DONE]',
+  )
+  const code = (reason?.failure as { code: string }).code
+  assert.ok(RETRYABLE_CODES.includes(code), `code ${code} 不在可重试白名单 ${JSON.stringify(RETRYABLE_CODES)} 里，残缺参数将永不重试`)
+  assert.equal(code, EMPTY_RESPONSE_CODE)
 })
 
 test('工具调用：整块没收到任何参数是空对象，不算残缺', async () => {

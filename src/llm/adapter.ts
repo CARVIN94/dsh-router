@@ -142,11 +142,17 @@ export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<
       }
       if (dropped > 0) {
         // 整轮判 error：让 agent-loop 重试（拿残参执行是错的，静默装作成功更错）
+        //
+        // code 必须用 EMPTY_RESPONSE：只有 dsh-llm 默认可重试码白名单里的
+        // 码才会触发重试（["EMPTY_RESPONSE","RATE_LIMIT","SERVER","TIMEOUT",
+        // "TRANSPORT"]，maxRetries 5）。造一个新码（如 INCOMPLETE_TOOL_ARGS）
+        // 看着更精确，但不在白名单里 → **一次都不重试**，直接抛给用户，
+        // 正好毁掉这里重试的本意。语义也对得上：上游没产出可用的调用。
         pendingFinish = {
           kind: 'error',
           failure: {
             message: `upstream closed the stream before ${dropped} tool call argument${dropped > 1 ? 's were' : ' was'} complete`,
-            code: 'INCOMPLETE_TOOL_ARGS',
+            code: EMPTY_RESPONSE_CODE,
           },
         }
       }

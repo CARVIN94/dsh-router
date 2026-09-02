@@ -38,6 +38,20 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
+/**
+ * 剥掉本供应商自己的 alias 前缀（只剥一层，且只认完整 `alias/` 开头）。
+ *
+ * 为什么不能用 lastIndexOf：模型 id 本身可以含斜杠（nvidia 的
+ * `deepseek-ai/deepseek-v4-flash-0731`），剥最后一段会把命名空间吃掉，
+ * 后面请求必然 404。只认「已知 alias + /」开头，其他原样返回。
+ *
+ * 注意：核心**只在记统计名时**用它。传给插件的 model 全名保持原样——
+ * 剥前缀是插件自己的事（各供应商插件都有一份同名实现）。
+ */
+function stripAlias(model: string, alias: string): string {
+  return alias !== '' && model.startsWith(`${alias}/`) ? model.slice(alias.length + 1) : model
+}
+
 /** 丢弃响应的假 ServerResponse（测试模型用：记录状态+内容，用于判定成败）。 */
 function sinkRes(): ServerResponse & { status(): number; body(): string } {
   let status = 200
@@ -857,7 +871,10 @@ export class Router {
         probe.supplier = s.id
         // 记对外全名 alias/model：与直接调用路径一致。组合里存的是裸
         // modelId，直接记会把同一个模型在 Top 榜上分裂成两行。
-        probe.model = `${s.getAlias()}/${req.model}`
+        // 直接调 `alias/model` 时 req.model 已带前缀，先剥掉再拼——
+        // 否则会套成 `alias/alias/model`（插件会再剥一次，功能是好的，
+        // 只是统计名多一层，Top 榜照样分裂）。
+        probe.model = `${s.getAlias()}/${stripAlias(req.model, s.getAlias())}`
         probe.uid = ''
       }
       return await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
@@ -890,7 +907,8 @@ export class Router {
         probe.supplier = s.id
         // 记对外全名 alias/model：与直接调用路径一致。组合里存的是裸
         // modelId，直接记会把同一个模型在 Top 榜上分裂成两行。
-        probe.model = `${s.getAlias()}/${req.model}`
+        // 剥一次自己的前缀：直接调 `alias/model` 时 req.model 已带前缀。
+        probe.model = `${s.getAlias()}/${stripAlias(req.model, s.getAlias())}`
         probe.uid = uid
       }
       const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)

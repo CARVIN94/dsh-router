@@ -49,8 +49,11 @@ function spy(id: string, modelId: string, alias = id): Spy {
       chatOnce: async (_uid, req) => {
         calls.n += 1
         const m = (JSON.parse(req.rawBody) as { model?: string }).model ?? ''
-        seen.push(m)
-        if (m !== modelId) return { ok: false, state: 'no_such_model', message: `unknown model ${m}` }
+        seen.push(m) // 记核心传来的**原样**全名，剥前缀是插件内部的事
+        // 真实插件会先剥掉自己的 alias 再认模型（各 suppliers/*/plugin.ts
+        // 都有一份 stripAlias）；这里照做，否则直接调用路径永远匹配不上。
+        const base = m.startsWith(`${alias}/`) ? m.slice(alias.length + 1) : m
+        if (base !== modelId) return { ok: false, state: 'no_such_model', message: `unknown model ${m}` }
         return { ok: true, status: 200, body: '{"ok":1}' }
       },
       dispose: () => {},
@@ -195,4 +198,36 @@ test('空别名 → 生效别名回落到供应商 id', () => {
   assert.equal(store.effectiveAliases().get('supA'), 'supA', '没设别名时 = 供应商 id')
   store.setAlias('supA', 'custom')
   assert.equal(store.effectiveAliases().get('supA'), 'custom')
+})
+
+/**
+ * 为什么要有这一组：用量统计记的 model 名曾把 alias 前缀套了两层
+ * （`tx/tx/hy4-preview`、`trae/trae/DeepSeek-V4-Flash-Official`）。
+ *
+ * 成因：直接调 `alias/model` 时核心**原样**把全名传给插件（剥前缀是插件
+ * 的活，见上面那条断言），但记 `probe.model` 时又拼了一次 `${alias}/`
+ * ——于是统计里出现双前缀。功能不受影响（插件拿到的名字是对的），但
+ * Top 榜会把同一个模型**分裂成两行**（`tx/hy4-preview` 和
+ * `tx/tx/hy4-preview` 各占一行），看板数据失真。
+ */
+test('用量统计：直接调 alias/model 时 model 名不重复套前缀', async () => {
+  const router = new Router('')
+  const b = spy('supB', 'b-model', 'bbb')
+  add(router, b.s)
+
+  await router.chatCompletions(reqWith('bbb/b-model'), fakeRes())
+
+  const rec = router.usage.recentList(1)[0]
+  assert.equal(rec?.model, 'bbb/b-model', '统计名必须是 alias/model，不能是 alias/alias/model')
+})
+
+test('用量统计：组合里的裸 id 仍记成 alias/model（旧行为不变）', async () => {
+  const router = new Router('')
+  const b = spy('supB', 'b-model', 'bbb')
+  add(router, b.s)
+
+  await router.chatCompletions(reqWith('b-model'), fakeRes())
+
+  const rec = router.usage.recentList(1)[0]
+  assert.equal(rec?.model, 'bbb/b-model', '裸 id 要补上 alias 前缀，否则 Top 榜分裂')
 })

@@ -45,7 +45,7 @@ const RULES: Record<AccountState, Rule> = {
 /** 连续错误攒够这么多次就自动冷却（防止坏号被反复重试）。 */
 const ERR_THRESHOLD = 3
 /** 攒够后的冷却时长。 */
-const ERR_COOLDOWN_MS = 10 * MINUTE
+const ERR_COOLDOWN_MS = 5 * MINUTE
 
 interface Entry {
   until: number

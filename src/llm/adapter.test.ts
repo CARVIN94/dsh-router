@@ -146,3 +146,69 @@ test('出口：未知终止原因必须带非空 code（agent-loop 会拿它重�
   const blankCode = (blank?.failure as { code: string }).code
   assert.ok(typeof blankCode === 'string' && blankCode.length > 0, `code 必须非空，实际 ${JSON.stringify(blankCode)}`)
 })
+
+/* ---------------- tool-call 参数完整性 ---------------- */
+
+/**
+ * 为什么要有这一组：上游（CodeBuddy 网关，长上下文/高压时）会在 tool_call
+ * 的 arguments 分片**还没发完**就直接发 `[DONE]`。adapter 原本在 `[DONE]`
+ * 时无条件收尾所有 block，把半成品 JSON（如 `{"command": "cd`）当完整参数
+ * 交给 harness —— 工具侧校验报 `missing required property "command"` /
+ * `"arguments" must be an object`，表现为「bash 调用大面积失败」。
+ * 实测一次会话里 29 次工具调用有 27 次参数是残缺的。
+ *
+ * 所以这里锁死：**残缺参数绝不能当有效调用交出去**。
+ */
+
+/** 跑一遍 SSE，返回 finish chunk 的 reason。 */
+async function toolCallsOf(...payloads: string[]): Promise<Array<{ name?: string; arguments?: string }>> {
+  const out: Array<{ name?: string; arguments?: string }> = []
+  for await (const chunk of translateSse(payloads)) {
+    if (chunk.type === 'block-end' && (chunk.block as { type?: string }).type === 'tool-call') {
+      out.push(chunk.block as { name?: string; arguments?: string })
+    }
+  }
+  return out
+}
+
+test('工具调用：参数分片发完才收尾，完整 JSON 原样保留', async () => {
+  const calls = await toolCallsOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'bash', arguments: '' } }] } }] }),
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"command": "ls' } }] } }] }),
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ' -la"}' } }] } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+    '[DONE]',
+  )
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.arguments, '{"command": "ls -la"}')
+})
+
+test('工具调用：参数残缺时绝不产出该调用（不能把半成品 JSON 交给工具）', async () => {
+  // 真实故障形态：首片开块，[DONE] 就来了，参数停在 `{"command": "cd`
+  const calls = await toolCallsOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'bash', arguments: '{"command": "cd' } }] } }] }),
+    '[DONE]',
+  )
+  assert.equal(calls.length, 0, '残缺参数不能变成一次工具调用')
+})
+
+test('工具调用：参数残缺时整轮判 error（agent-loop 好重试，而不是拿着残参执行）', async () => {
+  const reason = await finishOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'bash', arguments: '{"command": "cd' } }] } }] }),
+    '[DONE]',
+  )
+  assert.equal(reason?.kind, 'error')
+  const failure = reason?.failure as { message: string; code: string }
+  assert.ok(typeof failure.code === 'string' && failure.code.length > 0, 'error code 必须非空')
+})
+
+test('工具调用：整块没收到任何参数是空对象，不算残缺', async () => {
+  // 无参工具（如 checkinNow）合法：arguments 为空串，应补成 {}
+  const calls = await toolCallsOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'ping', arguments: '' } }] } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+    '[DONE]',
+  )
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.arguments, '{}')
+})

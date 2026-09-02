@@ -127,8 +127,28 @@ export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<
 
   for (const payload of payloads) {
     if (payload === '[DONE]') {
-      for (const block of order) {
+      // 收尾前先筛掉参数没发完的工具调用。
+      //
+      // 为什么必须筛：上游（CodeBuddy 网关）在长上下文/高压时会在 tool_call
+      // 的 arguments **分片没发完**就直接发 `[DONE]`。无条件收尾会把半成品
+      // JSON（如 `{"command": "cd`）当完整参数交给 harness，工具侧校验报
+      // `missing required property "command"` / `"arguments" must be an object`，
+      // 表现为「bash 调用大面积失败」。实测一次会话 29 次工具调用里 27 次
+      // 参数残缺。残缺的调用**不能执行**——拿半条命令去跑比报错危险得多。
+      const complete = order.filter((block) => block.kind !== 'tool-call' || completeJson(block.text))
+      const dropped = order.length - complete.length
+      for (const block of complete) {
         yield { type: 'block-end', index: block.index, block: closeBlock(block) }
+      }
+      if (dropped > 0) {
+        // 整轮判 error：让 agent-loop 重试（拿残参执行是错的，静默装作成功更错）
+        pendingFinish = {
+          kind: 'error',
+          failure: {
+            message: `upstream closed the stream before ${dropped} tool call argument${dropped > 1 ? 's were' : ' was'} complete`,
+            code: 'INCOMPLETE_TOOL_ARGS',
+          },
+        }
       }
       if (accumulated !== null) {
         // 转成 DSH 的 TokenUsage：**必须**转，不能把上游的 OpenAI 形态
@@ -241,8 +261,27 @@ function closeBlock(block: OpenBlock): never {
       type: 'tool-call',
       id: CallId(block.callId ?? ''),
       name: block.name ?? '',
-      arguments: block.text,
+      // 空串 = 无参工具，合法（上游很多工具不吃参数）；补成 `{}` 让下游
+      // 不必分支。能走到这里的必然是完整 JSON（残缺的已在 [DONE] 处拦掉）。
+      arguments: block.text === '' ? '{}' : block.text,
     } as never
+  }
+}
+
+/**
+ * 工具调用的 arguments 是否已经收完整（能解析成一个 JSON 对象）。
+ *
+ * 判断口径刻意简单：只看能不能 `JSON.parse` 出对象。不校验 schema——
+ * 那是工具自己的活，adapter 只负责「别把半成品交出去」。
+ * 空串视为完整（无参工具），因为上游不发参数分片是合法的。
+ */
+function completeJson(text: string): boolean {
+  if (text.trim() === '') return true
+  try {
+    const v: unknown = JSON.parse(text)
+    return typeof v === 'object' && v !== null && !Array.isArray(v)
+  } catch {
+    return false // 分片没发完，JSON 必然解析失败
   }
 }
 

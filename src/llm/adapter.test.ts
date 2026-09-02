@@ -13,7 +13,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EMPTY_RESPONSE_CODE } from '@deepseek-ai/dsh-llm'
 import { toTokenUsage } from '../router/usage-tokens.ts'
-import { translateSse } from './adapter.ts'
+import { RouterAdapter, translateSse } from './adapter.ts'
 
 /**
  * dsh-llm 默认可重试的错误码白名单（DEFAULT_RETRYABLE_CODES）。
@@ -238,4 +238,112 @@ test('工具调用：整块没收到任何参数是空对象，不算残缺', as
   )
   assert.equal(calls.length, 1)
   assert.equal(calls[0]?.arguments, '{}')
+})
+
+/* ---------------- 真流式：边收边吐，不攒完再放 ---------------- */
+
+/**
+ * 为什么要有这一组：stream() 曾用 `await resp.text()` 把整个响应**攒成
+ * 一个字符串**再解析，等于把流式降级成批处理：
+ *
+ *   1. 首字节延迟 = 整个响应耗时（CodeBuddy 长响应几十秒），用户干等；
+ *   2. 中途断流 → resp.text() 抛异常或只拿到半截文本，最后一帧是半截 JSON
+ *      （`{"command": "cd`）——这正是「bash 参数残缺」的根因。本地抓包
+ *      永远复现不了，因为短响应连接不断；长响应才会断。
+ *
+ * 9router 的 copilot 通道只做字节级透传（pipeSSE，23 行，不解析 SSE），
+ * 上游发什么客户端收什么，天然没有这个问题。dsh-router 必须在中间做
+ * 协议转换，所以**必须自己保证是增量的**。
+ *
+ * 这里锁死：上游还在慢慢发时，下游必须已经收到前面的块。
+ */
+
+/** 造一个「先发一帧、再等 signal、再发 [DONE]」的 SSE 响应体。 */
+function slowBody(): { stream: ReadableStream<Uint8Array>; resume: () => void; sent: () => boolean } {
+  const enc = new TextEncoder()
+  let resume = (): void => {}
+  const gate = new Promise<void>((r) => { resume = r })
+  let sent = false
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (!sent) {
+        controller.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: 'first' } }] })}\n\n`))
+        sent = true
+        return
+      }
+      await gate
+      controller.enqueue(enc.encode('data: [DONE]\n\n'))
+      controller.close()
+    },
+  })
+  return { stream, resume, sent: () => sent }
+}
+
+test('流式：上游还没发完，下游必须已经拿到前面的块（不能攒完再放）', async () => {
+  const { stream, resume } = slowBody()
+  globalThis.fetch = (async () => new Response(stream, { status: 200 })) as typeof fetch
+
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [] })
+  const seen: Array<{ type: string }> = []
+  const gen = adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(5000) } as never)
+  // 只取第一块：如果实现是「await resp.text() 攒完再解析」，这里会一直
+  // 挂到上游关闭（gate 永不放行）→ 超时。真流式则立刻拿到 'first'。
+  for await (const chunk of gen) {
+    seen.push(chunk as { type: string })
+    if (seen.length >= 2) break // block-start + text-delta
+  }
+  resume()
+  assert.ok(
+    seen.some((c) => c.type === 'text-delta'),
+    `上游未发完就应收到 text-delta，实际收到：${JSON.stringify(seen.map((c) => c.type))}`,
+  )
+})
+
+test('流式：断流（无 [DONE]）抛的 code 必须在可重试白名单里', async () => {
+  // 同上一条白名单约束的另一处踩坑点：断流是**最该重试**的故障（半截响应、
+  // 连接被切），若用自造码（STREAM_CLOSED）不在白名单里就永不重试。
+  const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'a' } }] })}\n\n`
+  globalThis.fetch = (async () => new Response(new TextEncoder().encode(sse), { status: 200 })) as typeof fetch
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [] })
+  let code = ''
+  try {
+    for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) void _c
+  } catch (e) {
+    code = (e as { code?: string }).code ?? ''
+  }
+  assert.ok(RETRYABLE_CODES.includes(code), `断流 code ${JSON.stringify(code)} 不在白名单 ${JSON.stringify(RETRYABLE_CODES)} 里`)
+})
+
+test('流式：CRLF 换行也能正确收尾（不能把 \\r 当成帧内容）', async () => {
+  const sse = `data: ${JSON.stringify({ choices: [{ delta: { content: 'a' } }] })}\r\n\r\ndata: [DONE]\r\n\r\n`
+  globalThis.fetch = (async () => new Response(new TextEncoder().encode(sse), { status: 200 })) as typeof fetch
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [] })
+  const types: string[] = []
+  for await (const c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) {
+    types.push(c.type)
+  }
+  assert.ok(types.includes('finish'), `CRLF 流必须以 finish 收尾，实际 ${JSON.stringify(types)}`)
+})
+
+test('流式：一帧横跨两次 read() 也能拼回来（半包）', async () => {
+  const enc = new TextEncoder()
+  const half = 'data: {"choices":[{"delta":{"content":"hel'
+  const rest = 'lo"}}]}\n\ndata: [DONE]\n\n'
+  let sent = false
+  globalThis.fetch = (async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        pull(c) {
+          if (!sent) { sent = true; c.enqueue(enc.encode(half)) }
+          else { c.enqueue(enc.encode(rest)); c.close() }
+        },
+      }),
+      { status: 200 },
+    )) as typeof fetch
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [] })
+  const texts: string[] = []
+  for await (const c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) {
+    if (c.type === 'text-delta') texts.push((c as { text: string }).text)
+  }
+  assert.equal(texts.join(''), 'hello', '跨块的半帧必须拼成完整内容')
 })

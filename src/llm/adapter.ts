@@ -109,7 +109,13 @@ interface OpenBlock {
 }
 
 /** openai SSE payload → DSH StreamChunk 流。导出以便单测锁死 usage 契约。 */
-export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<StreamChunk> {
+/**
+ * 把上游 SSE 的 `data:` 载荷流翻译成 DSH 的 StreamChunk 事件流。
+ *
+ * 吃 `AsyncIterable`（真流式：边收边吐）或 `Iterable`（测试用数组）。
+ * 用 `for await` 是因为它天然兼容两者 —— 不必为流式再写一份。
+ */
+export async function* translateSse(payloads: AsyncIterable<string> | Iterable<string>): AsyncGenerator<StreamChunk> {
   let nextIndex = 0
   let textBlock: OpenBlock | undefined
   let reasoningBlock: OpenBlock | undefined
@@ -125,7 +131,7 @@ export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<
     return block
   }
 
-  for (const payload of payloads) {
+  for await (const payload of payloads) {
     if (payload === '[DONE]') {
       // 收尾前先筛掉参数没发完的工具调用。
       //
@@ -236,7 +242,11 @@ export async function* translateSse(payloads: Iterable<string>): AsyncGenerator<
     // 所以是字段级 max 合并，不是覆盖。攒着，[DONE] 时统一转契约。
     if (chunk.usage !== undefined) accumulated = mergeUsage(accumulated, normalizeUsage(chunk.usage))
   }
-  throw new LlmError('SSE payload stream ended without [DONE]', 'STREAM_CLOSED')
+  // 码必须是 TRANSPORT（不是自造的 STREAM_CLOSED）：只有 dsh-llm 默认可
+  // 重试白名单里的码才会被重试（EMPTY_RESPONSE / RATE_LIMIT / SERVER /
+  // TIMEOUT / TRANSPORT）。自造码一次都不重试，断流就直接抛给用户 ——
+  // 而断流恰恰是**最该重试**的一类故障（半截响应、连接被切）。
+  throw new LlmError('SSE payload stream ended without [DONE]', 'TRANSPORT')
 }
 
 /** 上游 finish_reason → DSH finish reason；空串（「未终止」）返回 undefined。 */
@@ -343,7 +353,56 @@ export class RouterAdapter extends LlmAdapter {
       const detail = await resp.text().catch(() => '')
       throw new LlmError(`dsh-router /v1 returned ${resp.status}: ${detail.slice(0, 200)}`, 'TRANSPORT')
     }
-    const text = resp.body === null ? '' : await resp.text()
-    yield* translateSse(parseSseText(text))
+    if (resp.body === null) return
+    yield* translateSse(ssePayloads(resp.body))
+  }
+}
+
+/**
+ * 从上游响应体**增量**产出 SSE 的 `data:` 载荷。
+ *
+ * 为什么必须逐块读：曾经这里写 `await resp.text()` 攒完整串再解析，等于
+ * 把流式降级成批处理 —— 首字节延迟等于整个响应耗时；更糟的是中途断流时
+ * resp.text() 只拿到半截文本，最后一帧是半截 JSON（`{"command": "cd`），
+ * 表现为「工具参数残缺」。短响应连接不断，所以本地抓包复现不了。
+ *
+ * 跨块边界：一个 `data:` 行可能横跨两次 read()，所以留 `buffer` 接住
+ * 最后一段未完整的行（9router 的 pipeTransformedSSE 同样处理）。
+ */
+async function* ssePayloads(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder('utf-8', { fatal: false })
+  let buffer = ''
+  /** 攒一帧内的多行 data（SSE 规范：多行用 \n 连起来）。**必须**是局部
+   *  状态 —— 放模块级会让并发请求互相串数据。 */
+  let payload = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? '' // 最后一段可能没换行，留给下一块
+      for (const line of lines) {
+        const t = line.trim()
+        if (t.startsWith('data:')) {
+          payload += (payload.length > 0 ? '\n' : '') + t.slice(5).trimStart()
+          continue
+        }
+        // 空行 = 一帧结束
+        if (t === '' && payload.length > 0) {
+          yield payload
+          payload = ''
+        }
+      }
+    }
+    // 流正常结束：末尾没换行的内容也要收（可能有最后一帧）
+    if (buffer.length > 0) {
+      const t = buffer.trim()
+      if (t.startsWith('data:')) payload += (payload.length > 0 ? '\n' : '') + t.slice(5).trimStart()
+    }
+    if (payload.length > 0) yield payload
+  } finally {
+    reader.releaseLock()
   }
 }

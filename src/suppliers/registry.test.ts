@@ -4,7 +4,10 @@
  * 锁定的契约：checkinNow 是**单账号**能力，遍历所有链接 + 汇总是核心的活：
  *   - 禁用链接不签（不动它）
  *   - 某个链接抛错 → 记成 error，不带垮其它链接
- *   - succeeded / already 按 status 统计，ok = 有任一成功或今日已签
+ *   - succeeded / already / failed 按 status 统计
+ *   - **ok = 全部链接都成功（含已签）**；有任一失败 → HTTP 400 + ok:false，
+ *     让面板把失败如实亮出来（2026-09-02 修正：旧口径「有任一成功就算 ok」
+ *     会把部分失败吞成整体成功，UI 谎报「签到完成」）
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -84,6 +87,7 @@ interface CheckinPayload {
   total: number
   succeeded: number
   already: number
+  failed: number
   results?: CheckinResult[]
   error?: string
 }
@@ -120,18 +124,34 @@ test('签到：禁用链接照样签（禁用由插件自己判定，核心不�
   assert.equal(body.results?.[0]?.status, 'disabled')
 })
 
-test('签到：单链接抛错记成 error，其余照签', async () => {
+test('签到：单链接抛错记成 error 不连坐；有失败 → 400 不算整体成功', async () => {
   const { status, body } = await postCheckin(
     fixture([{ uid: 'a' }, { uid: 'b' }], async (uid) => {
       if (uid === 'a') throw new Error('boom')
       return { ok: true, status: 'ok' }
     }),
   )
-  assert.equal(status, 200)
+  // 有任一失败整体就不是 ok（否则 UI 会谎报「签到完成」）——a 的错照记，不连坐 b
+  assert.equal(status, 400)
+  assert.equal(body.ok, false)
   assert.equal(body.succeeded, 1)
+  assert.equal(body.failed, 1)
   assert.equal(body.results?.[0]?.status, 'error')
   assert.equal(body.results?.[0]?.message, 'boom')
   assert.equal(body.results?.[1]?.status, 'ok')
+})
+
+test('签到：全部成功（含 already）才算整体 ok', async () => {
+  const { status, body } = await postCheckin(
+    fixture([{ uid: 'a' }, { uid: 'b' }], async (uid) =>
+      uid === 'a' ? { ok: true, status: 'ok', message: '+200' } : { ok: true, status: 'already', message: '今日已签到' },
+    ),
+  )
+  assert.equal(status, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.succeeded, 1)
+  assert.equal(body.already, 1)
+  assert.equal(body.failed, 0)
 })
 
 test('签到：今日已签（already）算成功，不计入 succeeded', async () => {

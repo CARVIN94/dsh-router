@@ -1,14 +1,26 @@
 /**
- * 账号池 —— dsh-router 核心策略：选号、冷却、禁用、错误累计、遍历回退。
+ * 账号池 —— dsh-router 核心策略：选号、冷却、禁用、遍历回退。
  *
- * 供应商插件只管「对单个账号调通上游」，账号层面的策略全在这里：
- *   - 按 poolOrder 排序（未配置的按插件报告顺序追加）
- *   - 按 poolStrategy 选号：fallback = 取第一个健康；round-robin = 轮转健康号
- *   - 失败按插件报的 AccountState 处置（冷却/禁用/错误累计），攒够阈值自动冷却
+ * 供应商插件只管「对单个账号调通上游」，账号层面的策略全在这里。
  *
- * 天花板：冷却/禁用/错误计数都是**内存态**，重启归零（与旧插件行为一致，
- * 插件的持久化只存凭证与积分，不存健康）。要跨重启保留得落盘，届时加一个
- * stateFile 即可，接口不用变。
+ * ## 冷却颗粒度 = (供应商, 模型, 连接) 三元组
+ *
+ * 冷却**不按连接整体记**，而是按「哪家供应商 × 哪个模型 × 哪个连接」单独记。
+ * 理由：一个连接可以服务多个模型。若某连接调模型 A 时被限流/瞬时抖动而把
+ * **整个连接**冷掉，那它调模型 B 也被殃及——一个付费连接会因一个模型的瞬时
+ * 失败而对其它模型也不可用，这是错的。
+ *
+ *   - 冷却/限流退避/瞬时 → 键 = (supplierId, modelId, uid)，只冷「这个号 × 这个模型」
+ *   - 禁用(session_dead)     → 键 = uid（登录态问题，该号所有模型都不可用）
+ *   - 手动冷却(面板)         → 键 = uid（管理员整连接暂停）
+ *
+ * 为什么键里要带 supplierId：不同供应商**会有同名的模型 id**（如 traework 与
+ * codebuddy 都有 `deepseek-v4-flash`），它们是不同的实体，单靠 (modelId, uid)
+ * 会把跨供应商的同名模型串到一起。尽管本池实例当前是单供应商（loader 每供应商
+ * 一个 AccountPool），键仍显式带 supplierId，语义自明且将来若池合并也安全。
+ *
+ * 天花板：冷却/禁用都是**内存态**，重启归零（与旧插件行为一致）。要跨重启保留
+ * 得落盘，届时加 stateFile 即可，接口不用变。
  */
 import type { AccountState, SupplierAccountNow } from '../suppliers/contract.ts'
 
@@ -37,8 +49,7 @@ const MINUTE = 60_000
  *  - `rate_limit` 用**指数退避**（9router 的 `backoff: true`）：偶发限流只
  *    短冷，持续限流越退越久，比固定 1 分钟两头不讨好要准。
  *  - 未知/瞬时错误用**瞬时短冷却**（9router 默认分支 TRANSIENT_COOLDOWN_MS）：
- *    每次失败都冻结，坏号不会留在池里被下一个请求再选中。原「计错误攒够
- *    3 次才冷却」前两次完全不冷却，整池正是被这条路径拖垮的。
+ *    每次失败都冻结，坏号不会留在池里被下一个请求再选中。
  *
  * 与 9router 的差别：9router 按错误文本/HTTP 状态匹配，这里按插件解读后的
  * 语义状态匹配 —— 插件已经把 11133/11134 这类网关噪声归成 `rate_limit`，
@@ -61,6 +72,7 @@ const RULES: Record<AccountState, Rule> = {
  * 瞬时/未知错误的冷却时长 —— 对齐 9router 的 TRANSIENT_COOLDOWN_MS。
  * 取短值：这类错误大多是偶发的上游抖动，冷太久会把好号白白关掉；
  * 但**必须冷**，否则坏号留在池里，每个请求都要先撞一次才知道它坏了。
+ * （现在按 (模型, 号) 记，只关这一个号在这个模型上的可用性。）
  */
 const TRANSIENT_COOLDOWN_MS = 30_000
 
@@ -74,10 +86,17 @@ const ERR_THRESHOLD = 3
 /** 攒够后的冷却时长。 */
 const ERR_COOLDOWN_MS = 5 * MINUTE
 
-interface Entry {
+/** 冷却记录（键 = (supplier, model, uid)）。 */
+interface CooldownEntry {
+  until: number
+  backoffLevel: number
+  reason: string
+}
+
+/** 连接级禁用/手动暂停记录（键 = uid）。 */
+interface UidEntry {
   until: number
   disabled: boolean
-  backoffLevel: number
   reason: string
 }
 
@@ -86,34 +105,77 @@ function backoffMs(level: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, level - 1), BACKOFF_MAX_MS)
 }
 
+/** 冷却键分隔符：模型 id 本身可含 `/` `,`，用不可见控制符隔离最稳。 */
+const SEP = '\u0000'
+
 export class AccountPool {
-  private entries = new Map<string, Entry>()
+  /** 本池所属供应商（loader 每供应商一个实例；键里带上，跨供应商同名模型不串）。 */
+  private supplierId: string
+  /** (supplier, model, uid) → 冷却/退避。 */
+  private cooldowns = new Map<string, CooldownEntry>()
+  /** uid → 连接级禁用 / 手动暂停。 */
+  private byUid = new Map<string, UidEntry>()
   private rrCursor = 0
 
-  private entry(uid: string): Entry {
-    let e = this.entries.get(uid)
+  constructor(supplierId = '') {
+    this.supplierId = supplierId
+  }
+
+  private key(model: string, uid: string): string {
+    return `${this.supplierId}${SEP}${model}${SEP}${uid}`
+  }
+
+  private entry(model: string, uid: string): CooldownEntry {
+    const k = this.key(model, uid)
+    let e = this.cooldowns.get(k)
     if (!e) {
-      e = { until: 0, disabled: false, backoffLevel: 0, reason: '' }
-      this.entries.set(uid, e)
+      e = { until: 0, backoffLevel: 0, reason: '' }
+      this.cooldowns.set(k, e)
     }
     return e
   }
 
-  /** 是否可服务：未禁用且不在冷却中。 */
-  private healthy(uid: string, now: number): boolean {
-    const e = this.entries.get(uid)
-    if (!e) return true
-    if (e.disabled) return false
-    return e.until <= now
+  /** 某连接整体状态（禁用/手动暂停）。 */
+  private uidState(uid: string): UidEntry {
+    let e = this.byUid.get(uid)
+    if (!e) {
+      e = { until: 0, disabled: false, reason: '' }
+      this.byUid.set(uid, e)
+    }
+    return e
+  }
+
+  /** 该连接是否被禁用 / 手动整连接暂停中（跨模型生效）。 */
+  private uidBlocked(uid: string, now: number): { blocked: boolean; disabled: boolean } {
+    const e = this.byUid.get(uid)
+    if (!e) return { blocked: false, disabled: false }
+    if (e.disabled) return { blocked: true, disabled: true }
+    if (e.until > now) return { blocked: true, disabled: false }
+    return { blocked: false, disabled: false }
   }
 
   /**
-   * 按策略选一个健康账号。
+   * 给定要试的模型，该连接是否可服务：
+   *  - 未被连接级禁用/手动暂停（跨模型）；
+   *  - 且此 (supplier, model, uid) 冷却单元不在冷却中。
+   */
+  private healthy(uid: string, model: string, now: number): boolean {
+    const b = this.uidBlocked(uid, now)
+    if (b.blocked) return false
+    const c = this.cooldowns.get(this.key(model, uid))
+    if (!c) return true
+    return c.until <= now
+  }
+
+  /**
+   * 按策略为「某个模型」选一个健康账号。
    * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）
    * @param poolOrder 用户在面板拖出来的顺序（核心管）
+   * @param strategy fallback 取第一个健康 / round-robin 轮转健康号
+   * @param modelId 当前要路由的模型（决定查哪个 (model, uid) 冷却单元）
    * @returns 选中的 uid；无健康账号返回 undefined
    */
-  pick(accounts: SupplierAccountNow[], poolOrder: string[], strategy: string): string | undefined {
+  pick(accounts: SupplierAccountNow[], poolOrder: string[], strategy: string, modelId: string): string | undefined {
     const now = Date.now()
     const byUid = new Map(accounts.map((a) => [a.uid, a]))
     // 池顺序优先，未配置的按插件自然顺序追加
@@ -121,7 +183,7 @@ export class AccountPool {
       ...poolOrder.filter((uid) => byUid.has(uid)),
       ...accounts.map((a) => a.uid).filter((uid) => !poolOrder.includes(uid)),
     ]
-    const healthy = ordered.filter((uid) => this.healthy(uid, now))
+    const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
     if (healthy.length === 0) return undefined
     if (strategy !== 'round-robin') return healthy[0]
     const uid = healthy[this.rrCursor % healthy.length]
@@ -129,15 +191,21 @@ export class AccountPool {
     return uid
   }
 
-  /** 记录一次失败：按状态处置（冷却/禁用/退避）。 */
-  noteFailure(uid: string, state: AccountState, message: string): void {
+  /** 记录一次失败：按状态处置（冷却/禁用/退避），落在「(模型, 连接)」这个冷却单元上。 */
+  noteFailure(uid: string, modelId: string, state: AccountState, message: string): void {
     const rule = RULES[state]
-    const e = this.entry(uid)
-    e.reason = message
+    // 禁用 / 手动暂停是连接级（登录态问题，跨模型）——但这里只处理规则本身
     if (rule.disable) {
+      // session_dead：整个连接禁用（跨该号所有模型）
+      const e = this.uidState(uid)
       e.disabled = true
+      e.reason = message
       return
     }
+    if (rule.cooldown === 0) return // no_such_model 等：不冷不记
+    // 冷却/退避：记在 (model, uid) 单元上，不动该号其它模型
+    const e = this.entry(modelId, uid)
+    e.reason = message
     if (rule.cooldown === 'backoff') {
       // 连续被限流 → 等级递进冷却；成功（noteSuccess）会清零等级
       e.backoffLevel = Math.min(e.backoffLevel + 1, BACKOFF_MAX_LEVEL)
@@ -149,27 +217,35 @@ export class AccountPool {
       e.until = Math.max(e.until, Date.now() + TRANSIENT_COOLDOWN_MS)
       return
     }
-    if (rule.cooldown > 0) {
-      e.until = Math.max(e.until, Date.now() + rule.cooldown)
-    }
+    e.until = Math.max(e.until, Date.now() + rule.cooldown)
   }
 
-  /** 记录一次成功：清零限流退避等级（好号不背历史惩罚）。 */
-  noteSuccess(uid: string): void {
-    const e = this.entries.get(uid)
+  /** 记录一次成功：清零「该模型」的限流退避等级（好号不背历史惩罚）。不解除禁用。 */
+  noteSuccess(uid: string, modelId: string): void {
+    const e = this.cooldowns.get(this.key(modelId, uid))
     if (e) e.backoffLevel = 0
   }
 
-  /** 手动冷却（面板/管理用途）。 */
+  /** 手动暂停整连接（面板/管理用途，跨模型）。ms<=0 表示解除。 */
   cooldown(uid: string, ms: number, reason: string): void {
-    const e = this.entry(uid)
+    const e = this.uidState(uid)
     e.until = Date.now() + ms
     e.reason = reason
-    e.backoffLevel = 0
+    // 手动暂停通常是想清掉这个号上的累积惩罚：把它的退避等级清零
+    // （disabled 不可由此解除——需重新登录）
+    for (const [k, ce] of this.cooldowns) {
+      if (k.endsWith(`${SEP}${uid}`)) ce.backoffLevel = 0
+    }
   }
 
-  /** 把核心的冷却/禁用/错误累计叠加到插件报告的「现在状态」上，产出面板态。 */
-  decorate(accounts: SupplierAccountNow[]): Array<SupplierAccountNow & {
+  /** 把核心的冷却/禁用叠加到插件报的「现在状态」上，产出面板态。
+   *
+   * 冷却现在是 (模型, 连接) 粒度的，而面板状态没有「当前模型」上下文，
+   * 这里默认**聚合**：只要该连接在任一模型上有活跃冷却，就显示 cooling=true
+   * （reason 带上具体模型），并在 `until` 给最长者。真实路由用 `pick` 的
+   * 模型级判定，不受此展示聚合影响。传 modelId 可只按该模型判定。
+   */
+  decorate(accounts: SupplierAccountNow[], modelId?: string): Array<SupplierAccountNow & {
     cooling: boolean
     disabled: boolean
     err_count: number
@@ -178,16 +254,39 @@ export class AccountPool {
   }> {
     const now = Date.now()
     return accounts.map((a) => {
-      const e = this.entries.get(a.uid)
-      const cooling = e !== undefined && !e.disabled && e.until > now
+      const u = this.byUid.get(a.uid)
+      const disabled = u?.disabled ?? false
+      // 连接级手动暂停或禁用也算不可服务；但 disabled 单列，冷却不算它
+      const manualCooling = u !== undefined && !u.disabled && u.until > now
+
+      let cooling = manualCooling
+      let maxUntil = manualCooling ? u!.until : 0
+      let reason = manualCooling ? u!.reason : undefined
+      let err = 0
+      // 遍历本连接在所有模型上的冷却单元（或仅指定模型）
+      for (const [k, ce] of this.cooldowns) {
+        if (!k.endsWith(`${SEP}${a.uid}`)) continue
+        if (modelId !== undefined) {
+          // 键形如 supplier\u0000model\u0000uid —— 只在键开头含该 model 时命中
+          const prefix = `${this.supplierId}${SEP}${modelId}${SEP}`
+          if (!k.startsWith(prefix)) continue
+        }
+        if (ce.until > now) {
+          cooling = true
+          if (ce.until > maxUntil) {
+            maxUntil = ce.until
+            reason = ce.reason
+          }
+        }
+        if (ce.backoffLevel > err) err = ce.backoffLevel
+      }
       return {
         ...a,
         cooling,
-        disabled: e?.disabled ?? false,
-        // 面板展示为「连续错误」：现在承载的是限流退避等级（退避取代了原累计制）
-        err_count: e?.backoffLevel ?? 0,
-        until: cooling && e ? new Date(e.until).toISOString() : undefined,
-        reason: e?.reason !== '' ? e?.reason : undefined,
+        disabled,
+        err_count: err,
+        until: cooling && maxUntil > 0 ? new Date(maxUntil).toISOString() : undefined,
+        reason: reason !== undefined && reason !== '' ? reason : undefined,
       }
     })
   }

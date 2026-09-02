@@ -788,8 +788,10 @@ export class Router {
       writeJson(res, 503, openAIError('no_healthy_supplier', `combo ${JSON.stringify(req.model)}: all models unavailable`))
       return
     }
-    // 直接调用：模型全名 = alias/model。用别名反查供应商，精准调用；
-    // 别名查不到（拼错 / 供应商没加载）才退化为遍历，保持旧行为可用。
+    // 直接调用：模型全名 = alias/model。用别名反查供应商，精准调用。
+    // 查不到别名（无 `alias/` 前缀）就走 chatWithModel，那里会要求
+    // `supplierId,modelId` 形态；两者都不满足 = 缺供应商前缀 → 直接 503，
+    // 不再遍历所有供应商兜底（严格图6拓扑）。
     const slash = req.model.indexOf('/')
     const alias = slash > 0 ? req.model.slice(0, slash) : ''
     const target = alias === '' ? undefined : this.supplierByAlias(alias)
@@ -846,34 +848,32 @@ export class Router {
       clone.rawBody = req.rawBody
     }
 
-    if (supplierId !== undefined) {
-      // 精准：只调这一个供应商。查不到就是配置错了，直接失败（不遍历兜底——
-      // 遍历会让拼错的 id 静默落到别的供应商上，更难查）
-      const s = this.suppliers.find((x) => x.id === supplierId)
-      if (s === undefined) {
-        this.logChat(req.model, `supplier ${JSON.stringify(supplierId)} 不存在`, 0)
-        return false
-      }
-      const t0 = Date.now()
-      const trace: ChatTrace = { attempts: 0 }
-      const served = await this.chatWithSupplier(s, clone, res, trace, probe)
-      if (outTrace !== undefined) {
-        outTrace.attempts = trace.attempts
-        outTrace.lastError = trace.lastError
-        outTrace.lastState = trace.lastState
-      }
-      this.logChat(req.model, served
-        ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}`
-        : `${s.id}/${modelId} 失败 ${trace.lastError ?? 'no account'}`, Date.now() - t0)
-      return served
+    // 图6 严格拓扑：组合/路由里的每个模型都必须带 `supplierId,modelId` 前缀。
+    // 无逗号 = 配置缺供应商前缀（旧版裸 id 遗留），不再遍历所有供应商兜底——
+    // 遍历会让拼错的/缺前缀的模型静默落到某个供应商上，更难查。直接判失败。
+    if (supplierId === undefined) {
+      const msg = `model ${JSON.stringify(model)} 缺供应商前缀（应为 supplierId,modelId）`
+      this.logChat(req.model, msg, 0)
+      return false
     }
-
-    // 旧格式裸模型 id：退化为遍历
-    for (const s of this.suppliers) {
-      const served = await this.chatWithSupplier(s, clone, res, undefined, probe)
-      if (served) return true
+    // 精准：只调这一个供应商。查不到就是配置错了，直接失败（不遍历兜底）
+    const s = this.suppliers.find((x) => x.id === supplierId)
+    if (s === undefined) {
+      this.logChat(req.model, `supplier ${JSON.stringify(supplierId)} 不存在`, 0)
+      return false
     }
-    return false
+    const t0 = Date.now()
+    const trace: ChatTrace = { attempts: 0 }
+    const served = await this.chatWithSupplier(s, clone, res, trace, probe)
+    if (outTrace !== undefined) {
+      outTrace.attempts = trace.attempts
+      outTrace.lastError = trace.lastError
+      outTrace.lastState = trace.lastState
+    }
+    this.logChat(req.model, served
+      ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}`
+      : `${s.id}/${modelId} 失败 ${trace.lastError ?? 'no account'}`, Date.now() - t0)
+    return served
   }
 
   /** 按别名找供应商（对外模型全名 = alias/model）。别名唯一，故最多命中一个。 */
@@ -899,7 +899,7 @@ export class Router {
       if (!r.ok) {
         if (r.state === 'no_such_model') return false // 不是我的模型：换供应商，不记账
         if (trace !== undefined) trace.lastState = r.state
-        pool.noteFailure('', r.state, r.message)
+        pool.noteFailure('', req.model, r.state, r.message)
         return false
       }
       if (trace !== undefined) trace.uid = '(no-account)'
@@ -919,7 +919,7 @@ export class Router {
     // 不排除试过的就会原地打转——死循环等于整个服务挂住。
     const tried = new Set<string>()
     for (;;) {
-      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy)
+      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy, req.model)
       if (uid === undefined) return false
       tried.add(uid)
       const r = await s.chatOnce(uid, req)
@@ -930,7 +930,7 @@ export class Router {
           if (trace !== undefined) trace.lastError = 'no_such_model'
           return false
         }
-        pool.noteFailure(uid, r.state, r.message)
+        pool.noteFailure(uid, req.model, r.state, r.message)
         if (trace !== undefined) {
           trace.attempts += 1
           trace.lastState = r.state
@@ -938,7 +938,7 @@ export class Router {
         }
         continue
       }
-      pool.noteSuccess(uid)
+      pool.noteSuccess(uid, req.model)
       if (trace !== undefined) trace.uid = uid
       if (probe !== undefined) {
         probe.supplier = s.id
@@ -951,7 +951,7 @@ export class Router {
       const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
       // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
       if (committed) return true
-      pool.noteFailure(uid, 'transport', 'stream failed before first byte')
+      pool.noteFailure(uid, req.model, 'transport', 'stream failed before first byte')
       if (trace !== undefined) {
         trace.attempts += 1
         trace.lastState = 'transport'

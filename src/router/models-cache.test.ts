@@ -447,7 +447,9 @@ test('对照：用 unavailable 表示「不是我的模型」会污染账号', a
     ({ ok: false, state: 'unavailable', message: 'not my model' })
   addSupplier(router, other.s)
 
-  const req = { model: 'want-m', stream: false, rawBody: JSON.stringify({ model: 'want-m', messages: [] }) }
+  // 严格图6拓扑：路由必须带供应商前缀/别名，裸 model 不再遍历。
+  // 这里用 alias/model 精准命中 other（别名默认 = 供应商 id）。
+  const req = { model: 'other/other-m', stream: false, rawBody: JSON.stringify({ model: 'other/other-m', messages: [] }) }
   for (let i = 0; i < 5; i++) await router.chatCompletions(req, fakeRes())
 
   const acc = other.s.pool.decorate([{ uid: 'u1', credits: 0, state: 'ok' }])[0]
@@ -466,7 +468,9 @@ test('组合请求不污染无关供应商的账号（no_such_model 不记账）
   addSupplier(router, other.s)
   addSupplier(router, target.s)
 
-  const req = { model: 'want-m', stream: false, rawBody: JSON.stringify({ model: 'want-m', messages: [] }) }
+  // 严格图6拓扑：用 alias/model 精准命中 target（别名默认 = 供应商 id），
+  // other 完全不该被问到——这正是这条回归要守的。
+  const req = { model: 'target/want-m', stream: false, rawBody: JSON.stringify({ model: 'target/want-m', messages: [] }) }
   const res = fakeRes()
   // 连打 5 次（远超错误阈值 3）
   for (let i = 0; i < 5; i++) await router.chatCompletions(req, res)

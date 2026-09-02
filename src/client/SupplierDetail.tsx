@@ -184,20 +184,20 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
     setCheckingIn(true)
     try {
       const response = await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/checkin`, { method: 'POST', cache: 'no-store' })
-      const data = await response.json() as { ok: boolean; total: number; succeeded: number; already?: number; error?: string; results?: Array<{ uid: string; ok: boolean; status?: string; message?: string }> }
+      const data = await response.json() as { ok: boolean; total: number; succeeded: number; already?: number; failed?: number; error?: string; results?: Array<{ uid: string; ok: boolean; status?: string; message?: string }> }
+      // 核心口径（2026-09-02 修正）：有任一链接失败 → ok:false + HTTP 400。
+      // 别再用「签到完成」打头——部分失败会被 UI 吞成成功。
       if (data.ok && data.total > 0) {
-        // 真实语义：succeeded = 真正 claim 成功；already = 今日已签；其余 = 失败/未开放
-        const failed = (data.results ?? []).filter(r => r.status !== 'ok' && r.status !== 'already')
         let msg = `签到完成：${data.succeeded}/${data.total} 成功`
         const already = data.already ?? 0
         if (already > 0) msg += ` · ${already} 今日已签`
-        if (failed.length > 0) {
-          const first = failed[0]
-          msg += ` · ${first?.message ?? '有失败'}`
-        }
         showToast(msg)
       } else {
-        showToast(data.error ?? (data.total === 0 ? '没有可签到的链接' : '签到失败'))
+        const firstFail = (data.results ?? []).find(r => r.status !== 'ok' && r.status !== 'already')
+        const reason = firstFail ? `${firstFail.message ?? '有链接签到失败'}` : ''
+        const already = data.already ?? 0
+        const head = data.total > 0 ? `签到未完成：${data.succeeded}/${data.total} 成功` : '没有可签到的链接'
+        showToast(data.error ?? [head, already > 0 ? `${already} 今日已签` : '', reason].filter(Boolean).join(' · '))
       }
       onRefresh()
     } catch (err) {

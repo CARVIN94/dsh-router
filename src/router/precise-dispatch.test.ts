@@ -134,19 +134,22 @@ test('模型 id 含斜杠时不被吃掉（如 deepseek-ai/xxx）', async () => 
   assert.deepEqual(a.seen, ['aaa/deepseek-ai/deepseek-v3'])
 })
 
-test('旧数据裸模型 id 仍能工作（降级为遍历）', async () => {
+test('组合存了缺供应商前缀的裸模型 id → 直接失败，不降级遍历（严格图6拓扑）', async () => {
   const router = new Router('')
   const a = spy('supA', 'a-model')
   const b = spy('supB', 'b-model')
   add(router, a.s); add(router, b.s)
-  // 模拟旧存储：裸 id，没有 supplierId 前缀
+  // 模拟旧存储：裸 id，没有 supplierId 前缀 —— 图6 下这是配置错误，不遍历兜底
   ;(router as unknown as { customCombos: Array<{ id: string; name: string; strategy: 'fallback'; models: string[] }> })
     .customCombos.push({ id: 'legacy', name: 'legacy', strategy: 'fallback', models: ['b-model'] })
 
-  await router.chatCompletions(reqWith('legacy'), fakeRes())
+  const errs: unknown[] = []
+  const res = { ...fakeRes(), end: (x?: string): unknown => { if (x) errs.push(x); return undefined } } as unknown as ServerResponse
+  await router.chatCompletions(reqWith('legacy'), res)
 
-  assert.equal(a.calls, 1, '降级路径会先问 supA（它报 no_such_model）')
-  assert.equal(b.calls, 1, '最终由 supB 服务')
+  assert.equal(a.calls, 0, '不降级遍历，不该问 supA')
+  assert.equal(b.calls, 0, '裸 id 无前缀，不该被 supB 认领')
+  assert.equal(errs.length, 1, '缺前缀的模型应判失败（组合 503）')
 })
 
 test('组合存了不存在的供应商 id → 调用失败，不静默落到别的供应商', async () => {
@@ -221,15 +224,17 @@ test('用量统计：直接调 alias/model 时 model 名不重复套前缀', asy
   assert.equal(rec?.model, 'bbb/b-model', '统计名必须是 alias/model，不能是 alias/alias/model')
 })
 
-test('用量统计：组合里的裸 id 仍记成 alias/model（旧行为不变）', async () => {
+test('直接调裸模型 id（无前缀）→ 判失败，不再遍历兜底（严格图6拓扑）', async () => {
   const router = new Router('')
   const b = spy('supB', 'b-model', 'bbb')
   add(router, b.s)
 
-  await router.chatCompletions(reqWith('b-model'), fakeRes())
+  const errs: unknown[] = []
+  const res = { ...fakeRes(), end: (x?: string): unknown => { if (x) errs.push(x); return undefined } } as unknown as ServerResponse
+  await router.chatCompletions(reqWith('b-model'), res)
 
-  const rec = router.usage.recentList(1)[0]
-  assert.equal(rec?.model, 'bbb/b-model', '裸 id 要补上 alias 前缀，否则 Top 榜分裂')
+  assert.equal(b.calls, 0, '裸 id 不该遍历到 supB')
+  assert.equal(errs.length, 1, '无前缀的裸模型应判失败（503）')
 })
 
 /**

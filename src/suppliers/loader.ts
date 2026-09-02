@@ -98,7 +98,8 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
 
   // 账号池由核心持有（选号/冷却/禁用/错误累计），插件不参与。
   // 挂在 supplier 上：status() 叠加状态与 Router 的 chat 循环共用同一实例。
-  const pool = new AccountPool()
+  // 冷却键带 supplierId（跨供应商同名模型不串），故构造时注入本供应商 id。
+  const pool = new AccountPool(instance.id)
 
   const supplier: Supplier = {
     id: instance.id,

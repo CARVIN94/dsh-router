@@ -375,8 +375,13 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         }
         const succeeded = results.filter((r) => r.status === 'ok').length
         const already = results.filter((r) => r.status === 'already').length
-        const payload = { ok: succeeded + already > 0, total: uids.length, succeeded, already, results }
-        writeJson(res, payload.ok ? 200 : 400, payload)
+        // 全部链接都成功（含已签）才算整体成功；有任一失败 → ok:false + HTTP 400，
+        // 让面板把失败如实亮出来。别学旧逻辑「有成功就算 ok」——部分失败被
+        // 当成整体成功，UI 会谎报「签到完成」（2026-09-02 实测踩到）。
+        const failed = results.length - succeeded - already
+        const ok = failed === 0 && results.length > 0
+        const payload = { ok, total: uids.length, succeeded, already, failed, results }
+        writeJson(res, ok ? 200 : 400, payload)
       },
     })
   }

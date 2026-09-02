@@ -60,6 +60,8 @@ export interface RouterCheckinResponse {
   succeeded: number
   /** 今日已签到的链接数（幂等成功）。 */
   already: number
+  /** 失败/未开放的链接数。 */
+  failed: number
   results?: Array<{ uid: string; ok: boolean; status?: string; message?: string }>
 }
 

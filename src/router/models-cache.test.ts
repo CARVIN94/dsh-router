@@ -66,6 +66,21 @@ function addSupplier(router: Router, s: unknown): void {
   ;(router as unknown as { suppliers: unknown[] }).suppliers.push(s)
 }
 
+/**
+ * 把某供应商的缓存标记成「已过期」（TTL 现在 10 分钟，测试不能真等）。
+ * 白盒改 fetchedAt，模拟插件重启/TTL 到期的冷路径。
+ */
+function expire(router: Router, id: string): void {
+  const cache = (router as unknown as { modelsCache: Map<string, { fetchedAt: number }> }).modelsCache
+  const hit = cache.get(id)
+  if (hit !== undefined) hit.fetchedAt = 0
+}
+
+/** 等一轮 microtask/定时器，让 fire-and-forget 的后台刷新跑完。 */
+function tick(ms = 20): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
 test('组合面板连开两次只拉一次上游（缓存生效）', async () => {
   const router = new Router('')
   const a = supplier('a', [{ id: 'a-1' }])
@@ -137,9 +152,109 @@ test('单个供应商拉模型失败不影响其它供应商', async () => {
   assert.equal(groups[0]?.supplier.id, 'good')
 })
 
-test('未知供应商返回空，不抛错', async () => {
+/**
+ * 冷启动慢的回归（2026-09-03 实测）：插件的 listModels 大多无条件打上游
+ * （0.3~1.0s/供应商），TTL 一过就穿透到插件，组合页取最慢那家 = 1s+ 白屏。
+ * 现在核心走 stale-while-revalidate：过期先返回旧值，后台刷新。
+ */
+test('过期后不等上游：立刻返回旧值，后台刷新', async () => {
   const router = new Router('')
-  assert.deepEqual(await router.modelsOf('nonexistent'), [])
+  // 慢供应商：真等它就是 300ms
+  const a = supplier('a', [{ id: 'a-1' }], 300)
+  addSupplier(router, a.s)
+
+  await router.modelsOf('a')
+  assert.equal(a.state.calls, 1)
+  expire(router, 'a')
+
+  const t0 = Date.now()
+  const models = await router.modelsOf('a')
+  const dt = Date.now() - t0
+
+  assert.ok(dt < 100, `过期后不该同步等上游（实测 ${dt}ms）`)
+  assert.deepEqual(models.map((m) => m.id), ['a-1'], '旧值要立刻返回，面板不空')
+  await tick(400)
+  assert.equal(a.state.calls, 2, '后台要真的刷新一次')
+})
+
+test('后台刷新后缓存变新：再取不再触发拉取', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }])
+  addSupplier(router, a.s)
+
+  await router.modelsOf('a')
+  expire(router, 'a')
+  await router.modelsOf('a') // 触发后台刷新
+  await tick()
+  assert.equal(a.state.calls, 2)
+
+  await router.modelsOf('a') // 已刷新过，不该再拉
+  await tick()
+  assert.equal(a.state.calls, 2)
+})
+
+test('并发刷新共享一次上游请求（不去重会把上游按 N 倍打）', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }], 50)
+  addSupplier(router, a.s)
+  await router.modelsOf('a')
+  expire(router, 'a')
+
+  // 组合页的实际情况：多个入口同时触发同一个供应商
+  await Promise.all([router.modelsOf('a'), router.modelsOf('a'), router.modelsOf('a')])
+  await tick(200)
+  assert.equal(a.state.calls, 2, `并发只应多拉一次，实测 ${a.state.calls}`)
+})
+
+test('force 仍然同步等（用户主动点「获取模型」，要看到结果）', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }], 150)
+  addSupplier(router, a.s)
+  await router.modelsOf('a')
+  expire(router, 'a')
+
+  const t0 = Date.now()
+  await router.modelsOf('a', true)
+  assert.ok(Date.now() - t0 >= 100, 'force 必须等上游拉完')
+  assert.equal(a.state.calls, 2)
+})
+
+test('拉到空列表不覆盖旧值（上游抖一下不该清空面板）', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }])
+  addSupplier(router, a.s)
+  await router.modelsOf('a')
+
+  a.s.listModels = async (): Promise<ModelInfo[]> => []
+  expire(router, 'a')
+  const models = await router.modelsOf('a', true)
+
+  assert.deepEqual(models.map((m) => m.id), ['a-1'], '空结果不该冲掉旧列表')
+})
+
+test('后台刷新失败 → 保留旧值，不抛（fire-and-forget 没人接异常）', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }])
+  addSupplier(router, a.s)
+  await router.modelsOf('a')
+
+  a.s.listModels = async (): Promise<ModelInfo[]> => {
+    throw new Error('upstream down')
+  }
+  expire(router, 'a')
+  const models = await router.modelsOf('a')
+  assert.deepEqual(models.map((m) => m.id), ['a-1'], '失败也要保住旧值')
+})
+
+test('首次就失败且无旧值 → 抛错（让 supplierModels 剔除该供应商，别显示空壳）', async () => {
+  const router = new Router('')
+  const a = supplier('a', [])
+  a.s.listModels = async (): Promise<ModelInfo[]> => {
+    throw new Error('upstream down')
+  }
+  addSupplier(router, a.s)
+
+  await assert.rejects(() => router.modelsOf('a'), /upstream down/)
 })
 
 /**

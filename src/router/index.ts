@@ -26,8 +26,15 @@ interface ChatTrace {
   lastState?: AccountState
 }
 
-/** 模型列表缓存有效期。 */
-const MODELS_TTL_MS = 60 * 1000
+/**
+ * 模型列表缓存有效期。
+ *
+ * 取 10 分钟而不是 60s：模型列表本来很少变（上游上新/下线才动），而每次
+ * TTL 过期都会穿透到插件真打一次上游——实测冷路径 0.3~1.0s/供应商，组合页
+ * 取最慢那家就是 1s+ 的白屏。拉长 TTL 直接把这个穿透频率降一个量级；真要
+ * 立刻看新模型，点「获取模型」走 force 即可。
+ */
+const MODELS_TTL_MS = 10 * 60 * 1000
 
 function openAIError(code: string, msg: string): Record<string, unknown> {
   return { error: { message: msg, type: 'api_error', code } }
@@ -444,6 +451,11 @@ export class Router {
   private store: SupplierConfigStore
   /** 模型列表缓存（supplierId → 模型 + 拉取时间）。插件只管拉，不缓存。 */
   private modelsCache = new Map<string, { models: ModelWithEnabled[]; fetchedAt: number }>()
+  /**
+   * 正在拉模型的供应商 → in-flight promise。
+   * 组合页会同时从多个入口触发同一个供应商的刷新，不去重上游就被按 N 倍打。
+   */
+  private modelsInflight = new Map<string, Promise<ModelWithEnabled[]>>()
   /** 请求日志出口（面板/宿主 logger）。 */
   private log: (msg: string) => void
   /** 用量统计（概览看板）。 */
@@ -592,37 +604,80 @@ export class Router {
    * 取某供应商的模型（核心统一缓存）。
    *
    * 模型列表只在这里缓存一次：`/suppliers/:id/models`（供应商详情）和
-   * `/combos`（组合加模型）共用。组合面板**不主动打上游**——它只是读缓存，
-   * 冷启动（缓存还没建）时才拉一次；真正刷新由详情页打开或「获取模型」
-   * 按钮（force）触发。
+   * `/combos`（组合加模型）共用。
    *
-   * 天花板：TTL 60s 是拍的。若上游模型列表变更很频繁，可调小；要彻底实时
-   * 就得让供应商暴露 etag/版本号，目前没有这个需求。
+   * **过期后走 stale-while-revalidate**:先返回旧值让面板立刻有内容,后台
+   * 重新拉,拉完下次请求就是新的。为什么必须这样:插件的 `listModels` 大多
+   * 无条件打上游(实测冷路径 0.3~1.0s/供应商),而组合页要拉全部供应商、
+   * 取最慢那家——同步等就是 1s+ 的白屏。旧值只可能「少列了新模型」,
+   * 比白屏划算;想立刻看新模型点「获取模型」(force)即可。
+   *
+   * 只有两种情况会真的等:`force`(用户主动刷新)和**从来没有过缓存值**
+   * (冷启动,没有旧值可给)。后者只发生一次。
    */
   async modelsOf(supplierId: string, force = false): Promise<ModelWithEnabled[]> {
     const s = this.suppliers.find((x) => x.id === supplierId)
     if (s === undefined) return []
     const hit = this.modelsCache.get(supplierId)
-    if (!force && hit !== undefined && Date.now() - hit.fetchedAt < MODELS_TTL_MS) return hit.models
-    const cfg = this.store.get(supplierId)
-    const custom = new Set(cfg.custom)
-    const disabled = new Set(cfg.disabled)
-    const list = await Promise.resolve(s.listModels())
-    const models: ModelWithEnabled[] = list.map((mm) => ({
-      ...mm,
-      enabled: !disabled.has(mm.id),
-      custom: custom.has(mm.id) ? true : undefined,
-    }))
-    // 自定义模型（listModels 之外的）并入显示
-    const seen = new Set(models.map((mm) => mm.id))
-    for (const id of custom) {
-      if (!seen.has(id)) {
-        seen.add(id)
-        models.push({ id, enabled: !disabled.has(id), custom: true })
-      }
+    const fresh = hit !== undefined && Date.now() - hit.fetchedAt < MODELS_TTL_MS
+    if (!force && fresh) return hit!.models
+    // 有旧值(只是过期了):立刻返回旧值,后台刷新
+    if (!force && hit !== undefined) {
+      // 后台刷新的失败不能冒出来:这是 fire-and-forget,没人接
+      void this.refreshModels(supplierId, s).catch(() => {})
+      return hit.models
     }
-    this.modelsCache.set(supplierId, { models, fetchedAt: Date.now() })
-    return models
+    return await this.refreshModels(supplierId, s)
+  }
+
+  /**
+   * 真拉一次上游并写缓存。并发调用共享同一个 in-flight promise——
+   * 组合页会同时触发多个入口,不去重会把上游按 N 倍打(各家插件自己没做这层)。
+   *
+   * 失败时:**有旧值就退回旧值**(宁可显示几分钟前的列表,也别让面板空掉),
+   * **没旧值就把错误抛回去**——调用方(`supplierModels`)据此把该供应商整个
+   * 剔除,而不是显示一个「有 0 个模型」的空壳。
+   */
+  private refreshModels(supplierId: string, s: Supplier): Promise<ModelWithEnabled[]> {
+    const inflight = this.modelsInflight.get(supplierId)
+    if (inflight !== undefined) return inflight
+    const p = (async (): Promise<ModelWithEnabled[]> => {
+      const cfg = this.store.get(supplierId)
+      const custom = new Set(cfg.custom)
+      const disabled = new Set(cfg.disabled)
+      const list = await Promise.resolve(s.listModels())
+      const models: ModelWithEnabled[] = list.map((mm) => ({
+        ...mm,
+        enabled: !disabled.has(mm.id),
+        custom: custom.has(mm.id) ? true : undefined,
+      }))
+      // 自定义模型（listModels 之外的）并入显示
+      const seen = new Set(models.map((mm) => mm.id))
+      for (const id of custom) {
+        if (!seen.has(id)) {
+          seen.add(id)
+          models.push({ id, enabled: !disabled.has(id), custom: true })
+        }
+      }
+      const stale = this.modelsCache.get(supplierId)
+      // 拉到空列表当「上游抖了一下」:有旧值就保住旧值并返回它,别把面板清空。
+      // 真的一家模型都没有的供应商,第一次(无旧值)就该拿到空,不受影响。
+      if (models.length === 0 && stale !== undefined && stale.models.length > 0) {
+        return stale.models
+      }
+      this.modelsCache.set(supplierId, { models, fetchedAt: Date.now() })
+      return models
+    })()
+      .catch((err: unknown) => {
+        const stale = this.modelsCache.get(supplierId)
+        if (stale !== undefined) return stale.models
+        throw err instanceof Error ? err : new Error(String(err))
+      })
+      .finally(() => {
+        this.modelsInflight.delete(supplierId)
+      })
+    this.modelsInflight.set(supplierId, p)
+    return p
   }
 
   /** 失效某供应商的模型缓存（增删改模型后调用）。 */

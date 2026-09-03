@@ -50,7 +50,6 @@ export default function factory(env: SupplierEnv): SupplierModule {
   let modelsCache: ModelInfo[] | undefined
   let freeIds = new Set<string>()
   /** 上次 chatOnce 失败原因（供核心测试模型汇总诊断）。 */
-  let lastErr: string | undefined
   function listKeys(): string[] {
     return env.credentials.list(id)
   }
@@ -121,7 +120,6 @@ export default function factory(env: SupplierEnv): SupplierModule {
       return { id, name, accounts }
     },
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
-    getAlias: (): string => id,
     async addApiKey(input: { name: string; apiKey: string }): Promise<{ ok: boolean; error?: string; account?: { uid: string; nickname: string } }> {
       const key = input.apiKey.trim()
       if (key === '') return { ok: false, error: 'API key 不能为空' }
@@ -151,18 +149,17 @@ export default function factory(env: SupplierEnv): SupplierModule {
       env.credentials.remove(id, uid)
       return true
     },
-    lastError: (): string | undefined => lastErr,
     /** 对单个 key 调一次上游。选号/冷却/换号是核心的活，这里只报结果。 */
     async chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult> {
       const base = stripAlias(req.model, currentAlias())
       if (!freeIds.has(base) && !(await allModels(false)).some((m) => m.id === base)) {
-        lastErr = `unknown free model ${JSON.stringify(req.model)}`
-        return { ok: false, state: 'no_such_model', message: lastErr }
+        const msg = `unknown free model ${JSON.stringify(req.model)}`
+        return { ok: false, state: 'no_such_model', message: msg }
       }
       const acct = getKey(uid)
       if (acct === undefined) {
-        lastErr = `unknown account ${JSON.stringify(uid)}`
-        return { ok: false, state: 'no_such_model', message: lastErr }
+        const msg = `unknown account ${JSON.stringify(uid)}`
+        return { ok: false, state: 'no_such_model', message: msg }
       }
 
       let body = req.rawBody
@@ -188,34 +185,34 @@ export default function factory(env: SupplierEnv): SupplierModule {
           signal: AbortSignal.timeout(120000),
         })
       } catch (err) {
-        lastErr = (err as Error).message
-        return { ok: false, state: 'transport', message: lastErr }
+        const msg = (err as Error).message
+        return { ok: false, state: 'transport', message: msg }
       }
 
       if (upstream.status < 200 || upstream.status >= 300) {
         const text = await upstream.text().catch(() => '')
-        lastErr = `upstream ${upstream.status}: ${text.slice(0, 120)}`
+        const msg = `upstream ${upstream.status}: ${text.slice(0, 120)}`
         // 401/403 = 这个 key 本身不可用；429 = 限流；其余归为说不清
         const state: AccountState =
           upstream.status === 429 ? 'rate_limit'
             : upstream.status === 401 || upstream.status === 403 ? 'session_dead'
               : upstream.status === 404 ? 'unavailable'
                 : 'unknown'
-        return { ok: false, state, message: lastErr }
+        return { ok: false, state, message: msg }
       }
 
       // 流式：上游已是 OpenAI SSE，原样交回核心写
       if (req.stream) {
         if (!upstream.body) {
-          lastErr = 'openrouter upstream: empty stream body'
-          return { ok: false, state: 'transport', message: lastErr }
+          const msg = 'openrouter upstream: empty stream body'
+          return { ok: false, state: 'transport', message: msg }
         }
         return { ok: true, stream: upstream.body }
       }
       const text = await upstream.text().catch(() => '')
       if (text === '') {
-        lastErr = 'openrouter upstream: empty body'
-        return { ok: false, state: 'transport', message: lastErr }
+        const msg = 'openrouter upstream: empty body'
+        return { ok: false, state: 'transport', message: msg }
       }
       return { ok: true, status: upstream.status, body: text }
     },

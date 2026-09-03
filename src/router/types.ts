@@ -80,8 +80,6 @@ export interface Supplier {
   accounts(): SupplierAccountNow[]
   /** 对单个账号调一次上游。不遍历账号、不管冷却、不写 res。 */
   chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult>
-  /** 上次 chatOnce 失败原因（诊断用，可选）。 */
-  lastError?(): string | undefined
   /** 删除链接（清理凭证；内部能力，js 契约不要求实现）。 */
   removeLink?(uid: string): Promise<boolean>
   dispose(): void

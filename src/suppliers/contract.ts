@@ -102,22 +102,16 @@ export interface SupplierModule {
   status(): SupplierStatusNow
   /** 模型来源。`force=true` 时强制刷新来源（核心「获取模型」按钮调用）。 */
   listModels(force?: boolean): Promise<ModelInfo[]> | ModelInfo[]
-  /** 默认前缀（可被通用层 alias 覆盖）。 */
-  getAlias(): string
   /**
    * 对**单个账号**调一次上游。插件不遍历账号、不管冷却、不写 res——
    * 选号/回退/健康判定全是核心的活。
    * 无账号供应商（如 opencode）传空 uid，忽略即可。
+   *
+   * 失败原因通过返回值的 `message` 报（核心在测试模型时直接用它做诊断提示），
+   * 插件不必自己存一份「上次失败」的状态。
    */
   chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult>
   dispose(): void
-
-  // ---- 差异化能力（可选，按存在性暴露端点/UI） ----
-
-  /** 上次 chatOnce 失败的原因（诊断用）。
-   *  测试模型由 dsh-router 核心统一走 chatOnce 路径（账号池回退/冷却自动生效），
-   *  插件只需把失败原因暴露出来供核心汇总；不实现则测试失败时只有通用提示。 */
-  lastError?(): string | undefined
 
   // ---- 差异化能力（可选，按存在性暴露端点/UI） ----
 

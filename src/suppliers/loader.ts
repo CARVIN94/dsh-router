@@ -147,9 +147,6 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
     customModelIds: (): string[] => [...env.store.get(instance.id).custom],
     accounts: (): SupplierAccountNow[] => instance.status().accounts,
     chatOnce: (uid: string, req: ChatRequest): Promise<ChatOnceResult> => instance.chatOnce(uid, req),
-    lastError: isFn((instance as unknown as Record<string, unknown>).lastError)
-      ? (): string | undefined => (instance as unknown as { lastError(): string | undefined }).lastError()
-      : undefined,
     // 删除链接：数据删除是通用能力，凭证清理由供应商内部实现（js 契约不要求）
     removeLink: isFn((instance as unknown as Record<string, unknown>).removeLink)
       ? (uid: string): Promise<boolean> => (instance as unknown as { removeLink(uid: string): Promise<boolean> }).removeLink(uid)

@@ -1028,15 +1028,20 @@ export class Router {
       rawBody: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 1 }),
     }
     let served = false
+    const trace: ChatTrace = { attempts: 0 }
     try {
-      served = await this.chatWithSupplier(s, req, sink)
+      served = await this.chatWithSupplier(s, req, sink, trace)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }
     // 供应商可能「服务了但写出错误响应」（如 opencode：唯一能处理该模型的供应商，错误自己上报）
     if (served && sink.status() < 400) return { ok: true }
     const fromSink = served && sink.status() >= 400 ? extractUpstreamError(sink.body()) : ''
-    const detail = fromSink !== '' ? fromSink : s.lastError?.()
+    // 失败原因优先从上游响应体取，其次用 chatOnce 返回的 message（trace.lastError）。
+    // 以前这里问插件的 lastError()——那是「最后一次失败」的可变全局，既可能串到
+    // 别的账号/别的请求，也有插件压根没实现（codebuddy 就漏了，于是永远拿不到兜底）。
+    // chatOnce 的返回值本身就带 message，用它更准，插件也不必再维护一份状态。
+    const detail = fromSink !== '' ? fromSink : trace.lastError
     return {
       ok: false,
       error: detail !== undefined && detail !== ''

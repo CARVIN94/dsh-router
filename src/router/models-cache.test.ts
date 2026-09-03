@@ -258,6 +258,26 @@ test('首次就失败且无旧值 → 抛错（让 supplierModels 剔除该供�
 })
 
 /**
+ * 回归（2026-09-03 契约精简）：删了插件 lastError() 后，testModel 的失败原因
+ * 必须从 chatOnce 返回值的 message 取（经 trace.lastError 透传）。以前问插件
+ * 的 lastError() 是个「最后一次失败」的可变全局，可能串别的请求，也有插件
+ * 压根没实现照样能走到。锁住：chatOnce 报的 message 能作为诊断呈现。
+ */
+test('testModel 失败 → 用 chatOnce 返回的 message 作诊断，不依赖插件 lastError()', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }])
+  // 明确不实现 lastError()——合约删了它
+  a.s.chatOnce = async (): Promise<ChatOnceResult> =>
+    ({ ok: false, state: 'quota', message: 'no quota for this plan' })
+  addSupplier(router, a.s)
+
+  const r = await router.testModel('a', 'a-1')
+  assert.equal(r.ok, false)
+  assert.match(r.error ?? '', /no quota for this plan/, '失败原因要来自 chatOnce 的 message')
+  assert.match(r.error ?? '', /账号\/额度\/限流问题/, '要带上可诊断的归类提示')
+})
+
+/**
  * 回归：客户端要非流式、供应商只给流（如 codebuddy 强制 stream:true）时，
  * 核心必须聚合成 JSON——响应写入归核心，协议错配得核心吸收。
  * 否则客户端按 JSON 解析会在 SSE delta 里找不到工具名，报 unknown tool ""。

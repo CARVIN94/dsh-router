@@ -30,7 +30,6 @@ export default function factory(env: SupplierEnv): SupplierModule {
   // 模型缓存由 dsh-router 核心统一管；插件每次拉取，失败回退上次成功结果
   let modelsCache: ModelInfo[] | undefined
   /** 上次 chatOnce 失败原因（供核心测试模型汇总诊断）。 */
-  let lastErr: string | undefined
 
   async function refreshModels(): Promise<ModelInfo[]> {
     try {
@@ -81,15 +80,13 @@ export default function factory(env: SupplierEnv): SupplierModule {
     icon,
     status: (): SupplierStatusNow => ({ id, name, accounts: [] }),
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
-    getAlias: (): string => id,
     // testModel 由 dsh-router 核心统一走 chatOnce 路径（无账号，无需回退）
-    lastError: (): string | undefined => lastErr,
     /** 无账号供应商：uid 恒为空，只认 free 模型。 */
     async chatOnce(_uid: string, req: ChatRequest): Promise<ChatOnceResult> {
       // 只认 free 模型，其他模型交给别的供应商
       if (!isFreeModel(req.model)) {
-        lastErr = `unknown free model ${JSON.stringify(req.model)}`
-        return { ok: false, state: 'no_such_model', message: lastErr }
+        const msg = `unknown free model ${JSON.stringify(req.model)}`
+        return { ok: false, state: 'no_such_model', message: msg }
       }
       // 模型名规范化：剥 alias 前缀，body.model 用裸 id
       let body = req.rawBody
@@ -115,24 +112,24 @@ export default function factory(env: SupplierEnv): SupplierModule {
           signal: AbortSignal.timeout(120000),
         })
       } catch (err) {
-        lastErr = `opencode upstream: ${(err as Error).message}`
-        return { ok: false, state: 'transport', message: lastErr }
+        const msg = `opencode upstream: ${(err as Error).message}`
+        return { ok: false, state: 'transport', message: msg }
       }
 
       // 非 2xx：按状态归类，核心据此冷却/换号（本供应商无号可换，直接放弃）
       if (upstream.status < 200 || upstream.status >= 300) {
         const text = await upstream.text().catch(() => '')
-        lastErr = `upstream ${upstream.status}: ${text.slice(0, 200)}`
+        const msg = `upstream ${upstream.status}: ${text.slice(0, 200)}`
         const state: AccountState =
           upstream.status === 429 ? 'rate_limit' : upstream.status === 404 ? 'unavailable' : 'unknown'
-        return { ok: false, state, message: lastErr }
+        return { ok: false, state, message: msg }
       }
 
       // 流式：上游已是 OpenAI SSE，原样交回核心（核心负责写响应）
       if (req.stream) {
         if (!upstream.body) {
-          lastErr = 'opencode upstream: empty stream body'
-          return { ok: false, state: 'transport', message: lastErr }
+          const msg = 'opencode upstream: empty stream body'
+          return { ok: false, state: 'transport', message: msg }
         }
         return { ok: true, stream: upstream.body }
       }
@@ -140,8 +137,8 @@ export default function factory(env: SupplierEnv): SupplierModule {
       // 非流式：透传 JSON（空 body 视为上游异常）
       const text = await upstream.text().catch(() => '')
       if (text === '') {
-        lastErr = 'opencode upstream: empty body'
-        return { ok: false, state: 'transport', message: lastErr }
+        const msg = 'opencode upstream: empty body'
+        return { ok: false, state: 'transport', message: msg }
       }
       return { ok: true, status: upstream.status, body: text }
     },

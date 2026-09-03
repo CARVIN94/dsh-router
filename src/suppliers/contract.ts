@@ -57,6 +57,12 @@ export type AccountState =
 export interface SupplierAccountNow {
   uid: string
   nickname?: string
+  /**
+   * 剩余额度。**拿不到就报 `-1`**，不是 0：
+   * 插件刚重启（内存缓存空）、积分拉取失败、或压根不支持积分时都是 `-1`。
+   * 核心据此保留上一次持久化下来的值 —— 报 0 会把缓存冲成 0（0 是真值
+   * 「用完了」，核心分不清「拿到 0」和「没拿到」）。
+   */
   credits: number
   /** 插件观察到的上游状态。 */
   state: AccountState

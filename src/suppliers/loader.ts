@@ -36,6 +36,24 @@ function isFn(v: unknown): v is (...args: unknown[]) => unknown {
   return typeof v === 'function'
 }
 
+/**
+ * 积分回灌（核心统一持久化，插件不落盘）。
+ *
+ * 插件的积分是异步拉的：重启后第一次 status() 拿不到真值，报 `CREDITS_UNKNOWN`
+ * (-1)。这里做两件事：
+ *   - 报了真值 → 写入 supplier-config.json（下次重启还在）
+ *   - 报了 -1 → 用上次存的顶上，面板不会闪 0
+ *
+ * 插件不该自己把 0 当「未知」报上来 —— 0 是真值（用完了），核心分不清，
+ * 会把缓存冲成 0。这条是本层存在的理由（2026-09-03）。
+ */
+function hydrateCredits(supplierId: string, store: SupplierConfigStore, accounts: SupplierAccountNow[]): SupplierAccountNow[] {
+  return accounts.map((a) => {
+    const merged = store.putCredits(supplierId, a.uid, a.credits)
+    return merged === a.credits ? a : { ...a, credits: merged }
+  })
+}
+
 /** 从模块导出解析出供应商模块对象（支持 export default / 命名导出 / factory）。 */
 function resolveModule(mod: Record<string, unknown>, file: string): SupplierModule {
   const cand = (mod.default ?? mod) as Record<string, unknown>
@@ -108,7 +126,7 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
     icon: (instance as { icon?: string }).icon,
     status: (): SupplierStatus => {
       const now = instance.status()
-      return { id: now.id, name: now.name, accounts: pool.decorate(now.accounts) }
+      return { id: now.id, name: now.name, accounts: pool.decorate(hydrateCredits(instance.id, env.store, now.accounts)) }
     },
     listModels: (force?: boolean): Promise<ModelInfo[]> | ModelInfo[] => instance.listModels(force),
     // 通用能力：模型启用状态/自定义由核心 SupplierConfigStore 合并

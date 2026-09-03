@@ -327,7 +327,10 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         return
       }
       const body = JSON.parse(await readBody(req)) as { uid?: string }
-      const ok = await s.removeLink(body.uid ?? '')
+      const uid = body.uid ?? ''
+      const ok = await s.removeLink(uid)
+      // 链接没了，它的积分缓存也得跟着走（不然删号再重登会顶着一个旧数字）
+      if (ok) store.clearCredits(s.id, uid)
       writeJson(res, ok ? 200 : 404, ok ? { ok: true } : { ok: false, error: 'link not found' })
     },
   })

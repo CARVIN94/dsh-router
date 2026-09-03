@@ -5,6 +5,7 @@
  *   - 别名 alias(前缀,模型全名 = alias/id)
  *   - 模型管理:启用/禁用 disabled、自定义 custom
  *   - 连接池:poolOrder(拖动排序)、poolStrategy(回退/轮询)
+ *   - 积分缓存 credits:按 supplier/uid 缓存最后一次拿到的剩余额度
  *
  * 持久化到 data/supplier-config.json。
  */
@@ -13,16 +14,38 @@ import { dirname, join } from 'node:path'
 
 export type PoolStrategy = 'fallback' | 'round-robin'
 
+/**
+ * 积分哨兵:插件还**没拿到过**真实额度(刚重启、积分拉取失败、或压根不支持
+ * 积分)时报 `-1`,核心据此保留上一次的缓存值,而不是把 0 写进去。
+ *
+ * 为什么不能用 0 表示未知:积分 0 是有意义的真值(用完了),核心无法区分
+ * 「拿到 0」和「没拿到」。用 0 当哨兵会把缓存冲成 0 —— 这正是 codebuddy
+ * 重启后面板永久显示 0 积分的原因(插件只在内存里缓存积分)。
+ */
+export const CREDITS_UNKNOWN = -1
+
 export interface SupplierConfig {
   alias: string
   disabled: string[]
   custom: string[]
   poolOrder: string[]
   poolStrategy: PoolStrategy
+  /** 积分缓存:uid → 剩余额度(最后一次从插件拿到的非 -1 值)。 */
+  credits: Record<string, number>
 }
 
 interface ConfigFile {
   suppliers: Record<string, Partial<SupplierConfig>>
+}
+
+/** 读盘时的积分字段校验：只留有限非负数（负数一律当没缓存过）。 */
+function readCredits(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {}
+  if (typeof raw !== 'object' || raw === null) return out
+  for (const [uid, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[uid] = v
+  }
+  return out
 }
 
 /** 通用供应商配置存储。 */
@@ -55,7 +78,7 @@ export class SupplierConfigStore {
   get(supplierId: string): SupplierConfig {
     let cfg = this.bySupplier.get(supplierId)
     if (!cfg) {
-      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback' }
+      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback', credits: {} }
       this.bySupplier.set(supplierId, cfg)
     }
     return cfg
@@ -116,6 +139,40 @@ export class SupplierConfigStore {
     this.saveLocked()
   }
 
+  // ---- 积分缓存（核心统一持久化，插件只管报） ----
+
+  /**
+   * 读缓存的积分。没缓存过返回 `CREDITS_UNKNOWN`(-1),让调用方自己决定
+   * 显示什么——不要把 -1 当 0 展示。
+   */
+  getCredits(supplierId: string, uid: string): number {
+    const v = this.get(supplierId).credits[uid]
+    return typeof v === 'number' && Number.isFinite(v) ? v : CREDITS_UNKNOWN
+  }
+
+  /**
+   * 合并插件报的积分:非 -1 就写入并返回它;-1(未知)则回落到上次缓存值。
+   * @returns 面板该显示的积分(仍可能是 -1 = 从来没拿到过)
+   */
+  putCredits(supplierId: string, uid: string, reported: number): number {
+    if (typeof reported !== 'number' || !Number.isFinite(reported) || reported < 0) {
+      return this.getCredits(supplierId, uid)
+    }
+    const prev = this.getCredits(supplierId, uid)
+    if (prev === reported) return reported // 值没变,不写盘(status() 是高频调用)
+    this.get(supplierId).credits[uid] = reported
+    this.saveLocked()
+    return reported
+  }
+
+  /** 删除链接时清掉它的积分缓存(不写盘:下一行 removeLink 会带出保存)。 */
+  clearCredits(supplierId: string, uid: string): void {
+    const credits = this.get(supplierId).credits
+    if (credits[uid] === undefined) return
+    delete credits[uid]
+    this.saveLocked()
+  }
+
   private load(): void {
     if (this.fp === '') return
     let f: ConfigFile
@@ -131,6 +188,7 @@ export class SupplierConfigStore {
         custom: Array.isArray(c.custom) ? c.custom.filter((m) => typeof m === 'string') : [],
         poolOrder: Array.isArray(c.poolOrder) ? c.poolOrder.filter((u) => typeof u === 'string') : [],
         poolStrategy: c.poolStrategy === 'round-robin' ? 'round-robin' : 'fallback',
+        credits: readCredits(c.credits),
       })
     }
   }
@@ -145,6 +203,7 @@ export class SupplierConfigStore {
         custom: [...cfg.custom],
         poolOrder: [...cfg.poolOrder],
         poolStrategy: cfg.poolStrategy,
+        credits: { ...cfg.credits },
       }
     }
     try {

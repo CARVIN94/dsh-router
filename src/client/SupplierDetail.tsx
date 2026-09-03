@@ -673,11 +673,16 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                         <div className="dshr-linkSub">
                           <span className="dshr-mono dshr-linkUid">{account.uid}</span>
                           <span className="dshr-linkDot">·</span>
-                          <span className="dshr-mono dshr-linkCredits">{Math.ceil(account.credits)} 积分</span>
+                          {/* credits < 0 = 插件还没拉到过积分（缓存也没值），
+                              别显示成「-1 积分」或直接吃掉整段 */}
+                          <span className="dshr-mono dshr-linkCredits">
+                            {account.credits < 0 ? '积分未知' : `${Math.ceil(account.credits)} 积分`}
+                          </span>
+                          {/* err_count 是限流退避等级（反复被限流的号递增，成功后清零） */}
                           {account.err_count !== undefined && account.err_count > 0 && (
                             <>
                               <span className="dshr-linkDot">·</span>
-                              <span className="dshr-linkErr">连续错误 {account.err_count}</span>
+                              <span className="dshr-linkErr">退避 {account.err_count} 级</span>
                             </>
                           )}
                           {coolingText !== '' && <span className="dshr-reason dshr-linkCooling">{coolingText}</span>}

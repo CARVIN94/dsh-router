@@ -10,10 +10,13 @@ import {
   EMPTY_RESPONSE_CODE,
   LlmAdapter,
   LlmError,
+  ReasoningEffortId,
   ToolCallId,
   attributionHeaders,
   type GenerateOptions,
   type LlmModelInfo,
+  type LlmReasoningEffortInfo,
+  type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { mergeUsage, normalizeUsage, toTokenUsage, type UsageTokens } from '../router/usage-tokens.ts'
@@ -353,6 +356,14 @@ function completeJson(text: string): boolean {
  * DSH adapter：provider `router`。模型目录 = 组合；stream 转发到本插件
  * /v1/chat/completions（组合路由在 /v1 内完成）。
  */
+/** Router provider 对外暴露的推理等级。值原样透传为 OpenAI `reasoning_effort`。 */
+const ROUTER_REASONING_EFFORTS: readonly LlmReasoningEffortInfo[] = [
+  { id: ReasoningEffortId('off'), name: '关闭' },
+  { id: ReasoningEffortId('low'), name: '低' },
+  { id: ReasoningEffortId('medium'), name: '中' },
+  { id: ReasoningEffortId('high'), name: '高' },
+]
+
 export class RouterAdapter extends LlmAdapter {
   private readonly baseURL: string
   private readonly source: RouterAdapterSource
@@ -377,6 +388,20 @@ export class RouterAdapter extends LlmAdapter {
       out.push({ provider: 'router', id: m.id, name: m.name ?? m.id })
     }
     return out
+  }
+
+  async resolveModel(_provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    const combos = await this.source.comboModels()
+    const found = combos.find((m) => m.id === model || m.name === model)
+    const name = found?.name ?? found?.id ?? model
+    // 组合背后是异构供应商，统一声明 OpenAI 风推理等级；实际能否生效取决于
+    // 命中的上游（供应商各有各自的映射/忽略规则，见 applyReasoning + chatOnce(lv)）。
+    return {
+      provider: 'router',
+      id: model,
+      name,
+      reasoning: { efforts: ROUTER_REASONING_EFFORTS },
+    }
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

@@ -27,7 +27,7 @@
  *   PATCH /router/api/suppliers/:id/models/:mid           {enabled}
  *
  * `/v1/*` auth: gated by KeysStore.requireApiKey — when on, Bearer must be an
- * active library key or TW2A_API_KEY env. `/router/api/*` is same-origin, no auth.
+ * active library key. `/router/api/*` is same-origin, no auth.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
@@ -132,9 +132,9 @@ export function apply(rawContext: unknown): void {
   }
   const log = (msg: string): void => ctx.logger.info(`[dsh-router] ${msg}`)
 
-  const stateFile = process.env.TW2A_STATE_FILE ?? 'data/state.json'
+  const stateFile = 'data/state.json'
   const store = new SupplierConfigStore(stateFile)
-  const credentials = new CredentialStore(process.env.TW2A_AUTH_DIR ?? join(dirname(stateFile), 'auths'))
+  const credentials = new CredentialStore(join(dirname(stateFile), 'auths'))
   const router = new Router(stateFile, store, log)
 
   const keys = new KeysStore(stateFile)
@@ -222,7 +222,7 @@ export function apply(rawContext: unknown): void {
   })
   void (async () => {
     try {
-      const userDir = join(process.env.DSH_PROFILE_DIR ?? join(process.env.HOME ?? '', '.dsh', 'profiles', 'web'), 'suppliers')
+      const userDir = join(join(process.env.HOME ?? '', '.dsh', 'profiles', 'web'), 'suppliers')
       const { suppliers, errors } = await loadSuppliers({
         builtinDir: join(import.meta.dirname, 'suppliers'), // 内置 js（opencode 等）
         userDir,

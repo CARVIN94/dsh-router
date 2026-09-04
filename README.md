@@ -125,7 +125,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 **鉴权**:默认 `requireApiKey=false`,`/v1/*` 不要求鉴权(本地使用,与 9router 一致)。
 在「端点与密钥」页开启「要求 API Key」后,请求必须带
-`Authorization: Bearer <库内启用的 Key 或 TW2A_API_KEY>`。
+`Authorization: Bearer <库内启用的 Key>`。
 
 ## 面板 API(`/router/api/*`,同源)
 
@@ -185,15 +185,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 - **凭证存储**:SQLite 单库 `{authDir}/credentials.sqlite`(表 `credentials(supplier, uid, data)`,
   凭证为供应商不透明 JSON blob)。
 - **/v1/\* 鉴权**:由 `KeysStore.requireApiKey` 控制。关闭 → 不鉴权;
-  开启 → Bearer 必须是「库内启用的 key」或 `TW2A_API_KEY` env。
-
-## 环境变量
-
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `TW2A_AUTH_DIR` | `<dataDir>/auths` | 凭证目录(dsh-router 核心统一管,`credentials.sqlite` SQLite 库) |
-| `TW2A_STATE_FILE` | `data/state.json` | 状态持久化(同目录放 keys.json / combos.json / supplier-config.json) |
-| `TW2A_API_KEY` | 空 | /v1 Bearer 鉴权(与库内 key 等效) |
+  开启 → Bearer 必须是「库内启用的 key」。
 
 ## 与 DSH 的边界
 

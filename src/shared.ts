@@ -20,9 +20,6 @@ export const ROUTER_TITLE = '路由'
 /** Same-origin API base the client panel fetches (host half serves it). */
 export const ROUTER_API_BASE = '/router/api'
 
-/** Bearer key env / credential reference protecting /v1/*. */
-export const API_KEY_REF = 'TW2A_API_KEY'
-
 /** One account row from `/router/api/status`. */
 export interface RouterAccount {
   uid: string

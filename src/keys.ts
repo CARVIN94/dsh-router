@@ -4,12 +4,11 @@
  *
  * /v1/* 鉴权规则：
  *   - requireApiKey=false（默认）→ 不鉴权
- *   - requireApiKey=true → Bearer 必须是「启用的库内 key」或 TW2A_API_KEY env
+ *   - requireApiKey=true → Bearer 必须是「启用的库内 key」
  */
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { API_KEY_REF } from './shared.ts'
 
 /** 库内一条 key。 */
 export interface ApiKeyEntry {
@@ -132,12 +131,10 @@ export class KeysStore {
     this.save()
   }
 
-  /** 校验 Bearer key：requireApiKey 关 → 放行；开 → 库内启用 key 或 TW2A_API_KEY env。 */
+  /** 校验 Bearer key：requireApiKey 关 → 放行；开 → 必须是库内启用的 key。 */
   verify(bearer: string | undefined): boolean {
     if (!this.require) return true
     if (bearer === undefined || bearer === '') return false
-    if (this.keys.some((k) => k.isActive && k.key === bearer)) return true
-    const envKey = process.env[API_KEY_REF]
-    return envKey !== undefined && envKey !== '' && envKey === bearer
+    return this.keys.some((k) => k.isActive && k.key === bearer)
   }
 }

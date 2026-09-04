@@ -3,11 +3,18 @@
  *
  * Output contract: two CJS-closure files consumed by DSH's
  * `window.__ModuleLoader__`:
- *   - `lib/client.js`            → id "dsh-router"              (profile channel)
+ *   - `lib/client.js`            → id "dsh-router-core"     (profile channel)
  *   - `lib/client-registry.js`   → id "dsh-external/dsh-router" (registry channel)
  * Driven by DSH_CLIENT_ID / DSH_CLIENT_FILE env vars; `pnpm build` runs this
  * twice. `react`, `react-dom`, `cordis` stay external (provided by the web
  * shell's frozen module table); everything else is inlined.
+ *
+ * The id MUST equal the loader entry's `name` on that channel: the host's
+ * graph row id is the entry name, and a bundle registering a different id
+ * fails arrival with `bundle ... loaded without registering "<entry name>"`.
+ * The profile channel's entry name is the npm package name (dsh-router-core);
+ * the registry channel keeps its own `dsh-external/dsh-router` id, which is
+ * independent of the npm name.
  *
  * CSS is injected into the JS (vite-plugin-css-injected-by-js) because the
  * module table only loads one JS closure and will not fetch a sidecar .css.
@@ -15,7 +22,7 @@
 import { defineConfig } from 'vite'
 import cssInjectedByJs from 'vite-plugin-css-injected-by-js'
 
-const CLIENT_ID = process.env.DSH_CLIENT_ID ?? 'dsh-router'
+const CLIENT_ID = process.env.DSH_CLIENT_ID ?? 'dsh-router-core'
 const CLIENT_FILE = process.env.DSH_CLIENT_FILE ?? 'client.js'
 
 export default defineConfig({

@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
 
+# 本地缓存（~/.npm 被 root 拥有的文件污染、装不上时改用本地目录）
+.npm-cache/
+.pnpm-cache/
+package-lock.json
+
 # Build output
 lib/
 dist/

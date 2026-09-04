@@ -45,6 +45,7 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client-registry.js",
+    "lib/suppliers/*.js",
     "lib/types/**/*.d.ts",
     "src",
     "cordis.patch.yml",
@@ -53,13 +54,15 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node scripts/check-css.mjs && rm -rf lib && tsc -p tsconfig.build.json && tsdown && npm run build:client",
-    "build:client": "DSH_CLIENT_ID=dsh-router DSH_CLIENT_FILE=client.js vite build -c client/vite.config.ts && DSH_CLIENT_ID=dsh-external/dsh-router DSH_CLIENT_FILE=client-registry.js vite build -c client/vite.config.ts",
+    "build": "node scripts/check-css.mjs && node scripts/check-publish.mjs && rm -rf lib && tsc -p tsconfig.build.json && tsdown && npm run build:client && node scripts/check-publish.mjs",
+    "build:client": "DSH_CLIENT_ID=dsh-router-core DSH_CLIENT_FILE=client.js vite build -c client/vite.config.ts && DSH_CLIENT_ID=dsh-external/dsh-router DSH_CLIENT_FILE=client-registry.js vite build -c client/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
-    "check:css": "node scripts/check-css.mjs"
+    "check:css": "node scripts/check-css.mjs",
+    "check:publish": "node scripts/check-publish.mjs --pack",
+    "prepublishOnly": "npm run build && node scripts/check-publish.mjs --pack"
   },
   "license": "MIT",
   "peerDependencies": {

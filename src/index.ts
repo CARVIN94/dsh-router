@@ -41,8 +41,11 @@ import type { SupplierEnv, SupplierModule } from './suppliers/contract.ts'
 import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
 
-/** Plugin identity for cordis.yml rows. */
-export const name = 'dsh-router'
+/**
+ * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
+ * loader 拿配置行里的 `name` 去 `import(name)`，写错就是从 npm 装完加载不到。
+ */
+export const name = 'dsh-router-core'
 
 /** Services required before mounting: the webserver (routes) + llm (设置-模型). */
 export const inject = ['webServer', 'llm']

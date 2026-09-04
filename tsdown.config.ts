@@ -6,8 +6,9 @@
  *
  * The BROWSER client half (React panel + sidebar entry) is built separately
  * by Vite — see `client/vite.config.ts`, which emits `lib/client.js`
- * (profile channel, id `dsh-router`) and `lib/client-registry.js` (registry
- * channel, id `dsh-external/dsh-router`).
+ * (profile channel, id `dsh-router-core` — the npm package name, so it
+ * matches the cordis.patch.yml row's `name`) and `lib/client-registry.js`
+ * (registry channel, id `dsh-external/dsh-router`).
  */
 import { builtinModules, createRequire } from 'node:module'
 import type { UserConfig } from 'tsdown'

@@ -4,6 +4,12 @@
 # 路由系统 (Routing System) sidebar entry beside dsh-mnemon's 记忆系统; its
 # host half serves /router/api/* (OpenAI-compatible /v1/* routing).
 # No dependency on other plugins.
+#
+# `name` 是**模块说明符**（不是显示名），必须与 package.json 的 name 逐字一致：
+# 宿主 loader 拿它去 `import(name)`，客户端 client-modules 拿它去
+# `require.resolve(name + '/package.json')` 定位 client bundle。包名已改
+# dsh-router-core，这里不同步就从 npm 装完两边都加载不到（`id` 只是配置树
+# 里的句柄，可以随便取）。
 - insert:
     - id: dsh-router
-      name: 'dsh-router'
+      name: 'dsh-router-core'

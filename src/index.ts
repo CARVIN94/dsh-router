@@ -123,6 +123,7 @@ export function apply(rawContext: unknown): void {
   const ctx = rawContext as {
     get: (key: string) => unknown
     on: (name: string, listener: (...args: unknown[]) => void) => unknown
+    provide: (name: string, value: unknown) => unknown
     webServer: WebServer
     llm?: Llm
     logger: { info: (message: string) => void; warn: (message: string) => void }
@@ -169,6 +170,13 @@ export function apply(rawContext: unknown): void {
     loaded?.supplier.dispose()
     log(`supplier unregistered: ${id}`)
   }
+
+  // 聚合表归核心所有：外部供应商插件（traework/codebuddy 等）只往里 append，不各自
+  // provide（cordis 同一 service 只允许一个插件注册，重复 provide 会抛错）。核心先提供
+  // 空表，任何独立安装的供应商插件都能经 ctx.inject(['router.suppliers']) 拿到同一个
+  // live 表把自己挂进来——不再依赖某个「宿主」插件提供它（此前只有 traework 会 provide，
+  // 单装 dsh-router-codebuddy 时表永不出现，codebuddy 就一直不生效）。
+  ctx.provide('router.suppliers', {})
 
   // 内置 + 用户 + 外部插件供应商（异步加载，完成后注册路由 + 加入路由器）
   const dataDir = dirname(stateFile)

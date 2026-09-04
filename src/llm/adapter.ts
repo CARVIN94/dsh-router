@@ -358,10 +358,10 @@ function completeJson(text: string): boolean {
  */
 /** Router provider 对外暴露的推理等级（对齐 dsh/DeepSeek：off/low/high/max）。 */
 const ROUTER_REASONING_EFFORTS: readonly LlmReasoningEffortInfo[] = [
-  { id: ReasoningEffortId('off'), name: '关闭' },
-  { id: ReasoningEffortId('low'), name: '低' },
-  { id: ReasoningEffortId('high'), name: '高' },
-  { id: ReasoningEffortId('max'), name: '最大' },
+  { id: ReasoningEffortId('off'), name: 'Off' },
+  { id: ReasoningEffortId('low'), name: 'Low' },
+  { id: ReasoningEffortId('high'), name: 'High' },
+  { id: ReasoningEffortId('max'), name: 'Max' },
 ]
 
 export class RouterAdapter extends LlmAdapter {

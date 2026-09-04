@@ -112,6 +112,8 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
   const [checkingIn, setCheckingIn] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [renameUid, setRenameUid] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -341,6 +343,28 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
     const data = await response.json() as { ok: boolean }
     if (data.ok) onRefresh()
     setRemoveTarget(null)
+  }
+
+  const startRename = (account: RouterAccount): void => {
+    setRenameDraft(account.nickname ?? '')
+    setRenameUid(account.uid)
+  }
+
+  const saveRename = async (account: RouterAccount): Promise<void> => {
+    try {
+      await fetch(`${ROUTER_API_BASE}/status/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplier: supplier.id, uid: account.uid, name: renameDraft.trim() }),
+        cache: 'no-store',
+      })
+      onRefresh()
+      showToast('连接名已保存')
+    } catch {
+      showToast('保存失败')
+    } finally {
+      setRenameUid(null)
+    }
   }
 
   const toggleModel = async (id: string, enabled: boolean): Promise<void> => {
@@ -667,7 +691,20 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                       </div>
                       <div className="dshr-linkMain">
                         <div className="dshr-linkTitleLine">
-                          <span className="dshr-linkName">{account.nickname || account.uid}</span>
+                          {renameUid === account.uid
+                            ? (
+                              <input
+                                className="dshr-input dshr-mono"
+                                value={renameDraft}
+                                autoFocus
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void saveRename(account)
+                                  if (e.key === 'Escape') setRenameUid(null)
+                                }}
+                              />
+                            )
+                            : <span className="dshr-linkName">{account.nickname || account.uid}</span>}
                           <span className={`dshr-badge ${badge.cls}`}>{badge.text}</span>
                         </div>
                         <div className="dshr-linkSub">
@@ -689,6 +726,17 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                         </div>
                       </div>
                       <div className="dshr-linkOps">
+                        <button
+                          type="button"
+                          className="dshr-iconBtn dshr-iconBtn-sm"
+                          title={renameUid === account.uid ? '保存名字' : '改名'}
+                          onClick={() => {
+                            if (renameUid === account.uid) void saveRename(account)
+                            else startRename(account)
+                          }}
+                        >
+                          <Icon d={renameUid === account.uid ? I.check : I.edit} size={15} />
+                        </button>
                         <button type="button" className="dshr-iconBtn dshr-iconBtn-sm dshr-linkDelete" title="删除链接" onClick={() => setRemoveTarget(account)}>
                           <Icon d={I.delete} size={15} />
                         </button>

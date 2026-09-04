@@ -96,3 +96,18 @@ test('按供应商隔离：同 uid 不同供应商互不干扰', () => {
   assert.equal(store.getCredits('codebuddy', 'key-1'), 100)
   assert.equal(store.getCredits('traework', 'key-1'), 200)
 })
+
+test('连接显示别名：set 落盘重开还在；空名删除别名回原始', () => {
+  const { store, file } = tempStore()
+  assert.equal(store.getAccountName('traework', 't1'), undefined, '没设过就是 undefined')
+  store.setAccountName('traework', 't1', '主号')
+  assert.equal(store.getAccountName('traework', 't1'), '主号')
+  store.setAccountName('traework', 't2', '') // 空名不建别名
+  assert.equal(store.getAccountName('traework', 't2'), undefined)
+  // 落盘：重开还在
+  const reopened = new SupplierConfigStore(join(file, '..', 'state.json'))
+  assert.equal(reopened.getAccountName('traework', 't1'), '主号')
+  // 空串清空：回到供应商原始昵称
+  store.setAccountName('traework', 't1', '   ')
+  assert.equal(new SupplierConfigStore(join(file, '..', 'state.json')).getAccountName('traework', 't1'), undefined)
+})

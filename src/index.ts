@@ -312,6 +312,23 @@ export function apply(rawContext: unknown): void {
     writeJson(res, 200, { ok: true, accounts })
   })
 
+  // 连接池连接改名：只改面板显示名（存核心 store 的 accountNames，uid 不变）。
+  route(`${ROUTER_API_BASE}/status/rename`, async (req, res) => {
+    let body: { supplier?: string; uid?: string; name?: string }
+    try {
+      body = JSON.parse(await readBody(req, 64 << 10)) as { supplier?: string; uid?: string; name?: string }
+    } catch {
+      writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
+      return
+    }
+    if (typeof body.supplier !== 'string' || body.supplier === '' || typeof body.uid !== 'string' || body.uid === '') {
+      writeJson(res, 400, { ok: false, error: 'supplier and uid are required' })
+      return
+    }
+    store.setAccountName(body.supplier, body.uid, typeof body.name === 'string' ? body.name : '')
+    writeJson(res, 200, { ok: true })
+  })
+
   route(`${ROUTER_API_BASE}/models`, async (_req, res) => {
     try {
       const models = await router.listModels()

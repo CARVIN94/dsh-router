@@ -32,6 +32,8 @@ export interface SupplierConfig {
   poolStrategy: PoolStrategy
   /** 积分缓存:uid → 剩余额度(最后一次从插件拿到的非 -1 值)。 */
   credits: Record<string, number>
+  /** 每连接显示别名:uid → 显示名(空/缺省用供应商原始昵称,纯展示不改路由键)。 */
+  accountNames: Record<string, string>
 }
 
 interface ConfigFile {
@@ -44,6 +46,16 @@ function readCredits(raw: unknown): Record<string, number> {
   if (typeof raw !== 'object' || raw === null) return out
   for (const [uid, v] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[uid] = v
+  }
+  return out
+}
+
+/** 读盘时的连接显示别名校验：只留非空字符串。 */
+function readNames(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (typeof raw !== 'object' || raw === null) return out
+  for (const [uid, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && v.trim() !== '') out[uid] = v.trim()
   }
   return out
 }
@@ -78,7 +90,7 @@ export class SupplierConfigStore {
   get(supplierId: string): SupplierConfig {
     let cfg = this.bySupplier.get(supplierId)
     if (!cfg) {
-      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback', credits: {} }
+      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback', credits: {}, accountNames: {} }
       this.bySupplier.set(supplierId, cfg)
     }
     return cfg
@@ -139,6 +151,28 @@ export class SupplierConfigStore {
     this.saveLocked()
   }
 
+  // ---- 每连接显示别名（连接池改名，纯展示；uid 仍是路由/匹配键） ----
+
+  /** 读某连接的显示别名;没设或为空返回 `undefined`(用供应商原始昵称)。 */
+  getAccountName(supplierId: string, uid: string): string | undefined {
+    const n = this.get(supplierId).accountNames[uid]
+    return typeof n === 'string' && n !== '' ? n : undefined
+  }
+
+  /** 设置连接显示名。空名 = 删除别名(回到供应商原始昵称)。 */
+  setAccountName(supplierId: string, uid: string, name: string): void {
+    const cfg = this.get(supplierId)
+    const clean = (name ?? '').trim()
+    if (clean === '') {
+      if (cfg.accountNames[uid] === undefined) return
+      delete cfg.accountNames[uid]
+      this.saveLocked()
+      return
+    }
+    cfg.accountNames[uid] = clean
+    this.saveLocked()
+  }
+
   // ---- 积分缓存（核心统一持久化，插件只管报） ----
 
   /**
@@ -189,6 +223,7 @@ export class SupplierConfigStore {
         poolOrder: Array.isArray(c.poolOrder) ? c.poolOrder.filter((u) => typeof u === 'string') : [],
         poolStrategy: c.poolStrategy === 'round-robin' ? 'round-robin' : 'fallback',
         credits: readCredits(c.credits),
+        accountNames: readNames(c.accountNames),
       })
     }
   }
@@ -204,6 +239,7 @@ export class SupplierConfigStore {
         poolOrder: [...cfg.poolOrder],
         poolStrategy: cfg.poolStrategy,
         credits: { ...cfg.credits },
+        accountNames: { ...cfg.accountNames },
       }
     }
     try {

@@ -126,7 +126,12 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
     icon: (instance as { icon?: string }).icon,
     status: (): SupplierStatus => {
       const now = instance.status()
-      return { id: now.id, name: now.name, accounts: pool.decorate(hydrateCredits(instance.id, env.store, now.accounts)) }
+      // 连接池显示别名覆盖：uid 不变，只改面板展示名
+      const accounts = now.accounts.map((a) => {
+        const alias = env.store.getAccountName(instance.id, a.uid)
+        return alias === undefined || alias === a.nickname ? a : { ...a, nickname: alias }
+      })
+      return { id: now.id, name: now.name, accounts: pool.decorate(hydrateCredits(instance.id, env.store, accounts)) }
     },
     listModels: (force?: boolean): Promise<ModelInfo[]> | ModelInfo[] => instance.listModels(force),
     // 通用能力：模型启用状态/自定义由核心 SupplierConfigStore 合并

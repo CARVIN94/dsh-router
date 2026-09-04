@@ -352,16 +352,21 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
 
   const saveRename = async (account: RouterAccount): Promise<void> => {
     try {
-      await fetch(`${ROUTER_API_BASE}/status/rename`, {
+      const response = await fetch(`${ROUTER_API_BASE}/status/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ supplier: supplier.id, uid: account.uid, name: renameDraft.trim() }),
         cache: 'no-store',
       })
+      if (!response.ok) {
+        showToast(`保存失败：HTTP ${response.status}`)
+        setRenameUid(null)
+        return
+      }
       onRefresh()
       showToast('连接名已保存')
-    } catch {
-      showToast('保存失败')
+    } catch (err) {
+      showToast(`保存失败：${(err as Error).message}`)
     } finally {
       setRenameUid(null)
     }
@@ -668,7 +673,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                     <div
                       key={account.uid}
                       className={`dshr-linkRow${dragIndex === index ? ' dshr-linkRowDragging' : ''}`}
-                      draggable
+                      draggable={renameUid !== account.uid}
                       onDragStart={(e) => { setDragIndex(index); e.dataTransfer.effectAllowed = 'move' }}
                       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
                       onDrop={(e) => {
@@ -728,7 +733,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                       <div className="dshr-linkOps">
                         <button
                           type="button"
-                          className="dshr-iconBtn dshr-iconBtn-sm"
+                          className={`dshr-iconBtn dshr-iconBtn-sm dshr-linkEdit${renameUid === account.uid ? ' dshr-linkEdit-active' : ''}`}
                           title={renameUid === account.uid ? '保存名字' : '改名'}
                           onClick={() => {
                             if (renameUid === account.uid) void saveRename(account)

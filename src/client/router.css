@@ -1634,6 +1634,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
 }
 
+/* 改名：与删除一致，hover 行才显示；编辑中保持可见（否则保存按钮被藏住） */
+.dshr-linkEdit {
+  color: var(--rs-muted);
+  opacity: 0;
+  transition: opacity .12s ease, color .12s ease, background .12s ease;
+}
+.dshr-linkRow:hover .dshr-linkEdit { opacity: 1; }
+.dshr-linkEdit:focus-visible { opacity: 1; }
+.dshr-linkEdit:hover {
+  color: var(--rs-accent);
+  background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+}
+.dshr-linkEdit.dshr-linkEdit-active { opacity: 1; }
+
 /* 模型 chips（9router ModelRow 风格） */
 .dshr-modelChips {
   display: flex;

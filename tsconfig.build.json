@@ -5,6 +5,7 @@
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
+    "rootDir": "./src",
     "outDir": "lib/types"
   },
   "include": ["src/index.ts", "src/shared.ts", "src/types.d.ts"]

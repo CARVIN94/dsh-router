@@ -7,10 +7,10 @@
  * 纯文本流：组合为文本模型，本 adapter 不处理图片附件。
  */
 import {
-  CallId,
   EMPTY_RESPONSE_CODE,
   LlmAdapter,
   LlmError,
+  ToolCallId,
   attributionHeaders,
   type GenerateOptions,
   type LlmModelInfo,
@@ -183,7 +183,7 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
         yield {
           type: 'block-end',
           index: block.index,
-          block: { type: 'tool-call', id: CallId(block.callId ?? ''), name: '', arguments: '{}' },
+          block: { type: 'tool-call', id: ToolCallId(block.callId ?? ''), name: '', arguments: '{}' },
         }
       }
       if (dropped > 0) {
@@ -270,7 +270,7 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
         yield {
           type: 'tool-call-delta',
           index: block.index,
-          id: CallId(block.callId ?? ''),
+          id: ToolCallId(block.callId ?? ''),
           ...(block.name !== undefined ? { name: block.name } : {}),
           argumentsDelta: fragment,
         }
@@ -323,7 +323,7 @@ function closeBlock(block: OpenBlock): never {
     case 'reasoning': return { type: 'reasoning', text: block.text } as never
     case 'tool-call': return {
       type: 'tool-call',
-      id: CallId(block.callId ?? ''),
+      id: ToolCallId(block.callId ?? ''),
       name: block.name ?? '',
       // 空串 = 无参工具，合法（上游很多工具不吃参数）；补成 `{}` 让下游
       // 不必分支。能走到这里的必然是完整 JSON（残缺的已在 [DONE] 处拦掉）。

@@ -510,7 +510,7 @@ test('流式：上游不发空行分隔时也要能分帧（前瞻完整 JSON）
   assert.equal(texts.join(''), 'AB', '两帧都要收到')
 })
 
-test('模型目录：resolveModel 对每个组合声明推理等级（off/low/medium/high）', async () => {
+test('模型目录：resolveModel 对每个组合声明推理等级（off/low/high/max，默认 high）', async () => {
   const adapter = new RouterAdapter('http://x', { comboModels: async () => [
     { id: 'c-a', name: '组合A' },
     { id: 'c-b' },
@@ -520,7 +520,8 @@ test('模型目录：resolveModel 对每个组合声明推理等级（off/low/me
   assert.equal(a.id, 'c-a')
   assert.equal(a.name, '组合A')
   assert.ok(a.reasoning, '组合应声明推理等级，DSH 才允许显式 effort')
-  assert.deepEqual(a.reasoning!.efforts.map((e) => e.id), ['off', 'low', 'medium', 'high'])
+  assert.deepEqual(a.reasoning!.efforts.map((e) => e.id), ['off', 'low', 'high', 'max'])
+  assert.equal(a.reasoning!.defaultEffort, 'high', '默认 High：调用方不指定时物化为 high')
   // 无显示名时用模型 id 兜底，保证 name 非空（dsh-llm normalizeModelInfo 要求）
   const b = await adapter.resolveModel('router', 'c-b')
   assert.equal(b.name, 'c-b')

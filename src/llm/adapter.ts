@@ -356,12 +356,12 @@ function completeJson(text: string): boolean {
  * DSH adapter：provider `router`。模型目录 = 组合；stream 转发到本插件
  * /v1/chat/completions（组合路由在 /v1 内完成）。
  */
-/** Router provider 对外暴露的推理等级。值原样透传为 OpenAI `reasoning_effort`。 */
+/** Router provider 对外暴露的推理等级（对齐 dsh/DeepSeek：off/low/high/max）。 */
 const ROUTER_REASONING_EFFORTS: readonly LlmReasoningEffortInfo[] = [
   { id: ReasoningEffortId('off'), name: '关闭' },
   { id: ReasoningEffortId('low'), name: '低' },
-  { id: ReasoningEffortId('medium'), name: '中' },
   { id: ReasoningEffortId('high'), name: '高' },
+  { id: ReasoningEffortId('max'), name: '最大' },
 ]
 
 export class RouterAdapter extends LlmAdapter {
@@ -394,13 +394,14 @@ export class RouterAdapter extends LlmAdapter {
     const combos = await this.source.comboModels()
     const found = combos.find((m) => m.id === model || m.name === model)
     const name = found?.name ?? found?.id ?? model
-    // 组合背后是异构供应商，统一声明 OpenAI 风推理等级；实际能否生效取决于
+    // 组合背后是异构供应商，统一声明 dsh 推理等级；实际能否生效取决于
     // 命中的上游（供应商各有各自的映射/忽略规则，见 applyReasoning + chatOnce(lv)）。
+    // 默认 High：调用方不指定 effort 时，runtime 会物化为 'high' 下发。
     return {
       provider: 'router',
       id: model,
       name,
-      reasoning: { efforts: ROUTER_REASONING_EFFORTS },
+      reasoning: { efforts: ROUTER_REASONING_EFFORTS, defaultEffort: ReasoningEffortId('high') },
     }
   }
 

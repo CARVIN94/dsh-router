@@ -27,7 +27,7 @@ interface Spy {
     modelsWithEnabled: () => Promise<Array<ModelInfo & { enabled: boolean }>>
     getAlias: () => string
     accounts: () => SupplierAccountNow[]
-    chatOnce: (uid: string, req: { rawBody: string }) => Promise<ChatOnceResult>
+    chatOnce: (uid: string, lv: string, req: { rawBody: string }) => Promise<ChatOnceResult>
     dispose: () => void
   }
 }
@@ -46,7 +46,7 @@ function spy(id: string, modelId: string, alias = id): Spy {
       modelsWithEnabled: async () => [{ id: modelId, enabled: true }],
       getAlias: () => alias,
       accounts: () => [{ uid: `${id}-u1`, credits: 0, state: 'ok' }],
-      chatOnce: async (_uid, req) => {
+      chatOnce: async (_uid, _lv, req) => {
         calls.n += 1
         const m = (JSON.parse(req.rawBody) as { model?: string }).model ?? ''
         seen.push(m) // 记核心传来的**原样**全名，剥前缀是插件内部的事

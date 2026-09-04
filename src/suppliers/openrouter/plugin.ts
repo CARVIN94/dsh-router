@@ -150,7 +150,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
       return true
     },
     /** 对单个 key 调一次上游。选号/冷却/换号是核心的活，这里只报结果。 */
-    async chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult> {
+    async chatOnce(uid: string, lv: string, req: ChatRequest): Promise<ChatOnceResult> {
       const base = stripAlias(req.model, currentAlias())
       if (!freeIds.has(base) && !(await allModels(false)).some((m) => m.id === base)) {
         const msg = `unknown free model ${JSON.stringify(req.model)}`
@@ -166,6 +166,11 @@ export default function factory(env: SupplierEnv): SupplierModule {
       try {
         const obj = JSON.parse(body) as Record<string, unknown>
         obj.model = base
+        if (lv !== 'auto' && lv !== '' && lv !== 'none' && lv !== 'off') obj.reasoning_effort = lv
+        else if (lv === 'none' || lv === 'off') {
+          delete obj.reasoning_effort
+          delete obj.reasoning_summary
+        }
         body = JSON.stringify(obj)
       } catch {
         // 保持原样

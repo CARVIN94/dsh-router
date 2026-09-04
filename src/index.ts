@@ -269,15 +269,18 @@ export function apply(rawContext: unknown): void {
       writeJson(res, 413, { error: { message: 'request body too large', type: 'api_error', code: 'request_too_large' } })
       return
     }
-    let peek: { stream?: boolean; model?: string }
+    let peek: { stream?: boolean; model?: string; reasoning_effort?: unknown }
     try {
-      peek = JSON.parse(body) as { stream?: boolean; model?: string }
+      peek = JSON.parse(body) as { stream?: boolean; model?: string; reasoning_effort?: unknown }
     } catch {
       writeJson(res, 400, { error: { message: 'invalid JSON body', type: 'api_error', code: 'invalid_request' } })
       return
     }
+    const lv = typeof peek.reasoning_effort === 'string' && peek.reasoning_effort !== ''
+      ? peek.reasoning_effort
+      : 'auto'
     await router.chatCompletions(
-      { rawBody: body, stream: !!peek.stream, model: typeof peek.model === 'string' ? peek.model : '' },
+      { rawBody: body, stream: !!peek.stream, model: typeof peek.model === 'string' ? peek.model : '', lv },
       res,
     )
   }))

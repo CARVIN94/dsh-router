@@ -107,10 +107,14 @@ export interface SupplierModule {
    * 选号/回退/健康判定全是核心的活。
    * 无账号供应商（如 opencode）传空 uid，忽略即可。
    *
+   * `lv` 是推理等级（reasoning effort），`'auto'` 表示不显式下发；
+   * 供应商各自决定怎么把 `lv` 映射到上游（OpenAI 兼容一般是
+   * `reasoning_effort` 字段）。
+   *
    * 失败原因通过返回值的 `message` 报（核心在测试模型时直接用它做诊断提示），
    * 插件不必自己存一份「上次失败」的状态。
    */
-  chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult>
+  chatOnce(uid: string, lv: string, req: ChatRequest): Promise<ChatOnceResult>
   dispose(): void
 
   // ---- 差异化能力（可选，按存在性暴露端点/UI） ----

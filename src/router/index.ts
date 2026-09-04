@@ -950,7 +950,7 @@ export class Router {
     const cfg = this.store.get(s.id)
     // 无账号供应商：直接调一次（uid 传空，插件忽略）
     if (s.accounts !== undefined && s.accounts().length === 0) {
-      const r = await s.chatOnce('', req)
+      const r = await s.chatOnce('', req.lv ?? 'auto', req)
       if (!r.ok) {
         if (r.state === 'no_such_model') return false // 不是我的模型：换供应商，不记账
         if (trace !== undefined) trace.lastState = r.state
@@ -977,7 +977,7 @@ export class Router {
       const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy, req.model)
       if (uid === undefined) return false
       tried.add(uid)
-      const r = await s.chatOnce(uid, req)
+      const r = await s.chatOnce(uid, req.lv ?? 'auto', req)
       if (!r.ok) {
         // 模型不属于本供应商：整个供应商都跳过，换号重试没有意义，
         // 也不能记在账号头上（否则无关账号会被攒够错误冷却掉）

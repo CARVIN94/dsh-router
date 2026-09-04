@@ -35,7 +35,7 @@ function supplier(id: string, models: ModelInfo[], delayMs = 0) {
         models.map((m) => ({ ...m, enabled: true })),
       getAlias: (): string => id,
       accounts: (): SupplierAccountNow[] => accts,
-      chatOnce: async (uid: string, req: { rawBody: string }): Promise<ChatOnceResult> => {
+      chatOnce: async (uid: string, _lv: string, req: { rawBody: string }): Promise<ChatOnceResult> => {
         const m = (JSON.parse(req.rawBody) as { model?: string }).model ?? ''
         if (!models.some((mm) => mm.id === m)) {
           return { ok: false, state: 'no_such_model', message: `unknown model ${m}` }

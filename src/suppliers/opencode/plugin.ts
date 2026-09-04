@@ -82,7 +82,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
     listModels: (force?: boolean): Promise<ModelInfo[]> => allModels(!!force),
     // testModel 由 dsh-router 核心统一走 chatOnce 路径（无账号，无需回退）
     /** 无账号供应商：uid 恒为空，只认 free 模型。 */
-    async chatOnce(_uid: string, req: ChatRequest): Promise<ChatOnceResult> {
+    async chatOnce(_uid: string, lv: string, req: ChatRequest): Promise<ChatOnceResult> {
       // 只认 free 模型，其他模型交给别的供应商
       if (!isFreeModel(req.model)) {
         const msg = `unknown free model ${JSON.stringify(req.model)}`
@@ -93,6 +93,11 @@ export default function factory(env: SupplierEnv): SupplierModule {
       try {
         const obj = JSON.parse(body) as Record<string, unknown>
         obj.model = stripAlias(String(obj.model ?? req.model), currentAlias())
+        if (lv !== 'auto' && lv !== '' && lv !== 'none' && lv !== 'off') obj.reasoning_effort = lv
+        else if (lv === 'none' || lv === 'off') {
+          delete obj.reasoning_effort
+          delete obj.reasoning_summary
+        }
         body = JSON.stringify(obj)
       } catch {
         // 保持原样

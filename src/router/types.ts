@@ -55,6 +55,8 @@ export interface ChatRequest {
   rawBody: string
   stream: boolean
   model: string
+  /** 推理等级（reasoning effort），供应商各自决定怎么映射到上游。缺省 = 'auto'。 */
+  lv?: string
 }
 
 /**
@@ -79,7 +81,7 @@ export interface Supplier {
   /** 账号「现在状态」（从 status() 派生，插件只报它观察到的）。空 = 无账号供应商。 */
   accounts(): SupplierAccountNow[]
   /** 对单个账号调一次上游。不遍历账号、不管冷却、不写 res。 */
-  chatOnce(uid: string, req: ChatRequest): Promise<ChatOnceResult>
+  chatOnce(uid: string, lv: string, req: ChatRequest): Promise<ChatOnceResult>
   /** 删除链接（清理凭证；内部能力，js 契约不要求实现）。 */
   removeLink?(uid: string): Promise<boolean>
   dispose(): void

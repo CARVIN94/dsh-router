@@ -220,7 +220,7 @@ pnpm test         # node --test "src/**/*.test.ts"
 
 - [decolua/9router](https://github.com/decolua/9router) —— 本地 AI 路由网关,面板/组合/连接池/凭证等思路的来源;
 - [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) —— DSH「一切皆插件」的宿主框架;
-- [omdsh-dev/dsh-mnemon](https://github.com/omdsh-dev/dsh-mnemon) —— DSH 插件形态与侧边栏入口的参考。
+- [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) —— DSH 插件形态与侧边栏入口的参考。
 
 ## 许可证
 

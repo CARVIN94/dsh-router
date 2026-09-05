@@ -70,10 +70,12 @@ function fmt(n: number | undefined): string {
   return new Intl.NumberFormat().format(n ?? 0)
 }
 
-/** 大数缩写：1.2K / 3.4M（卡片和柱图上放不下完整数字时用）。 */
+/** 大数缩写：1.2K / 3.4M / 5.6B / 7.8T（卡片和柱图上放不下完整数字时用）。 */
 function fmtShort(n: number | undefined): string {
   const v = n ?? 0
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1e12) return `${(v / 1e12).toFixed(1)}T`
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
   if (v >= 10_000) return `${(v / 1000).toFixed(1)}K`
   return fmt(v)
 }

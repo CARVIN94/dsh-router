@@ -54,7 +54,7 @@ interface RouterViewProps {
 
 export function RouterView({ onBack }: RouterViewProps): JSX.Element {
   const [tab, setTab] = useState<TabId>('overview')
-  const [detailSupplier, setDetailSupplier] = useState<{ id: string; name: string; icon?: string } | null>(null)
+  const [detailSupplier, setDetailSupplier] = useState<{ id: string; name: string; icon?: string; apiKeyHint?: string } | null>(null)
   const [snapshot, setSnapshot] = useState<Snapshot>({ health: null, status: null, combos: null })
   const [refreshing, setRefreshing] = useState(false)
   const mounted = useRef(true)
@@ -90,7 +90,7 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
   const combosError = snapshot.combos?.ok === false ? snapshot.combos.error : undefined
 
   /** 渲染一组供应商卡片（内置 / 插件分开）。 */
-  const renderSupplierGroup = (title: string, group: Array<{ id: string; name: string; icon?: string; source?: string }>): ReactNode => {
+  const renderSupplierGroup = (title: string, group: Array<{ id: string; name: string; icon?: string; apiKeyHint?: string; source?: string }>): ReactNode => {
     if (group.length === 0) return null
     return (
       <div className="dshr-supplierGroup">

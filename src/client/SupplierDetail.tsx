@@ -43,7 +43,7 @@ const I = {
 }
 
 interface SupplierDetailProps {
-  supplier: { id: string; name: string; capabilities?: string[]; icon?: string }
+  supplier: { id: string; name: string; capabilities?: string[]; icon?: string; apiKeyHint?: string }
   accounts: RouterAccount[]
   /** 状态是否还在加载。 */
   statusLoading: boolean
@@ -948,7 +948,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
           {canApiKey
             ? (
               <div className="dshr-modalForm">
-                <p className="dshr-muted">填入 OpenRouter API key（https://openrouter.ai/settings/keys），可起名字区分多个 key。</p>
+                <p className="dshr-muted">{supplier.apiKeyHint ?? '填入 API key，可起名字区分多个 key。'}</p>
                 {error !== '' && <div className="dshr-alert"><strong>出错了</strong><span>{error}</span></div>}
                 <input
                   className="dshr-input"

@@ -70,6 +70,8 @@ export interface RouterHealthResponse {
     name: string
     /** 图标（URL 或 SVG data URI）。 */
     icon?: string
+    /** 「添加 API key」弹窗提示文案（缺省前端用通用文案）。 */
+    apiKeyHint?: string
     /** 面板能力集合（登录/签到/连接池/模型管理等，按存在性）。 */
     capabilities?: string[]
     /** 来源：内置 / 用户目录 / 外部插件。 */

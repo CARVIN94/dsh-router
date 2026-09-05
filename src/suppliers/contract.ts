@@ -97,6 +97,13 @@ export interface SupplierModule {
   /** 图标（URL 或 SVG data URI），面板供应商卡片显示。可选。 */
   readonly icon?: string
 
+  /**
+   * 「添加 API key」弹窗的提示文案（HTML 未转义前是纯文本）。可选。
+   * 缺省时前端用通用文案。供应商若走 `addApiKey` 且有自己的 key 获取方式，
+   * 应提供它——否则所有供应商弹窗都显示同一句通用提示（如默认会写 OpenRouter）。
+   */
+  readonly apiKeyHint?: string
+
   // ---- 核心（必须） ----
   /** 报账号「现在状态」。冷却/禁用/错误累计由核心叠加，插件不算这些。 */
   status(): SupplierStatusNow

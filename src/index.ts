@@ -297,6 +297,7 @@ export function apply(rawContext: unknown): void {
           id: s.id,
           name: s.name,
           icon: loaded?.supplier.icon,
+          apiKeyHint: loaded?.supplier.apiKeyHint,
           capabilities: loaded ? [...loaded.capabilities] : [],
           source: loaded?.source ?? 'external',
         }

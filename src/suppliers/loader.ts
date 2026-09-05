@@ -124,6 +124,7 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
     name: instance.name,
     priority: instance.priority ?? 0,
     icon: (instance as { icon?: string }).icon,
+    apiKeyHint: (instance as { apiKeyHint?: string }).apiKeyHint,
     status: (): SupplierStatus => {
       const now = instance.status()
       // 连接池显示别名覆盖：uid 不变，只改面板展示名

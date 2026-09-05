@@ -70,6 +70,8 @@ export interface Supplier {
   readonly priority: number
   /** 图标（URL 或 SVG data URI），面板供应商卡片显示。可选。 */
   readonly icon?: string
+  /** 「添加 API key」弹窗提示文案（缺省前端用通用文案）。可选。 */
+  readonly apiKeyHint?: string
   status(): SupplierStatus
   listModels(force?: boolean): Promise<ModelInfo[]> | ModelInfo[]
   /** 面板展示的模型（含启用/自定义标记）。 */

@@ -1,7 +1,11 @@
 # 供应商开发
 
 供应商是可插拔 js 模块,只提供**差异化能力**。写好放到
-`~/.dsh/profiles/web/suppliers/*.js`,重启后自动加载,出现在「设置 → 路由 → 供应商」。
+`<profile>/suppliers/*.js`(默认 profile = `~/.dsh/profiles/web`),重启后自动加载,
+出现在「设置 → 路由 → 供应商」。
+
+数据目录同理是 `<profile>/data/`,**不跟进程 cwd 跑**——从任何目录启动 `dsh web`
+读到的都是同一份配置。
 
 ## 分工:策略归核心,js 只管单账户
 

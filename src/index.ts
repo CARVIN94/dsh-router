@@ -30,7 +30,7 @@
  * active library key. `/router/api/*` is same-origin, no auth.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { ROUTER_API_BASE, type RouterPeriod } from './shared.ts'
 import { Router } from './router/index.ts'
 import { RouterAdapter } from './llm/adapter.ts'
@@ -40,6 +40,7 @@ import { supplierRoutes } from './suppliers/registry.ts'
 import type { SupplierEnv, SupplierModule } from './suppliers/contract.ts'
 import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
+import { dataDirOf, profileDirOf } from './data-dir.ts'
 
 /**
  * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
@@ -129,12 +130,18 @@ export function apply(rawContext: unknown): void {
     logger: { info: (message: string) => void; warn: (message: string) => void }
     effect: (fn: () => () => void, label?: string) => void
     inject: (services: string[], callback: (sctx: unknown) => void) => void
+    /** 配置树锚点 = profile 目录（宿主注入），用来把数据钉在 profile 里。 */
+    baseUrl?: string
   }
   const log = (msg: string): void => ctx.logger.info(`[dsh-router] ${msg}`)
 
-  const stateFile = 'data/state.json'
+  // 数据目录必须是绝对路径：相对路径会让落盘位置跟着 process.cwd() 跑，
+  // 从别的目录启动就静默换一套空配置（见 src/data-dir.ts）。
+  const dataDir = dataDirOf(ctx.baseUrl)
+  const stateFile = join(dataDir, 'state.json')
+  log(`data dir: ${dataDir}`)
   const store = new SupplierConfigStore(stateFile)
-  const credentials = new CredentialStore(join(dirname(stateFile), 'auths'))
+  const credentials = new CredentialStore(join(dataDir, 'auths'))
   const router = new Router(stateFile, store, log)
 
   const keys = new KeysStore(stateFile)
@@ -179,7 +186,6 @@ export function apply(rawContext: unknown): void {
   ctx.provide('router.suppliers', {})
 
   // 内置 + 用户 + 外部插件供应商（异步加载，完成后注册路由 + 加入路由器）
-  const dataDir = dirname(stateFile)
   const registerLoaded = (loaded: LoadedSupplier): void => {
     loadedSuppliers.push(loaded)
     router.add(loaded.supplier)
@@ -222,7 +228,8 @@ export function apply(rawContext: unknown): void {
   })
   void (async () => {
     try {
-      const userDir = join(join(process.env.HOME ?? '', '.dsh', 'profiles', 'web'), 'suppliers')
+      // 用户供应商目录也在 profile 里：跟着 baseUrl 走，别硬编码 `web`。
+      const userDir = join(profileDirOf(ctx.baseUrl), 'suppliers')
       const { suppliers, errors } = await loadSuppliers({
         builtinDir: join(import.meta.dirname, 'suppliers'), // 内置 js（opencode 等）
         userDir,

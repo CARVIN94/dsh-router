@@ -83,13 +83,23 @@ const DIFF_CAPS = [
   'checkinNow',
 ] as const
 
+/**
+ * 每个供应商一份 env 副本：`onLateFailure` 是**按供应商**绑到本供应商的池上
+ * 的（见 wrapModule），共用一个 env 对象会让所有插件的上报都落到最后一个
+ * 供应商的池里。副本是浅拷贝，store/credentials 仍是同一实例。
+ */
+function ownEnv(env: SupplierEnv): SupplierEnv {
+  return { ...env }
+}
+
 /** 从文件构造 LoadedSupplier。 */
 async function loadOne(file: string, env: SupplierEnv, source: 'builtin' | 'user'): Promise<LoadedSupplier> {
   const mod = await importSupplierFile(file)
+  const mine = ownEnv(env)
   // 支持 factory: 模块本身就是工厂函数
   let instance: SupplierModule
   if (typeof mod === 'function') {
-    instance = (mod as unknown as SupplierFactory)(env)
+    instance = (mod as unknown as SupplierFactory)(mine)
     if (typeof instance !== 'object' || instance === null || typeof instance.id !== 'string' || instance.id === '') {
       throw new Error(`供应商 factory 返回无效: ${file}`)
     }
@@ -97,7 +107,7 @@ async function loadOne(file: string, env: SupplierEnv, source: 'builtin' | 'user
   } else {
     instance = mod
   }
-  return wrapModule(instance, env, file, source)
+  return wrapModule(instance, mine, file, source)
 }
 
 /**
@@ -118,6 +128,15 @@ export function wrapModule(instance: SupplierModule, env: SupplierEnv, source: s
   // 挂在 supplier 上：status() 叠加状态与 Router 的 chat 循环共用同一实例。
   // 冷却键带 supplierId（跨供应商同名模型不串），故构造时注入本供应商 id。
   const pool = new AccountPool(instance.id)
+
+  // 迟到失败的上报通道：流式响应已提交后插件才发现的错误，经它落回同一个池。
+  // **直接挂在插件持有的那个 env 对象上**（不新建副本）——factory 在建 pool
+  // 之前就跑完了，插件若构造时读了 env 就永远拿不到这个字段。插件必须在
+  // **调用时**读 `env.onLateFailure`（见契约注释），此刻它已经挂好。
+  env.onLateFailure = (uid, model, state, message): void => {
+    if (uid === '') return // 无账号供应商（如 opencode）没号可记
+    pool.noteFailure(uid, model, state, message)
+  }
 
   const supplier: Supplier = {
     id: instance.id,

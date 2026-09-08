@@ -23,6 +23,21 @@ export interface SupplierEnv {
   store: SupplierConfigStore
   /** 通用凭证存储（账号凭证，核心统一管）。 */
   credentials: CredentialStore
+  /**
+   * 迟到的失败上报（可选）——**只在响应已提交之后**才用。
+   *
+   * 流式请求一旦写出第一个字节就绑死（HTTP 语义），此时上游再报错已经换不了
+   * 号、也改不了状态码。但「这个号坏了」这件事对**后续**请求仍然有价值：
+   * 不报上来，它就会继续留在池里被轮转选中，每次都白撞一次同一个错误。
+   *
+   * 核心实现 = `pool.noteFailure(uid, model, state, message)`，按该状态的规则
+   * 冷却/禁用。真实案例：TRAE 免费通道对某账号拒绝某模型时发 HTTP 200 +
+   * 流内 `code=4008`，三个号里两个如此，round-robin 下 2/3 请求直接失败
+   * （2026-09-08 实测）——有了这条通道，坏号被冷一次就退出轮转。
+   *
+   * 插件拿不到也不用兜底：不调用就退化成今天的行为，不影响正确性。
+   */
+  onLateFailure?: (uid: string, model: string, state: AccountState, message: string) => void
 }
 
 /** 通用供应商工厂：一个 js 模块 export 它（或 default export 它），loader 调用得到实例。 */

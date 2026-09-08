@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { wrapModule } from './loader.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
 import type { CredentialStore } from '../credential-store.ts'
-import type { SupplierModule, SupplierAccountNow, ChatOnceResult } from './contract.ts'
+import type { SupplierEnv, SupplierModule, SupplierAccountNow, ChatOnceResult } from './contract.ts'
 import type { ChatRequest } from '../router/types.ts'
 
 const UNKNOWN = -1
@@ -115,4 +115,69 @@ test('不持久化（store fp 为空）时也不炸', async () => {
   const e = { dataDir: '', log: () => {}, store: new SupplierConfigStore(''), credentials: {} as CredentialStore }
   const loaded = wrapModule(plugin('codebuddy', [[acct('cb-1', 50)]]), e, 'test')
   assert.equal(loaded.supplier.status().accounts[0]?.credits, 50)
+})
+
+// ---------------------------------------------------------------------------
+// onLateFailure：流式响应已提交后才发现的失败，要落回本供应商的池
+// ---------------------------------------------------------------------------
+
+/**
+ * 造一个会调用 env.onLateFailure 的插件（模拟 traework 的流式 4008 上报）。
+ * 记录它拿到的 env —— 用于验证「factory 先跑、回调后挂」这个顺序下插件仍能用。
+ */
+function latePlugin(id: string, seen: SupplierEnv[]): SupplierModule {
+  let captured: SupplierEnv | undefined
+  return {
+    id,
+    name: id,
+    status: () => ({ id, name: id, accounts: [acct('u1', 0), acct('u2', 0)] }),
+    listModels: () => [],
+    getAlias: () => id,
+    chatOnce: async (_uid: string, _req: ChatRequest): Promise<ChatOnceResult> => ({ ok: true, status: 200, body: '{}' }),
+    dispose: () => {},
+    // 真实插件（traework）在 factory 里存下 env，调用时才读 onLateFailure
+    __capture: (env: SupplierEnv) => { captured = env; seen.push(env) },
+    __report: (uid: string, model: string) => captured?.onLateFailure?.(uid, model, 'quota', 'boom'),
+  } as unknown as SupplierModule
+}
+
+test('onLateFailure 挂到 env 上，且冷却作用于本供应商的池（坏号退出选号）', () => {
+  const { env: e } = env()
+  const seen: SupplierEnv[] = []
+  const p = latePlugin('supA', seen)
+  const loaded = wrapModule(p, e, 'test')
+  assert.notEqual(e.onLateFailure, undefined, 'wrapModule 之后回调已挂上（插件必须调用时才读）')
+  // 模拟插件在 factory 里存下 env —— 此刻再读 onLateFailure 才有值
+  ;(p as unknown as { __capture(env: SupplierEnv): void }).__capture(e)
+
+  // 上报前：两个号都健康
+  const before = loaded.supplier.status().accounts.map((a) => a.cooling)
+  assert.deepEqual(before, [false, false])
+  // 上报 u1 在模型 m1 上的配额失败
+  ;(p as unknown as { __report(uid: string, model: string): void }).__report('u1', 'm1')
+  const after = new Map(loaded.supplier.status().accounts.map((a) => [a.uid, a.cooling]))
+  assert.equal(after.get('u1'), true, '上报后该号应进入冷却')
+  assert.equal(after.get('u2'), false, '冷却是 (模型,号) 粒度，不能连坐同供应商其它号')
+  // 且真的退出选号：只剩 u2
+  assert.equal(loaded.supplier.pool.pick(loaded.supplier.accounts(), [], 'fallback', 'm1'), 'u2')
+  assert.equal(loaded.supplier.pool.pick(loaded.supplier.accounts(), [], 'fallback', 'm2'), 'u1', '换个模型不受影响')
+})
+
+test('onLateFailure 不串供应商：各自落到自己的池', () => {
+  const { env: ea } = env()
+  const { env: eb } = env()
+  const loadedA = wrapModule(latePlugin('supA', []), ea, 'testA')
+  const loadedB = wrapModule(latePlugin('supB', []), eb, 'testB')
+  ea.onLateFailure?.('u1', 'm1', 'quota', 'boom')
+  const coolA = new Map(loadedA.supplier.status().accounts.map((a) => [a.uid, a.cooling]))
+  const coolB = new Map(loadedB.supplier.status().accounts.map((a) => [a.uid, a.cooling]))
+  assert.equal(coolA.get('u1'), true)
+  assert.equal(coolB.get('u1'), false, 'A 的失败不能冷到 B 的号')
+})
+
+test('onLateFailure 空 uid（无账号供应商）→ 不记，不炸', () => {
+  const { env: e } = env()
+  const loaded = wrapModule(latePlugin('supA', []), e, 'test')
+  assert.doesNotThrow(() => e.onLateFailure?.('', 'm1', 'quota', 'boom'))
+  assert.deepEqual(loaded.supplier.status().accounts.map((a) => a.cooling), [false, false])
 })

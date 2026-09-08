@@ -615,6 +615,38 @@ export class Router {
    * 只有两种情况会真的等:`force`(用户主动刷新)和**从来没有过缓存值**
    * (冷启动,没有旧值可给)。后者只发生一次。
    */
+  /**
+   * 组合的上下文窗口(token):组合内各模型窗口的**最小值**,拿不到就 undefined。
+   *
+   * 只读缓存、绝不打上游:调用方是 llm adapter 的 `resolveModel`,它在每次
+   * 请求前后都可能被调用,不能为了报一个容量去触发按供应商的网络往返。
+   * 冷启动(还没缓存)时给 undefined —— 自动压缩会因此跳过这一轮,下次就
+   * 有了,比撒谎说一个窗口值安全。
+   *
+   * 单位:`ModelInfo.context_length` 存的是 **K**(供应商插件统一
+   * `Math.round(tokens / 1000)`,见 codebuddy plugin),这里换算回 token。
+   *
+   * 取最小而不是最大:组合会按策略 fallback 到任意一个模型,按最窄的声明
+   * 才能让「快满了」这件事在任何一条分支上都成立。
+   */
+  comboContextWindow(combo: Combo): number | undefined {
+    let min: number | undefined
+    for (const ref of combo.models) {
+      const at = ref.indexOf(',')
+      if (at < 0) continue
+      const supplierId = ref.slice(0, at)
+      const modelId = ref.slice(at + 1)
+      const hit = this.modelsCache.get(supplierId)
+      if (hit === undefined) return undefined // 这家还没缓存过,不猜
+      const m = hit.models.find((x) => x.id === modelId)
+      const k = m?.context_length
+      if (typeof k !== 'number' || !Number.isFinite(k) || k <= 0) continue
+      const tokens = Math.round(k * 1000)
+      if (min === undefined || tokens < min) min = tokens
+    }
+    return min
+  }
+
   async modelsOf(supplierId: string, force = false): Promise<ModelWithEnabled[]> {
     const s = this.suppliers.find((x) => x.id === supplierId)
     if (s === undefined) return []

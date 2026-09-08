@@ -671,3 +671,41 @@ test('流式：剥掉上游多发一次的空白 tool_call name/id', async () =>
   assert.equal(callId, 'chatcmpl-tool-a7ee5a0d3c361c7f', 'callId 也不能被空串冲掉')
   assert.deepEqual(JSON.parse(args), { command: 'echo hello' }, 'arguments 正常累积')
 })
+
+/**
+ * 组合上下文窗口 —— dsh 的自动压缩靠它算阈值（默认窗口用到 80% 触发）。
+ * adapter 报不出 contextWindow 时，dsh-compaction-basic 直接抛错并**静默
+ * 关闭自动压缩**，上下文于是一路涨到模型硬上限才炸。
+ */
+test('组合窗口：取组合内模型的最小值，单位 K → token', async () => {
+  const router = new Router('')
+  addSupplier(router, supplier('a', [
+    { id: 'a-1', context_length: 128 },   // 128K
+    { id: 'a-2', context_length: 1000 },  // 1M
+  ]).s)
+  await router.modelsOf('a') // 填缓存
+  const w = router.comboContextWindow({ id: 'x', name: 'x', strategy: 'fallback', models: ['a,a-1', 'a,a-2'] })
+  assert.equal(w, 128_000, '取最小的那个（fallback 到任意一条分支都得成立）')
+})
+
+test('组合窗口：供应商还没缓存过 → undefined（不猜，绝不打上游）', () => {
+  const router = new Router('')
+  addSupplier(router, supplier('a', [{ id: 'a-1', context_length: 128 }]).s)
+  // 故意不调 modelsOf：模拟冷启动
+  assert.equal(
+    router.comboContextWindow({ id: 'x', name: 'x', strategy: 'fallback', models: ['a,a-1'] }),
+    undefined,
+    '没缓存就报 undefined —— 压缩这轮跳过，下次就有，比撒谎安全',
+  )
+})
+
+test('组合窗口：模型都没报 context_length → undefined', async () => {
+  const router = new Router('')
+  addSupplier(router, supplier('a', [{ id: 'a-1' }]).s)
+  await router.modelsOf('a')
+  assert.equal(
+    router.comboContextWindow({ id: 'x', name: 'x', strategy: 'fallback', models: ['a,a-1'] }),
+    undefined,
+    '一家都没报就别编一个数（traework/nvidia 目前就是如此）',
+  )
+})

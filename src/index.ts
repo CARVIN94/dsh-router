@@ -512,10 +512,26 @@ export function apply(rawContext: unknown): void {
         return combos.map((c) => ({ id: c.name }))
       }))
       // adapter：模型目录自动带出组合；对话转发到本插件 /v1（组合路由在 /v1 内完成）。
+      // 带上组合的上下文窗口：没有它 dsh 的自动压缩算不出阈值、会静默关闭。
       disposers.push(ctx.llm.registerAdapter(['router'], new RouterAdapter('http://localhost:3080/v1', {
-        comboModels: async () => (await router.combos()).map((c) => ({ id: c.name })),
+        comboModels: async () => (await router.combos()).map((c) => {
+          const w = router.comboContextWindow(c)
+          return { id: c.name, ...(w !== undefined ? { contextWindow: w } : {}) }
+        }),
       })))
       log('llm provider (Router) + discovery + adapter registered ok')
+      // 预热模型缓存：`comboContextWindow` 只读缓存、不打上游，缓存空着就
+      // 报不出窗口。这里后台填一次，让第一次 resolveModel 就有值。
+      // 失败无所谓（下次 modelsOf 还会拉），不能冒出来。
+      void (async () => {
+        for (const c of await router.combos()) {
+          for (const ref of c.models) {
+            const at = ref.indexOf(',')
+            if (at < 0) continue
+            try { await router.modelsOf(ref.slice(0, at)) } catch { /* 单家失败不连坐 */ }
+          }
+        }
+      })().catch(() => {})
     } catch (err) {
       ctx.logger.warn(`[dsh-router] llm registration failed: ${(err as Error).message}`)
     }

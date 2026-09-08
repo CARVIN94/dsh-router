@@ -23,7 +23,13 @@ import { mergeUsage, normalizeUsage, toTokenUsage, type UsageTokens } from '../r
 
 /** 模型目录来源：组合。 */
 export interface RouterAdapterSource {
-  comboModels: () => Promise<Array<{ id: string; name?: string }>>
+  /**
+   * 组合列表。`contextWindow` 可选，但**必须尽量给**——自动压缩靠它算阈值
+   * （`dsh-compaction-basic` 在 `context` 缺失时直接抛错并静默关闭自动压缩，
+   * 于是上下文会一路涨到模型硬上限才炸）。
+   * 组合背后是异构供应商时给**最小的那个**（保守，宁可早压缩）。
+   */
+  comboModels: () => Promise<Array<{ id: string; name?: string; contextWindow?: number }>>
 }
 
 /**
@@ -401,6 +407,7 @@ export class RouterAdapter extends LlmAdapter {
       provider: 'router',
       id: model,
       name,
+      ...(found?.contextWindow !== undefined ? { context: { contextWindow: found.contextWindow } } : {}),
       reasoning: { efforts: ROUTER_REASONING_EFFORTS, defaultEffort: ReasoningEffortId('high') },
     }
   }

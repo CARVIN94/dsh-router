@@ -526,3 +526,20 @@ test('模型目录：resolveModel 对每个组合声明推理等级（off/low/hi
   const b = await adapter.resolveModel('router', 'c-b')
   assert.equal(b.name, 'c-b')
 })
+
+/**
+ * 上下文窗口透传 —— dsh 的自动压缩靠 `resolveModel().context.contextWindow`
+ * 算阈值（默认用到 80% 触发）。缺失时 dsh-compaction-basic 抛错并静默关闭
+ * 自动压缩，上下文会一路涨到模型硬上限才炸。
+ */
+test('resolveModel 透传组合的 contextWindow（自动压缩才能算阈值）', async () => {
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [
+    { id: 'c-a', contextWindow: 1_000_000 },
+    { id: 'c-b' }, // 没拿到窗口
+  ] })
+  const a = await adapter.resolveModel('router', 'c-a')
+  assert.deepEqual(a.context, { contextWindow: 1_000_000 }, '有就报')
+
+  const b = await adapter.resolveModel('router', 'c-b')
+  assert.equal(b.context, undefined, '没拿到就不声明 context，绝不填一个假窗口')
+})

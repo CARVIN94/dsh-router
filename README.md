@@ -12,7 +12,8 @@
   <a href="#快速安装">快速安装</a> ·
   <a href="#面板设置--路由">面板</a> ·
   <a href="#api-端点openai-兼容3080v1">API 端点</a> ·
-  <a href="docs/suppliers.md">供应商开发</a>
+  <a href="docs/suppliers.md">供应商开发</a> ·
+  <a href="docs/ext.md">扩展开发</a>
 </p>
 
 **插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进 DSH web,
@@ -44,6 +45,7 @@ dsh plugin --profile web add dsh-router-core
 | 能力 | 说明 |
 |---|---|
 | 零额外进程 | 就是 DSH 插件,随 `dsh web` 启停,天然同源(`/router/api/*` 无 CORS、面板嵌在设置里)。 |
+| 扩展即插即拔 | 扩展插件(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk))经 `router.ext` 注册,在 bash 执行前改写命令(如加 `rtk` 前缀压缩输出)。面板「扩展」页一键开关,带自检。 |
 | 供应商即插即拔 | 内置供应商随插件分发;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`。 |
 | 模型不内置 | 供应商只实现差异化能力,模型拉取与缓存由核心统一管,不写死、不过时。 |
 | 策略只写一次 | 组合回退、账号池(选号/冷却/禁用)、响应写入、凭证存储、积分持久化、模型管理都由核心提供。供应商 js 只对**单个账号**调一次上游并报告成败,不自己遍历账号、不维护冷却表、不落盘积分——否则每个插件都会长出一份互相不一致的实现,而核心也就无从判断「该不该换号」。 |
@@ -139,6 +141,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `/keys/toggle` | POST | `{id, isActive}` |
 | `/keys/delete` | POST | `{id}` |
 | `/settings` | GET/PATCH | `{requireApiKey}` |
+| `/ext` | GET/PATCH | 扩展插件列表 + 开关 `{id, enabled}`(见下) |
 | `/stats` | GET | 用量统计 `?period=today\|24h\|7d\|30d`(汇总 + Top 榜 + 最近请求 20 条) |
 | `/stats/chart` | GET | 趋势图数据 `?period=…`(today/24h = 24 小时桶,7d/30d = 天桶) |
 | `/stats/clear` | POST | 清空全部用量统计 |
@@ -146,6 +149,32 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `/suppliers/:id/login/callback` | POST | `{callbackUrl}` → 加账号 |
 | `/suppliers/:id/models` | GET | 模型 + 启用状态 |
 | `/suppliers/:id/models/toggle` | POST | `{id, enabled}` |
+
+## 扩展插件(`router.ext`)
+
+> 完整契约、注册方式、自检与降级约定见 [`docs/ext.md`](docs/ext.md)。
+
+面板「扩展」页列出所有扩展插件,每个一个开关。扩展插件是**独立 npm 包**
+(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk)),
+经 cordis service `router.ext` 注册自己 —— 同 `router.suppliers` 的共享表模式,
+与加载顺序无关。
+
+分工:
+
+- **dsh-router 核心**:持有 `router.ext` 空表;在 `tools/execute` 拦截 bash 工具
+  调用,把命令委派给表里 **enabled 且 ready** 的扩展器改写;命中则短路。只拦
+  `bash`,其他工具(含 `run_code` 体内自起的子进程)不动。
+- **扩展插件**:实现 `rewrite(command)`(同步、不能做 IO)+ 自管开关状态
+  (何时 enabled、是否 ready、怎么持久化)。核心不感知具体扩展器实现。
+
+开关打开时会**自检**:扩展器 `getState().ready === false` 的(如没装 rtk)拒绝开启
+(API 返回 409 + 问题描述),面板内容区红字显示原因。
+
+### 已知坑
+
+- `ctx.tools.get(name)` **必须带 agent scope**(`exec.agent`):bash 工具注册在
+  agent scope,不带 scope 只查全局视图会查不到,静默走原样执行、从不改写。
+- 改写在一次已被审批授权的工具调用内发生,不绕过 sandbox / 审批。
 
 ## 架构
 

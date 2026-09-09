@@ -139,6 +139,26 @@ export interface RouterSettingsResponse {
   requireApiKey?: boolean
 }
 
+/** 一条扩展器（`/router/api/ext`）。 */
+export interface RouterExtItem {
+  id: string
+  name: string
+  description?: string
+  /** 是否启用改写（面板开关）。 */
+  enabled?: boolean
+  /** 运行时是否就绪（如 RTK 二进制是否可用）。 */
+  ready?: boolean
+  /** 一句话状态说明（如「本机未装 rtk」）。 */
+  detail?: string
+}
+
+/** `/router/api/ext` response（扩展插件列表 + 开关）。 */
+export interface RouterExtResponse {
+  ok: boolean
+  error?: string
+  enhancers?: RouterExtItem[]
+}
+
 /** 供应商模型（含启用状态）。 */
 export interface RouterSupplierModel {
   id: string

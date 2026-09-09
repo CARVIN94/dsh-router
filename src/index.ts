@@ -41,6 +41,9 @@ import type { SupplierEnv, SupplierModule } from './suppliers/contract.ts'
 import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
 import { dataDirOf, profileDirOf } from './data-dir.ts'
+import { mountExtProxy } from './ext/proxy.ts'
+import { ExtStore } from './ext/store.ts'
+import type { ExtInfo, RouterExt, RouterExtService } from './ext/contract.ts'
 
 /**
  * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
@@ -184,6 +187,16 @@ export function apply(rawContext: unknown): void {
   // live 表把自己挂进来——不再依赖某个「宿主」插件提供它（此前只有 traework 会 provide，
   // 单装 dsh-router-codebuddy 时表永不出现，codebuddy 就一直不生效）。
   ctx.provide('router.suppliers', {})
+
+  // ---- 扩展 (Ext)：router.ext 共享表 + tools/execute 委派 ----
+  // 同 router.suppliers 模式：核心持有空表，扩展插件（dsh-router-ext-rtk 等）经
+  // ctx.inject(['router.ext']) 追加进同一个 live 对象。core 在 tools/execute
+  // 拦截 bash 调用，把命令委派给表里 enabled 且 ready 的扩展器。
+  const exts: Record<string, unknown> = {}
+  ctx.provide('router.ext', exts)
+  // 开关状态归核心持久化(<dataDir>/ext.json);插件只报 ready。
+  const extStore = new ExtStore(stateFile)
+  const disposeExt = mountExtProxy(ctx, () => exts as RouterExtService, extStore)
 
   // 内置 + 用户 + 外部插件供应商（异步加载，完成后注册路由 + 加入路由器）
   const registerLoaded = (loaded: LoadedSupplier): void => {
@@ -447,6 +460,56 @@ export function apply(rawContext: unknown): void {
     writeJson(res, 200, { ok: true, requireApiKey: keys.requireApiKey })
   })
 
+  // ---- 扩展 (Ext)：扩展器列表 + 开关 ----
+  route(`${ROUTER_API_BASE}/ext`, async (req, res) => {
+    if (req.method === 'PATCH') {
+      let body: { id?: unknown; enabled?: unknown }
+      try {
+        body = JSON.parse(await readBody(req, 64 << 10)) as { id?: unknown; enabled?: unknown }
+      } catch {
+        writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
+        return
+      }
+      const ext = typeof body.id === 'string' ? exts[body.id] as RouterExtService[string] : undefined
+      if (!ext) {
+        writeJson(res, 404, { ok: false, error: 'extension not found' })
+        return
+      }
+      if (typeof body.enabled !== 'boolean') {
+        writeJson(res, 400, { ok: false, error: 'enabled must be a boolean' })
+        return
+      }
+      const wantOn = body.enabled
+      // 开启自检：不可用(ready !== true)的扩展**不能开启成功**——即使绕过面板
+      // 直连 API 也会被拒。由扩展器报告就绪状态,核心据此裁决。
+      if (wantOn && typeof ext.getState === 'function') {
+        const st = ext.getState()
+        if (st?.ready !== true) {
+          writeJson(res, 409, { ok: false, error: st?.detail ?? 'extension not ready' })
+          return
+        }
+      }
+      // 开关归核心持久化。
+      extStore.setEnabled(ext.id, body.enabled)
+    }
+    const list: ExtInfo[] = Object.values(exts as RouterExtService)
+      .map((raw): ExtInfo | undefined => {
+        const e = raw as RouterExt
+        if (!e || typeof e.id !== 'string' || e.id === '') return undefined
+        const st = typeof e.getState === 'function' ? e.getState() : { ready: false }
+        return {
+          id: e.id,
+          name: e.name ?? e.id,
+          ...(e.description !== undefined ? { description: e.description } : {}),
+          enabled: extStore.isEnabled(e.id),
+          ready: st?.ready === true,
+          ...(st?.detail !== undefined ? { detail: st.detail } : {}),
+        }
+      })
+      .filter((e): e is ExtInfo => e !== undefined)
+    writeJson(res, 200, { ok: true, enhancers: list })
+  })
+
   // ---- 概览看板：用量统计 ----
 
   /** 解析并校验周期参数（不接受任意字符串）。 */
@@ -563,6 +626,7 @@ export function apply(rawContext: unknown): void {
 
   ctx.effect(
     () => () => {
+      disposeExt()
       for (const dispose of disposers.splice(0)) dispose()
       router.dispose() // 内部会 flush 用量统计（防抖中的计数不能丢）
     },

@@ -910,6 +910,25 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 .dshr-toggle-on .dshr-toggleKnob { transform: translateX(14px); }
 
+/* 开关禁用态：不可用(未就绪)且未开启时,灰显 + 不可点 */
+.dshr-toggle:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+/* 扩展页：未就绪问题描述(红字) */
+.dshr-ext-error {
+  color: var(--rs-danger);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+/* 扩展卡片内容区：文字左对齐，左侧留白与标题行的图标位对齐 */
+.dshr-extBody {
+  padding: 10px 14px 12px 48px;
+  text-align: left;
+}
+
 /* 操作按钮组 */
 .dshr-ops {
   display: flex;

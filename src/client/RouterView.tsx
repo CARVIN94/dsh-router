@@ -1,9 +1,10 @@
 /**
  * 路由系统 (Routing System) panel — a simplified 9router.
  *
- * Four tabs fed by the host half (/router/api/*), mirroring 9router's
+ * Five tabs fed by the host half (/router/api/*), mirroring 9router's
  * dashboard: 概览 (usage), 供应商 (supplier cards → detail: accounts +
  * add-account + models), 组合 (combo fallback chains),
+ * 扩展 (extension plugins — one toggle each, self-checked),
  * 端点与密钥 (endpoint URL + API keys + auth).
  *
  * **挂载在「设置」里**（`settings.section` 座位），所以布局规则跟中心栏劫持时期不同：
@@ -27,8 +28,9 @@ import { SupplierDetail } from './SupplierDetail.tsx'
 import { EndpointTab } from './EndpointTab.tsx'
 import { CombosTab } from './CombosTab.tsx'
 import { StatsTab } from './StatsTab.tsx'
+import { ExtTab } from './ExtTab.tsx'
 
-type TabId = 'overview' | 'suppliers' | 'combos' | 'endpoint'
+type TabId = 'overview' | 'suppliers' | 'combos' | 'endpoint' | 'ext'
 
 interface Snapshot {
   health: RouterHealthResponse | null
@@ -142,6 +144,9 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
         <button type="button" role="tab" aria-selected={tab === 'combos'} className={`dshr-tab${tab === 'combos' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('combos')}>
           组合 <span className="dshr-navCount">{combos.length}</span>
         </button>
+        <button type="button" role="tab" aria-selected={tab === 'ext'} className={`dshr-tab${tab === 'ext' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('ext')}>
+          扩展
+        </button>
         <button type="button" role="tab" aria-selected={tab === 'endpoint'} className={`dshr-tab${tab === 'endpoint' ? ' dshr-tab-on' : ''}`} onClick={() => setTab('endpoint')}>
           端点与密钥
         </button>
@@ -205,6 +210,9 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
 
         {/* ---------------- 端点与密钥 ---------------- */}
         {tab === 'endpoint' && <EndpointTab />}
+
+        {/* ---------------- 增强 (扩展插件) ---------------- */}
+        {tab === 'ext' && <ExtTab />}
       </div>
     </div>
   )

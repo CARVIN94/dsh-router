@@ -845,6 +845,8 @@ export class Router {
         ok,
         durationMs: Date.now() - probe.startedAt,
         ttfbMs: probe.ttfbMs,
+        // 只有真被服务过才记 uid：失败请求的 uid 可能是空或上一次的残留
+        ...(ok && probe.uid !== '' ? { uid: probe.uid } : {}),
         ...(error === undefined ? {} : { error }),
       }, usage)
     }
@@ -1018,6 +1020,8 @@ export class Router {
           return false
         }
         pool.noteFailure(uid, req.model, r.state, r.message)
+        // 故障切走：下次选号会换号，旧块的驻留计数不再适用（前缀归属变了）
+        pool.dropBlock(req.model)
         if (trace !== undefined) {
           trace.attempts += 1
           trace.lastState = r.state
@@ -1036,8 +1040,12 @@ export class Router {
         probe.uid = uid
       }
       const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
+      if (committed) {
+        // 块轮询反馈：只有成功请求才计入（失败没产生缓存，计入会污染命中率）
+        pool.noteCache(uid, req.model, probe?.tokens?.cachedTokens ?? 0)
+        return true
+      }
       // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
-      if (committed) return true
       pool.noteFailure(uid, req.model, 'transport', 'stream failed before first byte')
       if (trace !== undefined) {
         trace.attempts += 1

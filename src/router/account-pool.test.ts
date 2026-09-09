@@ -36,12 +36,129 @@ test('选号：某模型冷却中的号对该模型跳过，全冷却返回 unde
   assert.equal(p.pick(list, [], 'fallback', 'm1'), undefined)
 })
 
-test('round-robin 在健康号间轮转（带 model）', () => {
+test('round-robin 是块轮询：块内粘住不换号（带 model）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  // 块没满 → 一直粘在 a（这就是缓存命中的来源）
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+})
+
+// ============ 块轮询（docs/pool-sticky-block.md） ============
+
+/** 连打 n 次成功请求，全部命中缓存。 */
+const serveHits = (p: AccountPool, uid: string, n: number, model = 'm1'): void => {
+  for (let i = 0; i < n; i++) p.noteCache(uid, model, 1000)
+}
+/** 连打 n 次成功请求，全部未命中（cold miss）。 */
+const serveMiss = (p: AccountPool, uid: string, n: number, model = 'm1'): void => {
+  for (let i = 0; i < n; i++) p.noteCache(uid, model, 0)
+}
+
+test('【块】OR：计数<N(最短驻留)且没达标 → 留守，哪怕缓存已热', () => {
   const p = pool()
   const list = accs(['a', 'b'])
   assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
-  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+  // 计数 15 < N(16)，命中率 100% >= M → 留守（最短驻留没走完，不因热度提前跳）
+  serveHits(p, 'a', 15)
   assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+})
+
+test('【块】OR：计数到 N 且命中率达标 → 换号（下一号也冷启动，让位均衡）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  // 计数 16 >= N 且命中率 100% >= 85% → 换号
+  serveHits(p, 'a', 16)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+})
+
+test('【块】OR：命中率没达标 → 计数到 N 仍留守（继续热，不急换）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  // 计数 20 全 miss → 命中率 0% < 85% → 留守（OR 语义：ratio<M 时留守）
+  serveMiss(p, 'a', 20)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+})
+
+test('【块】N_max 兜底：命中率一直不达标 → 到 N_max(48) 必换', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  // 一直 miss，命中率 0% 永不达标 → 不靠 N 换，靠 N_max 兜底
+  serveMiss(p, 'a', 48)
+  // 47 次后仍在 a；第 48 次触发 noteCache 的降权，随后 pick 跳过 a
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+})
+
+test('【块】驻留满 N_max 仍不达标 → 该号降权，后续轮转跳过', () => {
+  const p = pool()
+  const list = accs(['a', 'b', 'c'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  serveMiss(p, 'a', 48) // a 判定缓存无效（降权）
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b') // 跳过 a
+  // b 正常服务并达标 → 切走后轮转也应跳过 a
+  serveHits(p, 'b', 16)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'c')
+})
+
+test('【块】降权不是永久判决：全池都降权时退回健康池兜底', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  serveMiss(p, 'a', 48)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+  serveMiss(p, 'b', 48)
+  // 两个都降权 → 不能返回 undefined（那等于服务挂了），退回健康池
+  const uid = p.pick(list, [], 'round-robin', 'm1')
+  assert.equal(uid !== undefined, true)
+})
+
+test('【块】故障切走作废块：dropBlock 后重新选号', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  serveHits(p, 'a', 3) // 块才 3 次，本来会留守
+  p.dropBlock('m1')
+  // 块作废 → 从 a 之后前进，选到 b（而不是带着旧计数继续粘 a）
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+})
+
+test('【块】失败请求不入块统计（失败没产生缓存，计入会污染命中率）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  // 16 次全命中 → 达标切走（失败不算，否则比例被稀释永不达标）
+  serveHits(p, 'a', 16)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+})
+
+test('【块】块状态按模型隔离：m1 的驻留不影响 m2', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  serveHits(p, 'a', 16) // m1 上 a 已达标
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+  // m2 是独立的块 → 从头开始，选 a
+  assert.equal(p.pick(list, [], 'round-robin', 'm2'), 'a')
+})
+
+test('【块】多号间长期均衡：块大小有界 → 请求数均分', () => {
+  const p = pool()
+  const list = accs(['a', 'b', 'c'])
+  const count: Record<string, number> = { a: 0, b: 0, c: 0 }
+  // 每个块 16 次（全命中达标），跑 12 个块
+  for (let block = 0; block < 12; block++) {
+    const uid = p.pick(list, [], 'round-robin', 'm1')!
+    count[uid]! += 1
+    serveHits(p, uid, 16)
+  }
+  // 12 块 / 3 号 → 每号 4 块
+  assert.equal(count['a'], 4)
+  assert.equal(count['b'], 4)
+  assert.equal(count['c'], 4)
 })
 
 // ============ 核心新语义：冷却按 (模型, 连接) 分号 ============

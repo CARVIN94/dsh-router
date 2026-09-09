@@ -44,6 +44,14 @@ export interface UsageRecord {
   durationMs: number
   /** 首字节延迟（ms）；非流式为 0。 */
   ttfbMs: number
+  /**
+   * 实际服务的账号 uid（成功时回填）。
+   *
+   * 有了它才能把命中率按**号**下钻——prompt cache 是 per-account 命名空间，
+   * 只看供应商/模型无法判断「是某个号的缓存没热，还是策略在乱切号」。
+   * 块轮询（docs/pool-sticky-block.md）的调参完全依赖这个归因。
+   */
+  uid?: string
   /** 失败原因（ok=false 时）。 */
   error?: string
 }

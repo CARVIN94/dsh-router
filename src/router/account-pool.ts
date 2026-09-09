@@ -86,6 +86,15 @@ const ERR_THRESHOLD = 3
 /** 攒够后的冷却时长。 */
 const ERR_COOLDOWN_MS = 5 * MINUTE
 
+/** 块轮询：命中率达标就放行（`留守 = 计数<N OR 命中率<M`）。见 stickyBlock 说明。 */
+const BLOCK_HIT_RATIO = 0.85
+/** 块轮询：最短驻留。新接到这个号的最少连续服务次数（防冷启动误切）。 */
+const BLOCK_MIN = 16
+/** 块轮询：绝对兜底。轮次过多(max)无论命中率如何都让位，防死守 + 保均衡下限。 */
+const BLOCK_MAX = 48
+/** 块轮询：判定「缓存无效」后的跳过时长。 */
+const BLOCK_DEMOTE_MS = 10 * MINUTE
+
 /** 冷却记录（键 = (supplier, model, uid)）。 */
 interface CooldownEntry {
   until: number
@@ -98,6 +107,26 @@ interface UidEntry {
   until: number
   disabled: boolean
   reason: string
+}
+
+/**
+ * 块轮询的驻留状态（键 = (supplier, model)，与冷却同粒度）。
+ *
+ * 为什么按 (供应商, 模型) 而不是按号：块是「当前这一轮由谁服务」的概念，
+ * 一个模型上只有一个号在驻留；换模型意味着换前缀，块自然作废。
+ */
+interface BlockState {
+  /** 当前驻留的号。 */
+  uid: string
+  /** 本块已服务的成功请求数。 */
+  served: number
+  /** 本块命中缓存（cachedTokens > 0）的请求数。 */
+  hits: number
+}
+
+/** 「缓存无效」降权记录（键 = (supplier, model, uid)）。 */
+interface DemoteEntry {
+  until: number
 }
 
 /** 指数退避：等级 1 = BACKOFF_BASE_MS，每级翻倍，封顶 BACKOFF_MAX_MS。 */
@@ -116,6 +145,10 @@ export class AccountPool {
   /** uid → 连接级禁用 / 手动暂停。 */
   private byUid = new Map<string, UidEntry>()
   private rrCursor = 0
+  /** (supplier, model) → 块轮询驻留状态。 */
+  private blocks = new Map<string, BlockState>()
+  /** (supplier, model, uid) → 缓存无效降权。 */
+  private demoted = new Map<string, DemoteEntry>()
 
   constructor(supplierId = '') {
     this.supplierId = supplierId
@@ -169,9 +202,19 @@ export class AccountPool {
 
   /**
    * 按策略为「某个模型」选一个健康账号。
+   *
+   * round-robin 走**块轮询**：一次轮转内连续服务若干请求，而不是每请求换号。
+   * 设计见 docs/pool-sticky-block.md。要点：
+   *  - 留守 = `计数 < N OR 命中率 < M`(OR,用户拍板):
+   *    命中率达标（缓存热了）→ 换号保均衡；计数到 N → 换号止损。
+   *    单号最多连续服务 N 次，不会因命中率低而死守到 N_max（打架场景关键）。
+   *  - 切号因子的思路：命中率是**留守**条件不是切号条件。反接会正反馈死锁
+   *    （切→cold miss→命中率 0%→触发切号→…），见文档 §3。
+   *  - `N_max` 绝对兜底：命中率永远不达标的号不能无限驻留（防死锁 + 防均衡归零）。
+   *
    * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）
    * @param poolOrder 用户在面板拖出来的顺序（核心管）
-   * @param strategy fallback 取第一个健康 / round-robin 轮转健康号
+   * @param strategy fallback 取第一个健康 / round-robin 块轮转健康号
    * @param modelId 当前要路由的模型（决定查哪个 (model, uid) 冷却单元）
    * @returns 选中的 uid；无健康账号返回 undefined
    */
@@ -186,9 +229,78 @@ export class AccountPool {
     const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
     if (healthy.length === 0) return undefined
     if (strategy !== 'round-robin') return healthy[0]
-    const uid = healthy[this.rrCursor % healthy.length]
-    this.rrCursor = (this.rrCursor + 1) % healthy.length
+    // 缓存无效降权：驻留满 N_max 命中率仍不达标的号，跳过它（可到期恢复）
+    const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now))
+    const pool = usable.length > 0 ? usable : healthy
+    const block = this.blocks.get(this.blockKey(modelId))
+    if (block !== undefined && pool.includes(block.uid) && this.blockKeeps(block)) {
+      return block.uid
+    }
+    // 块满/块达标/块不存在 → 前进游标。从当前号之后开始找，保证轮转顺序稳定。
+    const from = block === undefined ? this.rrCursor : Math.max(0, pool.indexOf(block.uid) + 1)
+    const uid = pool[from % pool.length]!
+    this.rrCursor = (pool.indexOf(uid) + 1) % pool.length
+    this.blocks.set(this.blockKey(modelId), { uid, served: 0, hits: 0 })
     return uid
+  }
+
+  /** 该号在本模型上是否被判定「缓存无效」（降权中）。 */
+  private isDemoted(uid: string, modelId: string, now: number): boolean {
+    const e = this.demoted.get(this.key(modelId, uid))
+    return e !== undefined && e.until > now
+  }
+
+  /**
+   * 块是否还应驻留在当前号上。
+   *
+   * OR 语义（用户拍板）：`留守 = 计数 < N OR 命中率 < M`。
+   * 单一账号内部：一个号先被轮到（冷启动/热），然后
+   *   - 命中率**爬上去**（>= M，缓存热了）→ 让位，轮到下一个号（均衡）
+   *   - 命中率**没上去**（冷启动/短块）→ 留守，继续热（不急着跳）
+   *   - 轮次**实在太多**（计数 >= N_max）→ 也换（防死守 + 保均衡下限）
+   *
+   * 关键：命中率是**留守**条件不是切号执行器（反接会正反馈死锁，
+   * 见文档 §3）。换号由「命中达标 OR 份额用够」触发，都不是「命中率低」。
+   *
+   * 每个号各自守着「这个会话在自己账号上的那段前缀」，轮流热；
+   * 命中率 = 块的命中占比。单会话下每个号块都从冷到热各付一次,
+   * 收益来自块内连续驻留(缺了它就跟每请求轮询一样)。
+   */
+  private blockKeeps(block: BlockState): boolean {
+    if (block.served >= BLOCK_MAX) return false // 轮次过多 → 让位（兜底）
+    const ratio = block.served === 0 ? 0 : block.hits / block.served
+    return block.served < BLOCK_MIN || ratio < BLOCK_HIT_RATIO // 计数<N OR 命中率<M
+  }
+
+  /**
+   * 记录一次成功请求的缓存命中情况（块轮询的反馈信号）。
+   *
+   * 只有**成功**请求才计入：失败没产生缓存，计入会污染命中率并导致错切。
+   * @param uid 实际服务的号
+   * @param modelId 模型（块粒度）
+   * @param cachedTokens 上游报的命中 token 数；0 = 全量重算
+   */
+  noteCache(uid: string, modelId: string, cachedTokens: number): void {
+    const k = this.blockKey(modelId)
+    const block = this.blocks.get(k)
+    // 块已被别处重置/换号（如故障切走）→ 这次结果不属于当前块，忽略
+    if (block === undefined || block.uid !== uid) return
+    block.served += 1
+    if (cachedTokens > 0) block.hits += 1
+    // 驻留满 N_max 仍不达标 → 判定缓存无效，降权一段时间（可恢复）
+    if (block.served >= BLOCK_MAX && block.hits / block.served < BLOCK_HIT_RATIO) {
+      this.demoted.set(this.key(modelId, uid), { until: Date.now() + BLOCK_DEMOTE_MS })
+    }
+  }
+
+  /** 故障切走时作废当前块：换号后前缀归属变了，块计数不能沿用。 */
+  dropBlock(modelId: string): void {
+    this.blocks.delete(this.blockKey(modelId))
+  }
+
+  /** 块状态键：与冷却同粒度 (supplier, model)，不含 uid。 */
+  private blockKey(modelId: string): string {
+    return `${this.supplierId}${SEP}${modelId}`
   }
 
   /** 记录一次失败：按状态处置（冷却/禁用/退避），落在「(模型, 连接)」这个冷却单元上。 */

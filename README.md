@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/dsh-router-core"><img src="https://img.shields.io/npm/v/dsh-router-core?style=flat-square&logo=npm&label=npm" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT license"></a>
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本：0.1.2-rc.1+" src="https://img.shields.io/badge/DSH-0.1.2--rc.1%2B-4d6bfe" /></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本：0.1.5-rc.1+" src="https://img.shields.io/badge/DSH-0.1.5--rc.1%2B-4d6bfe" /></a>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 
 ## 快速安装
 
-需要支持 `dsh plugin` profile 插件机制的 DeepSeek Harness、Node.js `>= 20`,以及 `web` profile。
+需要 **DSH `0.1.5-rc.1` 及以上**(支持 `dsh plugin` profile 插件机制)、Node.js `>= 20`,以及 `web` profile。
 
 ```bash
 dsh plugin --profile web add dsh-router-core

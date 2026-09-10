@@ -17,6 +17,7 @@ import {
   type LlmModelInfo,
   type LlmReasoningEffortInfo,
   type LlmResolvedModelInfo,
+  type ModelModality,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { mergeUsage, normalizeUsage, toTokenUsage, type UsageTokens } from '../router/usage-tokens.ts'
@@ -35,11 +36,16 @@ export interface RouterAdapterSource {
 /**
  * 把 DSH 消息序列化成 openai 兼容 wire 消息（纯文本 + tool）。
  *
- * `system` 必须由调用方从 `options.system` 传进来：agent-loop 把系统提示词
- * 放在 **options.system 这个独立槽位**，不放进 messages（见 dsh-llm
- * types.d.ts 的 `system?: string` —— 注释原话 "adapters map to the
- * provider's system slot"）。不读这个槽位，模型每一轮都拿不到身份/规则/
- * 工具用法约束，且**不会报错**，只是行为悄悄降级。
+ * `system` 必须由调用方从 `options.system` 传进来：one-shot 调用方把系统提示词
+ * 放在 **options.system 这个独立槽位**，不放进 messages。不读这个槽位，
+ * one-shot 调用方（如 compaction / session-title）的模型每一轮都拿不到身份/
+ * 规则/工具用法约束，且**不会报错**，只是行为悄悄降级。
+ *
+ * 0.1.5 起 loop-built 请求反过来：`options.system` 为 undefined，系统提示词作为
+ * **messages 里的 system-role 消息**下发（dsh-agent-loop 的 SystemProjection，
+ * 可出现在任意位置以支持提示词热更新）。两条路径都必须支持 —— 与官方
+ * dsh-llm-deepseek 一致（serializeRequest 前置 options.system，再按位置序列化
+ * messages 里的 system 消息）。
  */
 function wireMessages(options: GenerateOptions, system?: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = []
@@ -396,6 +402,16 @@ export class RouterAdapter extends LlmAdapter {
     return out
   }
 
+  /**
+   * 只收文本。`resolveModel` 声明 `inputModalities: ['text']` 是**必须**的：
+   * 0.1.5 的 runtime 只在 `inputModalities` 存在且不含 `image` 时才把 image 块
+   * 投影成占位文本（见 dsh-llm adapterStream 的 projectImagesForTextModel）。
+   * 不声明 = "unknown" = 不投影，而 wireMessages 只读 text 块 → 图片**静默
+   * 丢失**，模型看到一条没有图片的用户消息却毫无提示。声明后由 runtime 统一
+   * 投影，我们仍只处理文本。
+   */
+  private static readonly INPUT_MODALITIES: readonly ModelModality[] = ['text']
+
   async resolveModel(_provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const combos = await this.source.comboModels()
     const found = combos.find((m) => m.id === model || m.name === model)
@@ -407,6 +423,7 @@ export class RouterAdapter extends LlmAdapter {
       provider: 'router',
       id: model,
       name,
+      inputModalities: RouterAdapter.INPUT_MODALITIES,
       ...(found?.contextWindow !== undefined ? { context: { contextWindow: found.contextWindow } } : {}),
       reasoning: { efforts: ROUTER_REASONING_EFFORTS, defaultEffort: ReasoningEffortId('high') },
     }

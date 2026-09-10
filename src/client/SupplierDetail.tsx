@@ -908,7 +908,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
             </>
             <>
               <label className="dshr-fieldLabel">连接池策略</label>
-              <p className="dshr-muted">回退 = 按连接池顺序取第一个健康链接；轮询 = 轮流使用健康链接。</p>
+              <p className="dshr-muted">回退 = 按连接池顺序取第一个健康链接；轮询 = 按会话前缀粘住同一链接（前缀亲和，多会话不打架），拿不到会话信息时退回块轮转。</p>
               <select
                 className="dshr-select dshr-input"
                 value={poolStrategy}

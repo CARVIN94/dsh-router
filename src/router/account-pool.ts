@@ -23,6 +23,7 @@
  * 得落盘，届时加 stateFile 即可，接口不用变。
  */
 import type { AccountState, SupplierAccountNow } from '../suppliers/contract.ts'
+import { prefixFingerprint } from './prefix-affinity.ts'
 
 /** 各 AccountState 的处置：冷却策略 / 是否禁用 / 是否计入连续错误。 */
 interface Rule {
@@ -95,6 +96,15 @@ const BLOCK_MAX = 48
 /** 块轮询：判定「缓存无效」后的跳过时长。 */
 const BLOCK_DEMOTE_MS = 10 * MINUTE
 
+/**
+ * 前缀亲和：指纹 → 号 的绑定记忆上限。
+ *
+ * 会话指纹是无限集合（每个新会话一个），不封顶就是内存泄漏。超过了就丢掉
+ * **最久没用**的那条：活跃会话的指纹每请求都在刷新，不会被误删。
+ * 单号池（<= 几十个会话）绰绰有余。
+ */
+const AFFINITY_MAX = 512
+
 /** 冷却记录（键 = (supplier, model, uid)）。 */
 interface CooldownEntry {
   until: number
@@ -124,6 +134,20 @@ interface BlockState {
   hits: number
 }
 
+/**
+ * 某号在某模型上的缓存质量样本（键 = (supplier, model, uid)）。
+ *
+ * 与「驻留」解耦：开启前缀亲和后多个会话各绑各的号交错服务，驻留概念只在
+ * 无亲和的回退路径上存在；而「这个号的缓存到底热不热」是**号本身的属性**，
+ * 必须跨驻留累计——否则每次换驻留就清零，永远攒不到 BLOCK_MAX 次判据。
+ */
+interface Sample {
+  /** 已服务的成功请求数。 */
+  served: number
+  /** 命中缓存（cachedTokens > 0）的请求数。 */
+  hits: number
+}
+
 /** 「缓存无效」降权记录（键 = (supplier, model, uid)）。 */
 interface DemoteEntry {
   until: number
@@ -145,10 +169,14 @@ export class AccountPool {
   /** uid → 连接级禁用 / 手动暂停。 */
   private byUid = new Map<string, UidEntry>()
   private rrCursor = 0
-  /** (supplier, model) → 块轮询驻留状态。 */
-  private blocks = new Map<string, BlockState>()
+  /** (supplier, model) → 当前驻留的号（只有**无亲和**的回退路径用它）。 */
+  private blocks = new Map<string, string>()
+  /** (supplier, model, uid) → 该号的缓存质量样本（降权判据，跨驻留累计）。 */
+  private samples = new Map<string, Sample>()
   /** (supplier, model, uid) → 缓存无效降权。 */
   private demoted = new Map<string, DemoteEntry>()
+  /** (supplier, model) → Map<前缀指纹, uid>：前缀亲和的选号记忆（LRU 封顶）。 */
+  private affinity = new Map<string, Map<string, string>>()
 
   constructor(supplierId = '') {
     this.supplierId = supplierId
@@ -203,22 +231,28 @@ export class AccountPool {
   /**
    * 按策略为「某个模型」选一个健康账号。
    *
-   * round-robin 走**块轮询**：一次轮转内连续服务若干请求，而不是每请求换号。
-   * 设计见 docs/pool-sticky-block.md。要点：
-   *  - 留守 = `计数 < N OR 命中率 < M`(OR,用户拍板):
-   *    命中率达标（缓存热了）→ 换号保均衡；计数到 N → 换号止损。
-   *    单号最多连续服务 N 次，不会因命中率低而死守到 N_max（打架场景关键）。
-   *  - 切号因子的思路：命中率是**留守**条件不是切号条件。反接会正反馈死锁
-   *    （切→cold miss→命中率 0%→触发切号→…），见文档 §3。
-   *  - `N_max` 绝对兜底：命中率永远不达标的号不能无限驻留（防死锁 + 防均衡归零）。
+   * round-robin = **前缀亲和定号 + 块统计只用来判定缓存无效**：
+   *
+   *  1. 算请求的前缀指纹（messages 前几条），查绑定表 → 命中且该号健康 → 用它。
+   *     这是第一优先：同一个会话的连续请求**永远落回同一个号**，前缀在该号的
+   *     缓存里只写一份。块轮询治不了跨会话驱逐（多会话大前缀在同一号互踩，
+   *     实测 3 会话 3.8% vs 单会话 82.5%），亲和才是根治。
+   *  2. 新指纹（或绑定的号不健康）→ 按游标挑一个号并**记下绑定**，之后就固定。
+   *     新会话用游标分发，所以不同会话天然散到不同号上（均衡）。
+   *  3. 块统计不再驱动轮转（亲和已经保证驻留，再轮转只会把会话踢出已热前缀），
+   *     只保留 `BLOCK_MAX` 次不达标 → 降权该号（缓存无效，可恢复）。
+   *
+   * 亲和失效（拿不到 messages / 指纹算不出）时**回退到块轮询**，行为与之前一致。
+   * 设计见 docs/pool-sticky-block.md §8。
    *
    * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）
    * @param poolOrder 用户在面板拖出来的顺序（核心管）
-   * @param strategy fallback 取第一个健康 / round-robin 块轮转健康号
+   * @param strategy fallback 取第一个健康 / round-robin 前缀亲和
    * @param modelId 当前要路由的模型（决定查哪个 (model, uid) 冷却单元）
+   * @param messages 请求体的 messages（可选；给了才能算前缀指纹）
    * @returns 选中的 uid；无健康账号返回 undefined
    */
-  pick(accounts: SupplierAccountNow[], poolOrder: string[], strategy: string, modelId: string): string | undefined {
+  pick(accounts: SupplierAccountNow[], poolOrder: string[], strategy: string, modelId: string, messages?: unknown): string | undefined {
     const now = Date.now()
     const byUid = new Map(accounts.map((a) => [a.uid, a]))
     // 池顺序优先，未配置的按插件自然顺序追加
@@ -229,19 +263,48 @@ export class AccountPool {
     const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
     if (healthy.length === 0) return undefined
     if (strategy !== 'round-robin') return healthy[0]
-    // 缓存无效降权：驻留满 N_max 命中率仍不达标的号，跳过它（可到期恢复）
+    // 缓存无效降权：该号缓存质量样本长期不达标 → 跳过它（可到期恢复）
     const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now))
     const pool = usable.length > 0 ? usable : healthy
-    const block = this.blocks.get(this.blockKey(modelId))
-    if (block !== undefined && pool.includes(block.uid) && this.blockKeeps(block)) {
-      return block.uid
+    // 前缀亲和：指纹有绑定且该号仍可用 → 直接复用（不进驻留逻辑）
+    const fp = messages === undefined ? '' : prefixFingerprint(messages)
+    if (fp !== '' && pool.includes(this.affinity.get(this.blockKey(modelId))?.get(fp) ?? '')) {
+      return this.affinity.get(this.blockKey(modelId))!.get(fp)!
     }
-    // 块满/块达标/块不存在 → 前进游标。从当前号之后开始找，保证轮转顺序稳定。
-    const from = block === undefined ? this.rrCursor : Math.max(0, pool.indexOf(block.uid) + 1)
+    const block = this.blocks.get(this.blockKey(modelId))
+    if (fp === '' && block !== undefined && pool.includes(block) && this.blockKeeps(modelId, block)) {
+      return block
+    }
+    // 无亲和（或块满/块达标）→ 前进游标。从当前号之后开始找，保证轮转顺序稳定。
+    const from = block === undefined ? this.rrCursor : Math.max(0, pool.indexOf(block) + 1)
     const uid = pool[from % pool.length]!
     this.rrCursor = (pool.indexOf(uid) + 1) % pool.length
-    this.blocks.set(this.blockKey(modelId), { uid, served: 0, hits: 0 })
+    this.blocks.set(this.blockKey(modelId), uid)
+    if (fp !== '') {
+      this.bind(modelId, fp, uid)
+    } else {
+      // 新驻留 = 新观察窗口（旧行为：块计数从 0 开始）。样本是跨驻留累计的，
+      // 不清的话上一个大样本会立刻把新驻留判走。
+      this.samples.delete(this.key(modelId, uid))
+    }
     return uid
+  }
+
+  /** 记下「前缀指纹 → 号」的绑定（LRU：超上限丢最久未用的）。 */
+  private bind(modelId: string, fp: string, uid: string): void {
+    const k = this.blockKey(modelId)
+    let m = this.affinity.get(k)
+    if (m === undefined) {
+      m = new Map()
+      this.affinity.set(k, m)
+    }
+    // 已存在则先删再 set：Map 的插入序即 LRU 序，重插等于刷新到最新
+    m.delete(fp)
+    m.set(fp, uid)
+    if (m.size > AFFINITY_MAX) {
+      const oldest = m.keys().next().value
+      if (oldest !== undefined) m.delete(oldest)
+    }
   }
 
   /** 该号在本模型上是否被判定「缓存无效」（降权中）。 */
@@ -251,7 +314,7 @@ export class AccountPool {
   }
 
   /**
-   * 块是否还应驻留在当前号上。
+   * 驻留是否还应留在当前号上（**只用于无亲和的回退路径**）。
    *
    * OR 语义（用户拍板）：`留守 = 计数 < N OR 命中率 < M`。
    * 单一账号内部：一个号先被轮到（冷启动/热），然后
@@ -261,39 +324,40 @@ export class AccountPool {
    *
    * 关键：命中率是**留守**条件不是切号执行器（反接会正反馈死锁，
    * 见文档 §3）。换号由「命中达标 OR 份额用够」触发，都不是「命中率低」。
-   *
-   * 每个号各自守着「这个会话在自己账号上的那段前缀」，轮流热；
-   * 命中率 = 块的命中占比。单会话下每个号块都从冷到热各付一次,
-   * 收益来自块内连续驻留(缺了它就跟每请求轮询一样)。
    */
-  private blockKeeps(block: BlockState): boolean {
-    if (block.served >= BLOCK_MAX) return false // 轮次过多 → 让位（兜底）
-    const ratio = block.served === 0 ? 0 : block.hits / block.served
-    return block.served < BLOCK_MIN || ratio < BLOCK_HIT_RATIO // 计数<N OR 命中率<M
+  private blockKeeps(modelId: string, uid: string): boolean {
+    const s = this.samples.get(this.key(modelId, uid))
+    const served = s?.served ?? 0
+    if (served >= BLOCK_MAX) return false // 轮次过多 → 让位（兜底）
+    const ratio = served === 0 ? 0 : (s?.hits ?? 0) / served
+    return served < BLOCK_MIN || ratio < BLOCK_HIT_RATIO // 计数<N OR 命中率<M
   }
 
   /**
-   * 记录一次成功请求的缓存命中情况（块轮询的反馈信号）。
+   * 记录一次成功请求的缓存命中情况（降权判据的反馈信号）。
    *
-   * 只有**成功**请求才计入：失败没产生缓存，计入会污染命中率并导致错切。
+   * 只有**成功**请求才计入：失败没产生缓存，计入会污染命中率并导致错降权。
+   * 统计按 (model, uid) 记，**不管这个号是不是「当前驻留」**——亲和开启后
+   * 多个会话各绑各的号交错服务，按驻留记会漏掉大部分真实反馈。
    * @param uid 实际服务的号
    * @param modelId 模型（块粒度）
    * @param cachedTokens 上游报的命中 token 数；0 = 全量重算
    */
   noteCache(uid: string, modelId: string, cachedTokens: number): void {
-    const k = this.blockKey(modelId)
-    const block = this.blocks.get(k)
-    // 块已被别处重置/换号（如故障切走）→ 这次结果不属于当前块，忽略
-    if (block === undefined || block.uid !== uid) return
-    block.served += 1
-    if (cachedTokens > 0) block.hits += 1
-    // 驻留满 N_max 仍不达标 → 判定缓存无效，降权一段时间（可恢复）
-    if (block.served >= BLOCK_MAX && block.hits / block.served < BLOCK_HIT_RATIO) {
-      this.demoted.set(this.key(modelId, uid), { until: Date.now() + BLOCK_DEMOTE_MS })
+    const k = this.key(modelId, uid)
+    const s = this.samples.get(k) ?? { served: 0, hits: 0 }
+    s.served += 1
+    if (cachedTokens > 0) s.hits += 1
+    this.samples.set(k, s)
+    // 累计满 N_max 仍不达标 → 判定缓存无效，降权一段时间（可恢复）
+    if (s.served >= BLOCK_MAX && s.hits / s.served < BLOCK_HIT_RATIO) {
+      this.demoted.set(k, { until: Date.now() + BLOCK_DEMOTE_MS })
+      // 降权后样本重置：冷却结束重新观察，而不是带着旧判决立刻再降
+      this.samples.delete(k)
     }
   }
 
-  /** 故障切走时作废当前块：换号后前缀归属变了，块计数不能沿用。 */
+  /** 故障切走时作废当前驻留：换号后前缀归属变了，驻留计数不能沿用。 */
   dropBlock(modelId: string): void {
     this.blocks.delete(this.blockKey(modelId))
   }

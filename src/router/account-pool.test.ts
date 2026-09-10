@@ -161,6 +161,132 @@ test('【块】多号间长期均衡：块大小有界 → 请求数均分', () 
   assert.equal(count['c'], 4)
 })
 
+// ============ 前缀亲和（docs/pool-sticky-block.md §8 的根治） ============
+
+/** 构造一次请求的 messages（前缀 = system + 首条用户消息）。 */
+const msgs = (sessionSeed: string, turns = 1): unknown => [
+  { role: 'system', content: `shared agent prompt` },
+  { role: 'user', content: `${sessionSeed} ${'x'.repeat(40)}` },
+  ...Array.from({ length: turns - 1 }, () => ({ role: 'assistant', content: 'ok' })),
+]
+
+test('【亲和】同会话粘同一号：指纹相同 → 每次都返回同一个号', () => {
+  const p = pool()
+  const list = accs(['a', 'b', 'c'])
+  const m = msgs('session-1')
+  const first = p.pick(list, [], 'round-robin', 'm1', m)
+  // 连续多轮（会话增长，但前缀不变）→ 永远是第一个号
+  for (let i = 0; i < 10; i++) {
+    assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('session-1', i + 2)), first)
+  }
+})
+
+test('【亲和】不同会话散到不同号：新指纹按游标分发', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const s1 = p.pick(list, [], 'round-robin', 'm1', msgs('s1'))
+  const s2 = p.pick(list, [], 'round-robin', 'm1', msgs('s2'))
+  assert.notEqual(s1, s2, '两个会话应落到不同的号（缓存空间隔离）')
+  // 各自回访仍粘各自的号
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('s1', 5)), s1)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('s2', 5)), s2)
+})
+
+test('【亲和】会话增长指纹稳定：前缀相同、轮数不同 → 同一号', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const s1 = p.pick(list, [], 'round-robin', 'm1', msgs('s1'))
+  // 真实会话每轮 messages 变长，但前 3 条不变 → 指纹不变
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('s1', 30)), s1)
+})
+
+test('【亲和】绑定的号冷却 → 会话让位，换健康号', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const m = msgs('s1')
+  const first = p.pick(list, [], 'round-robin', 'm1', m)!
+  p.noteFailure(first, 'm1', 'rate_limit', '429')
+  // 绑定的号不可用 → 不能返回它（挂了），应落到别的号
+  const second = p.pick(list, [], 'round-robin', 'm1', m)
+  assert.notEqual(second, first)
+  // 且之后粘在新号上（绑定已更新）
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('s1', 9)), second)
+})
+
+test('【亲和】绑定的号降权（缓存无效）→ 跳过它', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const m = msgs('s1')
+  const first = p.pick(list, [], 'round-robin', 'm1', m)!
+  // 该号累计 48 次全 miss → 判定缓存无效
+  serveMiss(p, first, 48)
+  const second = p.pick(list, [], 'round-robin', 'm1', m)
+  assert.notEqual(second, first, '降权中的号不应被亲和继续选中')
+})
+
+test('【亲和】messages 拿不到 → 回退块轮询（旧行为不破坏）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  // 不传 messages → 走块驻留
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'a')
+  serveHits(p, 'a', 16)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1'), 'b')
+  // 传了但算不出指纹（空/坏结构）→ 同样回退
+  assert.equal(p.pick(list, [], 'round-robin', 'm2', []), 'a')
+  assert.equal(p.pick(list, [], 'round-robin', 'm2', [{ nope: 1 }]), 'a')
+})
+
+test('【亲和】绑定表按模型隔离：冷却是 (model, uid) 粒度，不串模型', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const m = msgs('s1')
+  const m1 = p.pick(list, [], 'round-robin', 'm1', m)
+  // rrCursor 跨模型共享（与旧块轮询一致）：m1 的新会话消耗 a 后，m2 的新会话分到 b
+  const m2 = p.pick(list, [], 'round-robin', 'm2', m)
+  assert.equal(m1, 'a')
+  assert.equal(m2, 'b')
+  // 各自回访粘各自的号（绑定表按模型分开，m1 的 a 不会盖掉 m2 的 b）
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('s1', 9)), 'a')
+  assert.equal(p.pick(list, [], 'round-robin', 'm2', msgs('s1', 9)), 'b')
+  p.noteFailure('a', 'm1', 'rate_limit', '429') // 只冷 (m1, a)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', m), 'b', 'm1 上让位')
+  assert.equal(p.pick(list, [], 'round-robin', 'm2', m), 'b', 'm2 不受影响，仍粘 b')
+})
+
+test('【亲和】绑定表 LRU 封顶：超上限不泄漏，旧指纹被挤掉', () => {
+  const p = pool()
+  const list = accs(['a', 'b', 'c'])
+  const first = p.pick(list, [], 'round-robin', 'm1', msgs('s0'))!
+  // 灌 600 个新会话（> AFFINITY_MAX=512）→ 最老的 s0 被挤出
+  for (let i = 0; i < 600; i++) p.pick(list, [], 'round-robin', 'm1', msgs(`flood-${i}`))
+  const again = p.pick(list, [], 'round-robin', 'm1', msgs('s0'))
+  // 被挤掉后重新分发——只要不是内存无限增长即可（uid 合法性由 pool 保证）
+  assert.equal(list.some((a) => a.uid === again), true)
+  // 活跃会话（每次都访问）不被挤掉
+  const hot = p.pick(list, [], 'round-robin', 'm1', msgs('hot'))!
+  for (let i = 0; i < 600; i++) {
+    p.pick(list, [], 'round-robin', 'm1', msgs(`flood2-${i}`))
+    assert.equal(p.pick(list, [], 'round-robin', 'm1', msgs('hot')), hot, '活跃会话的绑定应被 LRU 刷新保留')
+  }
+})
+
+test('【亲和】多模态分片 content 也能算指纹（文本片段参与，base64 不炸）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const multi = [
+    { role: 'user', content: [{ type: 'text', text: 'look at this' }, { type: 'image_url', image_url: 'data:image/png;base64,AAAA' }] },
+  ]
+  const first = p.pick(list, [], 'round-robin', 'm1', multi)
+  assert.equal(p.pick(list, [], 'round-robin', 'm1', multi), first)
+  // 文本不同的另一个会话 → 不同指纹
+  const other = [
+    { role: 'user', content: [{ type: 'text', text: 'different' }] },
+  ]
+  assert.notEqual(p.pick(list, [], 'round-robin', 'm1', other), first, '文本不同应散开')
+})
+
+
 // ============ 核心新语义：冷却按 (模型, 连接) 分号 ============
 
 test('【颗粒度】连接在模型 A 失败，只冷 (A, 该连接)，不影响它调模型 B', () => {

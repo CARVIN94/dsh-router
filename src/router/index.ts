@@ -78,6 +78,18 @@ function isTransient(state: AccountState): boolean {
   return state === 'transport' || state === 'unavailable'
 }
 
+/**
+ * 从请求体里取 `messages`（前缀亲和的指纹输入）。解析失败/字段缺失返回
+ * undefined —— 亲和拿不到输入就自动回退到块轮询，不影响路由本身。
+ */
+function reqMessages(rawBody: string): unknown {
+  try {
+    return (JSON.parse(rawBody) as { messages?: unknown }).messages
+  } catch {
+    return undefined
+  }
+}
+
 /** 丢弃响应的假 ServerResponse（测试模型用：记录状态+内容，用于判定成败）。 */
 function sinkRes(): ServerResponse & { status(): number; body(): string } {
   let status = 200
@@ -1006,9 +1018,12 @@ export class Router {
     }
     // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
     // 不排除试过的就会原地打转——死循环等于整个服务挂住。
+    // messages 只取一次：前缀亲和用它算指纹（重试换号时指纹必须一致，
+    // 否则同一会话的两次尝试会绑到不同的号上）。
+    const messages = reqMessages(req.rawBody)
     const tried = new Set<string>()
     for (;;) {
-      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy, req.model)
+      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy, req.model, messages)
       if (uid === undefined) return false
       tried.add(uid)
       const r = await s.chatOnce(uid, req.lv ?? 'auto', req)

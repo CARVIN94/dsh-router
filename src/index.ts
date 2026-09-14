@@ -33,7 +33,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { ROUTER_API_BASE, type RouterPeriod } from './shared.ts'
 import { Router } from './router/index.ts'
-import { RouterAdapter } from './llm/adapter.ts'
+import { RouterAdapter, type RouterAttachmentStore } from './llm/adapter.ts'
 import { KeysStore } from './keys.ts'
 import { loadSuppliers, wrapModule, type LoadedSupplier } from './suppliers/loader.ts'
 import { supplierRoutes } from './suppliers/registry.ts'
@@ -576,12 +576,14 @@ export function apply(rawContext: unknown): void {
       }))
       // adapter：模型目录自动带出组合；对话转发到本插件 /v1（组合路由在 /v1 内完成）。
       // 带上组合的上下文窗口：没有它 dsh 的自动压缩算不出阈值、会静默关闭。
+      // 图片序列化需要读附件字节：把 ctx.attachments 传给 adapter（dsh-attachment
+      // 是宿主注入的 service，插件不直接 import 它，只依赖 duck-typed 切面）。
       disposers.push(ctx.llm.registerAdapter(['router'], new RouterAdapter('http://localhost:3080/v1', {
         comboModels: async () => (await router.combos()).map((c) => {
           const w = router.comboContextWindow(c)
           return { id: c.name, ...(w !== undefined ? { contextWindow: w } : {}) }
         }),
-      })))
+      }, () => ctx.get('attachments') as RouterAttachmentStore | undefined)))
       log('llm provider (Router) + discovery + adapter registered ok')
       // 预热模型缓存：`comboContextWindow` 只读缓存、不打上游，缓存空着就
       // 报不出窗口。这里后台填一次，让第一次 resolveModel 就有值。

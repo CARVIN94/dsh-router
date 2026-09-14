@@ -4,7 +4,11 @@
  * 模型目录 = 组合（自动带出，不可改）。对话转发到本插件 /v1/chat/completions，
  * 由现有路由按组合策略命中供应商模型。
  *
- * 纯文本流：组合为文本模型，本 adapter 不处理图片附件。
+ * 图文流：adapter 声明图片 modal（`inputModalities` 含 `image`），把 user 消息里的
+ * `image` 块序列化成 OpenAI 标准的 `image_url` base64 part，经 /v1 原样透传给
+ * 命中的上游供应商。最终能否看图取决于**命中的那个上游模型**——组合里是异构
+ * 供应商，可能在网关端声明了图片能力、某条上游却只收文本（此时由上游自行拒收）。
+ * 图片字节从 `ctx.attachments` 读取（读不到的按稳定占位文本降级，绝不静默丢图）。
  */
 import {
   EMPTY_RESPONSE_CODE,
@@ -22,6 +26,29 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import { mergeUsage, normalizeUsage, toTokenUsage, type UsageTokens } from '../router/usage-tokens.ts'
 
+/**
+ * dsh-attachment 的最小本地切面：adapter 只依赖「读一张图片的请求版本」
+ * 这一行为，不引入对 dsh-attachment 包编译期/运行期的依赖（它是宿主注入的
+ * devDependency）。本地声明与原包 `AttachmentStore.readImageRequest` 形状一致，
+ * 宿主注入真实 store 时天然满足。
+ */
+export interface RouterAttachmentStore {
+  readImageRequest(
+    ref: { attachmentId: string; mediaType: string; bytes: number; width: number; height: number },
+    policy: { maxPixels: number; maxBytes: number },
+    signal?: AbortSignal,
+  ): Promise<{ mediaType: string; data: Uint8Array }>
+}
+
+/** 一张 image 块的 attachment ref 的最小形状（value 类型，够用即可）。 */
+interface RouterImgLike {
+  attachmentId: string
+  mediaType: string
+  bytes: number
+  width: number
+  height: number
+}
+
 /** 模型目录来源：组合。 */
 export interface RouterAdapterSource {
   /**
@@ -34,7 +61,7 @@ export interface RouterAdapterSource {
 }
 
 /**
- * 把 DSH 消息序列化成 openai 兼容 wire 消息（纯文本 + tool）。
+ * 把 DSH 消息序列化成 openai 兼容 wire 消息（文本 + 图片 + tool）。
  *
  * `system` 必须由调用方从 `options.system` 传进来：one-shot 调用方把系统提示词
  * 放在 **options.system 这个独立槽位**，不放进 messages。不读这个槽位，
@@ -46,8 +73,12 @@ export interface RouterAdapterSource {
  * 可出现在任意位置以支持提示词热更新）。两条路径都必须支持 —— 与官方
  * dsh-llm-deepseek 一致（serializeRequest 前置 options.system，再按位置序列化
  * messages 里的 system 消息）。
+ *
+ * 图片：`image` 块被序列化成 OpenAI `content` 数组里的 `image_url` part（data URI
+ * base64）。图片字节经 `resolveAttachments` 读取；读不到时回退为稳定的占位文本，
+ * **绝不静默丢图**（丢图 = 模型看到一条没有图的消息却毫无提示）。
  */
-function wireMessages(options: GenerateOptions, system?: string): Array<Record<string, unknown>> {
+async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = []
   if (typeof system === 'string' && system !== '') {
     out.push({ role: 'system', content: system })
@@ -76,9 +107,16 @@ function wireMessages(options: GenerateOptions, system?: string): Array<Record<s
       continue
     }
     // user / tool-result
-    const text = flattenText(message.content)
     const toolResults = message.content.filter((b) => b.type === 'tool-result')
-    if (text.length > 0 || toolResults.length === 0) out.push({ role: 'user', content: text })
+    // 有图 → content 数组；纯文本 → 保持紧凑字符串 wire 形式不回归。
+    if (hasImageBlock(message.content)) {
+      const parts = await contentParts(message.content, attachments, options.signal)
+      if (parts.length > 0) out.push({ role: 'user', content: parts })
+      else if (toolResults.length === 0) out.push({ role: 'user', content: '' })
+    } else {
+      const text = flattenText(message.content)
+      if (text.length > 0 || toolResults.length === 0) out.push({ role: 'user', content: text })
+    }
     for (const result of toolResults) {
       // 空结果就发空串，不要替换成 '(no output)' 之类的字面量 —— 模型会
       // 以为工具真的打印了那句话（9router 也是补 content: ""）。
@@ -88,9 +126,73 @@ function wireMessages(options: GenerateOptions, system?: string): Array<Record<s
   return out
 }
 
-/** 组装 wire 请求体。 */
-function wireRequest(options: GenerateOptions): Record<string, unknown> {
-  const messages = wireMessages(options, options.system)
+/**
+ * 一块 DSH user/tool-result 内容序列化成 OpenAI content parts（text + image_url）。
+ * 纯文本时返回空数组（上层走紧凑字符串路径）。图片转 base64 data URI；
+ * attachments 缺失或读取失败时回退稳定占位文本（绝不静默丢图）。
+ */
+async function contentParts(
+  blocks: ReadonlyArray<{ type: string }>,
+  attachments: RouterAttachmentStore | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Array<Record<string, unknown>>> {
+  const parts: Array<Record<string, unknown>> = []
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      const text = (block as { text?: string }).text ?? ''
+      if (text.length > 0) parts.push({ type: 'text', text })
+      continue
+    }
+    if (block.type === 'image') {
+      const ref = (block as unknown as { attachment: RouterImgLike }).attachment
+      parts.push(...(await imageParts(ref, attachments, signal)))
+      continue
+    }
+    if (block.type === 'tool-result') {
+      parts.push(...(await contentParts((block as unknown as { content: ReadonlyArray<{ type: string }> }).content, attachments, signal)))
+    }
+    // 其它块（reasoning/tool-call）不属于 user content，忽略
+  }
+  return parts
+}
+
+/** 一张图片 → 一个 OpenAI image_url part（或读不到附件时的占位文本）。 */
+async function imageParts(
+  ref: { attachmentId: string; mediaType: string; bytes: number; width: number; height: number },
+  attachments: RouterAttachmentStore | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Array<Record<string, unknown>>> {
+  if (attachments === undefined) return [{ type: 'text', text: imagePlaceholder(ref.attachmentId) }]
+  try {
+    const img = await attachments.readImageRequest(
+      { attachmentId: ref.attachmentId, mediaType: ref.mediaType, bytes: ref.bytes, width: ref.width, height: ref.height },
+      { maxPixels: 64e4, maxBytes: 1024 * 1024 },
+      signal,
+    )
+    return [{ type: 'image_url', image_url: { url: `data:${img.mediaType};base64,${bytesToBase64(img.data)}` } }]
+  } catch {
+    return [{ type: 'text', text: imagePlaceholder(ref.attachmentId) }]
+  }
+}
+
+/** Uint8Array → base64（browser + node 双环境安全，不依赖 Buffer 全局）。 */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(bin)
+}
+
+/** 读不到图片字节时的稳定占位文本。 */
+function imagePlaceholder(attachmentId: string): string {
+  return `[image omitted because the attached bytes could not be read; attachment ${attachmentId}]`
+}
+
+/** 组装 wire 请求体。图片序列化需要读 attachments，故为异步。 */
+async function wireRequest(options: GenerateOptions, attachments: RouterAttachmentStore | undefined): Promise<Record<string, unknown>> {
+  const messages = await wireMessages(options, options.system, attachments)
   const body: Record<string, unknown> = {
     model: options.model,
     messages,
@@ -134,6 +236,15 @@ function applyReasoning(body: Record<string, unknown>, effort: string | undefine
 
 function flattenText(blocks: readonly { type: string; text?: string }[]): string {
   return blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('')
+}
+
+/** 内容块里（含递归进 tool-result）是否存在 image 块。决定走数组 content 还是字符串。 */
+function hasImageBlock(blocks: readonly { type: string }[]): boolean {
+  for (const b of blocks) {
+    if (b.type === 'image') return true
+    if (b.type === 'tool-result' && hasImageBlock((b as unknown as { content: ReadonlyArray<{ type: string }> }).content)) return true
+  }
+  return false
 }
 
 interface OpenBlock {
@@ -379,11 +490,13 @@ const ROUTER_REASONING_EFFORTS: readonly LlmReasoningEffortInfo[] = [
 export class RouterAdapter extends LlmAdapter {
   private readonly baseURL: string
   private readonly source: RouterAdapterSource
+  private readonly resolveAttachments: () => RouterAttachmentStore | undefined
 
-  constructor(baseURL: string, source: RouterAdapterSource) {
+  constructor(baseURL: string, source: RouterAdapterSource, resolveAttachments?: () => RouterAttachmentStore | undefined) {
     super()
     this.baseURL = baseURL
     this.source = source
+    this.resolveAttachments = resolveAttachments ?? (() => undefined)
   }
 
   providerInfo(provider: string): { id: string; name: string } {
@@ -403,14 +516,14 @@ export class RouterAdapter extends LlmAdapter {
   }
 
   /**
-   * 只收文本。`resolveModel` 声明 `inputModalities: ['text']` 是**必须**的：
-   * 0.1.5 的 runtime 只在 `inputModalities` 存在且不含 `image` 时才把 image 块
-   * 投影成占位文本（见 dsh-llm adapterStream 的 projectImagesForTextModel）。
-   * 不声明 = "unknown" = 不投影，而 wireMessages 只读 text 块 → 图片**静默
-   * 丢失**，模型看到一条没有图片的用户消息却毫无提示。声明后由 runtime 统一
-   * 投影，我们仍只处理文本。
+   * 声明图文：`inputModalities` 必须同时含 `text` 与 `image`。
+   * - 含 `image`：runtime/subagent 的模态门禁放行（不再抛
+   *   `MODEL_DOES_NOT_SUPPORT_IMAGES` = 界面「当前模型不支持图片」），
+   *   `projectImagesForTextModel` 也不会把图片块投影成占位文本。
+   * - 组合背后是异构供应商，**统一声明图片能力**；真正能否看图取决于命中
+   *   的某个上游模型（供应商各模型 capability 不同，网关端不能一刀切拦截）。
    */
-  private static readonly INPUT_MODALITIES: readonly ModelModality[] = ['text']
+  private static readonly INPUT_MODALITIES: readonly ModelModality[] = ['text', 'image']
 
   async resolveModel(_provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const combos = await this.source.comboModels()
@@ -430,7 +543,7 @@ export class RouterAdapter extends LlmAdapter {
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const body = wireRequest(options)
+    const body = await wireRequest(options, this.resolveAttachments())
     const controller = new AbortController()
     const onAbort = (): void => controller.abort()
     options.signal?.addEventListener('abort', onAbort, { once: true })

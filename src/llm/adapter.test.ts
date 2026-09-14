@@ -519,6 +519,9 @@ test('模型目录：resolveModel 对每个组合声明推理等级（off/low/hi
   assert.equal(a.provider, 'router')
   assert.equal(a.id, 'c-a')
   assert.equal(a.name, '组合A')
+  // 图文模态：必须声明含 image，否则 runtime/subagent 的模态门禁会抛
+  // `MODEL_DOES_NOT_SUPPORT_IMAGES`（界面「当前模型不支持图片」）。
+  assert.deepEqual(a.inputModalities, ['text', 'image'], 'adapter 必须声明 image 模态，否则图片被门禁拦截')
   assert.ok(a.reasoning, '组合应声明推理等级，DSH 才允许显式 effort')
   assert.deepEqual(a.reasoning!.efforts.map((e) => e.id), ['off', 'low', 'high', 'max'])
   assert.equal(a.reasoning!.defaultEffort, 'high', '默认 High：调用方不指定时物化为 high')
@@ -542,4 +545,83 @@ test('resolveModel 透传组合的 contextWindow（自动压缩才能算阈值�
 
   const b = await adapter.resolveModel('router', 'c-b')
   assert.equal(b.context, undefined, '没拿到就不声明 context，绝不填一个假窗口')
+})
+
+/* ---------------- 图片序列化：图片必须真正到上游（不静默丢图） ---------------- */
+
+/** 假附件 store：返回指定 mediaType + bytes 的请求版本。 */
+function fakeAttachments(mediaType = 'image/png', data = new TextEncoder().encode('<png-bytes>')): {
+  readImageRequest: () => Promise<{ mediaType: string; data: Uint8Array }>
+} {
+  return {
+    readImageRequest: async () => ({ mediaType, data }),
+  }
+}
+
+/** 用给定 attachments 跑一次 stream()，返回上游收到的 body。 */
+async function captureBodyWith(options: Record<string, unknown>, attachments?: unknown): Promise<Record<string, unknown>> {
+  let captured: Record<string, unknown> = {}
+  globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
+    captured = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
+    return new Response('data: [DONE]\n\n', { status: 200 })
+  }) as typeof fetch
+  const adapter = new RouterAdapter(
+    'http://x',
+    { comboModels: async () => [] },
+    () => attachments as never,
+  )
+  for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000), ...options } as never)) {
+    void _c
+  }
+  return captured
+}
+
+test('wire：图片块被序列化成 OpenAI image_url base64 part（不再静默丢图）', async () => {
+  const ref = {
+    attachmentId: 'sha256:abcdef1234567890',
+    mediaType: 'image/png',
+    bytes: 11,
+    width: 4,
+    height: 2,
+  }
+  const body = await captureBodyWith({
+    messages: [{ role: 'user', content: [
+      { type: 'text', text: '看这张图' },
+      { type: 'image', attachment: ref },
+    ] }],
+  }, fakeAttachments())
+  const user = (body.messages as Array<{ role: string; content: unknown }>).find((m) => m.role === 'user')
+  const parts = (user?.content ?? []) as Array<{ type: string; text?: string; image_url?: { url: string } }>
+  assert.equal(parts.length, 2, 'text + image 两个 part')
+  assert.equal(parts[0]?.type, 'text')
+  assert.equal(parts[0]?.text, '看这张图')
+  assert.equal(parts[1]?.type, 'image_url', '图片必须是 image_url part，不是占位文本')
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode('<png-bytes>')))
+  assert.equal(parts[1]?.image_url?.url, `data:image/png;base64,${b64}`, 'data URI 必须是 base64 编码的真实字节')
+})
+
+test('wire：纯文本 user 消息仍是紧凑字符串（不回归 wire 形式）', async () => {
+  const body = await captureBodyWith({
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+  }, fakeAttachments())
+  const user = (body.messages as Array<{ role: string; content: unknown }>).find((m) => m.role === 'user')
+  assert.equal(user?.content, 'hi', '无图时必须保持字符串 content')
+})
+
+test('wire：无 attachments 时图片回退占位文本，绝不静默丢图', async () => {
+  const ref = {
+    attachmentId: 'sha256:abcdef1234567890',
+    mediaType: 'image/png',
+    bytes: 11,
+    width: 4,
+    height: 2,
+  }
+  const body = await captureBodyWith({
+    messages: [{ role: 'user', content: [{ type: 'image', attachment: ref }] }],
+  }, undefined)
+  const user = (body.messages as Array<{ role: string; content: unknown }>).find((m) => m.role === 'user')
+  const parts = (user?.content ?? []) as Array<{ type: string; text?: string }>
+  assert.equal(parts.length, 1)
+  assert.equal(parts[0]?.type, 'text')
+  assert.ok((parts[0]?.text ?? '').includes('image omitted'), '读不到附件时必须给占位文本，图片不能无声消失')
 })

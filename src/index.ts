@@ -31,6 +31,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import Schema from '@deepseek-ai/schemastery'
 import { ROUTER_API_BASE, type RouterPeriod } from './shared.ts'
 import { Router } from './router/index.ts'
 import { RouterAdapter, type RouterAttachmentStore } from './llm/adapter.ts'
@@ -92,6 +93,29 @@ interface Llm {
     discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
   ) => () => void
   registerAdapter: (providers: readonly string[], adapter: unknown) => () => void
+}
+
+/**
+ * 设置服务（`ctx.settings`，dsh-settings）的最小切面：本插件只用 `installSection`
+ * 注册一个命名空间，让设置-模型页能列出 Router provider 卡片。dsh-settings 是
+ * 宿主注入的 peer service，这里不深绑它的类型，只声明用到的这一个方法。
+ */
+interface SettingsServiceFace {
+  installSection: (
+    owner: CordisContext,
+    ns: string,
+    schema: unknown,
+    entry: unknown,
+    hooks: { setSource: (current: () => unknown) => void; onChange: () => void },
+  ) => void
+}
+
+/**
+ * cordis Context 的最小切面。`installSection(owner)` 只会对 owner 调
+ * `ctx.effect(...)` 并在卸载时读 `fiber.state`，所以这里只声明 `effect`。
+ */
+interface CordisContext {
+  effect: (fn: () => () => void, label?: string) => unknown
 }
 
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
@@ -574,6 +598,25 @@ export function apply(rawContext: unknown): void {
         const combos = await router.combos()
         return combos.map((c) => ({ id: c.name }))
       }))
+      // Router 的配置（组合/密钥/签到）存在 core 自己的 state.json，走插件自己的
+      // 「路由系统」面板；设置-模型 这边**仍必须注册 `llm-dsh-router` 命名空间**。
+      // 原因：设置-模型 的 provider 列表只渲染 settingsNs 能在设置镜像里解析出来的
+      // 行（见 dsh-client-ui-settings-models 的 configurable 过滤）。只调
+      // registerConfigurableProviders 而不注册 section，Router 卡片**不会出现**。
+      // 空 schema = 卡片是入口/占位（该布局下不可提交），真正的配置在路由系统面板。
+      const routerSettingsSchema = Schema.object({})
+      ctx.inject(['settings'], (sctx: unknown) => {
+        const settings = (sctx as { settings?: SettingsServiceFace }).settings
+        if (settings === undefined) {
+          log('settings service absent — skip Router settings-section registration')
+          return
+        }
+        settings.installSection(rawContext as CordisContext, LLM_NS, routerSettingsSchema, {}, {
+          setSource: () => {},
+          onChange: () => {},
+        })
+        log(`Router settings section registered (${LLM_NS})`)
+      })
       // adapter：模型目录自动带出组合；对话转发到本插件 /v1（组合路由在 /v1 内完成）。
       // 带上组合的上下文窗口：没有它 dsh 的自动压缩算不出阈值、会静默关闭。
       // 图片序列化需要读附件字节：把 ctx.attachments 传给 adapter（dsh-attachment
@@ -618,11 +661,25 @@ export function apply(rawContext: unknown): void {
     } catch (err) {
       registeredProviders = `error: ${(err as Error).message}`
     }
+    // 设置命名空间是否注册成功 —— 卡片不出现的**唯一**嫌疑点：provider 在目录里
+    // （上面的 directory）却没注册 section 时，设置-模型 的 configurable 过滤会
+    // 把该行整条丢掉，界面上什么都不显示、也没有任何报错。
+    let settingsNamespaces: unknown = 'n/a'
+    try {
+      const settings = ctx.get('settings') as { describe?: (opts?: unknown) => Array<{ ns: string }> } | undefined
+      settingsNamespaces = settings?.describe === undefined
+        ? 'no settings service'
+        : settings.describe({ redactSecrets: true }).map((d) => d.ns)
+    } catch (err) {
+      settingsNamespaces = `error: ${(err as Error).message}`
+    }
     writeJson(res, 200, {
       ok: true,
       llmAvailable: ctx.llm !== undefined,
       directory,
       registeredProviders,
+      settingsNamespaces,
+      routerNamespaceRegistered: Array.isArray(settingsNamespaces) && settingsNamespaces.includes('llm-dsh-router'),
     })
   })
 

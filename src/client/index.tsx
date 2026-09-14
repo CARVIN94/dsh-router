@@ -11,6 +11,7 @@
 import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
+import { rewriteRouterModelHint } from './model-hint-copy.ts'
 import './router.css'
 
 /**
@@ -65,4 +66,6 @@ export function apply(ctx: Ctx): void {
   ctx.effect(() => disposeSettings, 'dsh-router: settings section')
   // 换掉宿主的默认齿轮（契约没有 icon 字段，只能注册后认领自己的行）
   ctx.effect(() => registerSettingsNavIcon(SECTION_LABEL), 'dsh-router: settings nav icon')
+  // 设置-模型 里 Router 卡片的那句死路提示 → 正确说法（同样只能认领后就地改写）
+  ctx.effect(() => rewriteRouterModelHint(), 'dsh-router: models provider hint copy')
 }

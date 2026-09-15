@@ -620,8 +620,110 @@ test('wire：无 attachments 时图片回退占位文本，绝不静默丢图', 
     messages: [{ role: 'user', content: [{ type: 'image', attachment: ref }] }],
   }, undefined)
   const user = (body.messages as Array<{ role: string; content: unknown }>).find((m) => m.role === 'user')
-  const parts = (user?.content ?? []) as Array<{ type: string; text?: string }>
-  assert.equal(parts.length, 1)
-  assert.equal(parts[0]?.type, 'text')
-  assert.ok((parts[0]?.text ?? '').includes('image omitted'), '读不到附件时必须给占位文本，图片不能无声消失')
+  // 读不到字节时 parts 只剩一个 text 占位 → 收成紧凑字符串（无图可发，别硬撑数组）
+  const text = typeof user?.content === 'string' ? user.content : JSON.stringify(user?.content)
+  assert.ok(text.includes('image omitted'), '读不到附件时必须给占位文本，图片不能无声消失')
+  assert.ok(!text.includes('image_url'), '读不到字节时不能伪造图片 part')
+})
+
+test('wire：一步两个 read_image（每条一个 user 消息，同现场）→ tool 消息紧跟 assistant，图片合并到末尾', async () => {
+  const ref = {
+    attachmentId: 'sha256:abcdef1234567890',
+    mediaType: 'image/png',
+    bytes: 11,
+    width: 4,
+    height: 2,
+  }
+  // **关键**：harness 把每个 tool 结果放**各自的** user-role 消息里（现场就是
+  // 两条独立消息）。这是第一版修复漏掉的形态——按消息各发一条 user(图) 会得到
+  // `tool,user,tool,user`，上游照样 400/11148。必须跨消息攒图、发完整串再补一条。
+  const body = await captureBodyWith({
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: '读这两张图' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' },
+          { type: 'tool-call', id: 'c2', name: 'read_image', arguments: '{}' },
+        ],
+      },
+      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'tree_assembly.png' }, { type: 'image', attachment: ref }] }] },
+      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c2', content: [{ type: 'text', text: 'tree_part.png' }, { type: 'image', attachment: ref }] }] },
+    ],
+  }, fakeAttachments())
+  const messages = body.messages as Array<{ role: string; tool_call_id?: string; tool_calls?: Array<{ id: string }>; content: unknown }>
+  assertToolPairingIntact(messages)
+
+  // 两条 tool 消息必须**连续**紧跟 assistant，各自的文本标签留在自己的 tool 里
+  const ai = messages.findIndex((m) => m.role === 'assistant')
+  assert.deepEqual(messages.slice(ai + 1, ai + 3).map((m) => m.role), ['tool', 'tool'], '两条 tool 必须连续，中间不得插 user')
+  assert.equal(messages[ai + 1]?.content, 'tree_assembly.png', '第一条 tool 带自己的标签')
+  assert.equal(messages[ai + 2]?.content, 'tree_part.png', '第二条 tool 带自己的标签')
+
+  // 图片合并到全部 tool 之后的那**一条** user 消息里（两张都在，不静默丢图）
+  const userWithImage = messages.find((m) => m.role === 'user' && Array.isArray(m.content))
+  assert.ok(userWithImage !== undefined, '带图内容必须序列化成 user 消息的 content 数组')
+  const parts = userWithImage.content as Array<{ type: string; text?: string }>
+  assert.equal(parts.filter((p) => p.type === 'image_url').length, 2, '两张图都要发出去')
+  const lastTool = messages.map((m) => m.role).lastIndexOf('tool')
+  const imageAt = messages.indexOf(userWithImage)
+  assert.ok(imageAt > lastTool, `带图 user 消息必须排在全部 tool 消息之后（实际 tool 末位 ${lastTool}，图在 ${imageAt}）`)
+  // 整段 wire 里 user(带图) 只出现一次：插两次就会把 tool 串切断
+  const imageUsers = messages.filter((m) => m.role === 'user' && Array.isArray(m.content))
+  assert.equal(imageUsers.length, 1, '带图 user 消息只能有一条（多条 = 切断了 tool 配对）')
+})
+
+/**
+ * 为什么要有这一组：`read_image` 的结果是**带图的 tool-result**。适配器曾把
+ * 图片和文本一起提成一条 `user` 消息、排在 `tool` 消息**之前**，于是 wire 里
+ * 出现 `assistant(tool_calls) → user(image) → tool`。上游判定 tool_call 与
+ * tool_result 失配，回 400 网关码 11148「tool calls and tool results do not
+ * match」（实测直连复现，把 tool 提前即 200）。
+ *
+ * 后果被池策略放大：11148 当时归 `unknown` → 瞬时冷却 30s；组合 money 两条腿
+ * 都用同一份历史，一条带图请求就把它俩同时冷掉，之后**连纯文本请求**也全灭
+ * 503（用户看到的现象）。所以这条不变式必须在 wire 层锁死：
+ * **assistant 的每个 tool_call 后面必须紧跟配套 tool 消息，中间不得插任何
+ * 其它角色**。
+ */
+
+/** 断言 wire 里 tool_call / tool_result 严格配对且不被插队。 */
+function assertToolPairingIntact(messages: Array<{ role: string; tool_call_id?: string; tool_calls?: Array<{ id: string }> }>): void {
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (m?.role !== 'assistant' || (m.tool_calls ?? []).length === 0) continue
+    const wanted = new Set((m.tool_calls ?? []).map((c) => c.id))
+    // 紧随其后的必须**连续**是配套 tool 消息，中途混入任何别的角色都算失配
+    // （现场踩的就是 user(图) 插在两条 tool 之间，wire 成 tool,user,tool,user）
+    let j = i + 1
+    const satisfied = new Set<string>()
+    while (j < messages.length && messages[j]?.role === 'tool') {
+      const id = messages[j]?.tool_call_id ?? ''
+      assert.ok(wanted.has(id), `第 ${j} 条 tool 消息的 tool_call_id ${JSON.stringify(id)} 不在上一条 assistant 的 tool_calls 里`)
+      satisfied.add(id)
+      j += 1
+    }
+    assert.equal(
+      satisfied.size,
+      wanted.size,
+      `assistant 的 tool_calls 未被紧邻的 tool 消息配齐`
+        + `（中间插了别的角色：${messages.slice(i + 1, j).map((x) => x.role).join(',') || '—'}）`,
+    )
+    for (const id of wanted) {
+      assert.ok(satisfied.has(id), `tool_call ${id} 没有配套 tool 消息（上游会回 11148）`)
+    }
+  }
+}
+
+test('wire：纯文本 tool-result 不因图片逻辑改变顺序（tool 紧跟 assistant）', async () => {
+  const body = await captureBodyWith({
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: '跑一下' }] },
+      { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
+      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] }] },
+    ],
+  }, fakeAttachments())
+  const messages = body.messages as Array<{ role: string; tool_call_id?: string; tool_calls?: Array<{ id: string }> }>
+  assertToolPairingIntact(messages)
+  assert.deepEqual(messages.map((m) => m.role), ['user', 'assistant', 'tool'], '纯文本 tool 结果仍紧跟 assistant')
 })

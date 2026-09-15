@@ -9,7 +9,8 @@
  * 面板只显示模型卡片（连接池、签到由能力检测自动隐藏）。
  */
 import type { ChatRequest, ModelInfo } from '../../router/types.ts'
-import type { AccountState, ChatOnceResult, SupplierEnv, SupplierModule, SupplierStatusNow } from '../contract.ts'
+import type { ChatOnceResult, SupplierEnv, SupplierModule, SupplierStatusNow } from '../contract.ts'
+import { stateFromHttpStatus } from '../http-state.ts'
 
 
 export const id = 'opencode'
@@ -125,9 +126,7 @@ export default function factory(env: SupplierEnv): SupplierModule {
       if (upstream.status < 200 || upstream.status >= 300) {
         const text = await upstream.text().catch(() => '')
         const msg = `upstream ${upstream.status}: ${text.slice(0, 200)}`
-        const state: AccountState =
-          upstream.status === 429 ? 'rate_limit' : upstream.status === 404 ? 'unavailable' : 'unknown'
-        return { ok: false, state, message: msg }
+        return { ok: false, state: stateFromHttpStatus(upstream.status), message: msg }
       }
 
       // 流式：上游已是 OpenAI SSE，原样交回核心（核心负责写响应）

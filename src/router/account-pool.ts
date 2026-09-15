@@ -76,6 +76,9 @@ const RULES: Record<AccountState, Rule> = {
   unknown: { cooldown: 'transient', counts: false },
   // 模型不属于本供应商：不是账号的错，不冷却也不计数（核心据此换下一个供应商）
   no_such_model: { cooldown: 0, counts: false },
+  // 请求本身非法（上游拒收这个 payload）：同一个请求对池里每个号都会失败，
+  // 冷号只会把「这条请求有问题」放大成「这个模型谁都别用」。不惩罚账号。
+  bad_request: { cooldown: 0, counts: false },
 }
 
 /**

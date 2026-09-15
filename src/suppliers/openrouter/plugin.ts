@@ -12,6 +12,7 @@
 import type { ChatRequest, ModelInfo } from '../../router/types.ts'
 import type { AccountState, ChatOnceResult, SupplierStatusNow } from '../contract.ts'
 import type { SupplierEnv, SupplierModule } from '../contract.ts'
+import { stateFromHttpStatus } from '../http-state.ts'
 
 export const id = 'openrouter'
 export const name = 'OpenRouter'
@@ -202,13 +203,8 @@ export default function factory(env: SupplierEnv): SupplierModule {
       if (upstream.status < 200 || upstream.status >= 300) {
         const text = await upstream.text().catch(() => '')
         const msg = `upstream ${upstream.status}: ${text.slice(0, 120)}`
-        // 401/403 = 这个 key 本身不可用；429 = 限流；其余归为说不清
-        const state: AccountState =
-          upstream.status === 429 ? 'rate_limit'
-            : upstream.status === 401 || upstream.status === 403 ? 'session_dead'
-              : upstream.status === 404 ? 'unavailable'
-                : 'unknown'
-        return { ok: false, state, message: msg }
+        // 401/403 = 这个 key 本身不可用；429 = 限流；其余见 stateFromHttpStatus
+        return { ok: false, state: stateFromHttpStatus(upstream.status), message: msg }
       }
 
       // 流式：上游已是 OpenAI SSE，原样交回核心写

@@ -78,18 +78,40 @@ export interface RouterAdapterSource {
  * base64）。图片字节经 `resolveAttachments` 读取；读不到时回退为稳定的占位文本，
  * **绝不静默丢图**（丢图 = 模型看到一条没有图的消息却毫无提示）。
  */
+/** tool-result 里图片挂到 user 消息时用的说明文字（与官方适配器一致）。 */
+const TOOL_RESULT_IMAGE_TEXT = 'Tool result images'
+
 async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = []
+  /**
+   * 攒着「tool-result 里带出来的图片」，等这一串 tool 消息**发完**再合并成一条
+   * user 消息补在后面。
+   *
+   * 为什么必须跨消息攒、而不是各消息各发一条：harness 把**每个 tool 结果放
+   * 自己的 user-role 消息**里（读两张图 = 两条消息）。若每条消息各发一个
+   * `user(图)`，wire 就成 `assistant → tool → user(图) → tool → user(图)`——
+   * 中间那条 user 又把 tool_call/tool_result 配对接断了，上游照样 400/11148
+   * （实测：tool,user,tool,user = 400；tool,tool,user(两图) = 200）。
+   * 官方 dsh-llm-deepseek 的 serializeMessagesWithImages 同样这么做。
+   */
+  let pendingToolImages: Array<Record<string, unknown>> = []
+  const flushToolImages = (): void => {
+    if (pendingToolImages.length === 0) return
+    out.push({ role: 'user', content: [{ type: 'text', text: TOOL_RESULT_IMAGE_TEXT }, ...pendingToolImages] })
+    pendingToolImages = []
+  }
   if (typeof system === 'string' && system !== '') {
     out.push({ role: 'system', content: system })
   }
   for (const message of options.messages) {
     if (message.role === 'system') {
       // 手写调用也可能把 system 塞进 messages（one-shot 场景），照旧支持
+      flushToolImages()
       out.push({ role: 'system', content: flattenText(message.content) })
       continue
     }
     if (message.role === 'assistant') {
+      flushToolImages()
       const text = flattenText(message.content)
       const toolCalls = message.content
         .filter((b) => b.type === 'tool-call')
@@ -108,22 +130,48 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
     }
     // user / tool-result
     const toolResults = message.content.filter((b) => b.type === 'tool-result')
-    // 有图 → content 数组；纯文本 → 保持紧凑字符串 wire 形式不回归。
-    if (hasImageBlock(message.content)) {
-      const parts = await contentParts(message.content, attachments, options.signal)
-      if (parts.length > 0) out.push({ role: 'user', content: parts })
-      else if (toolResults.length === 0) out.push({ role: 'user', content: '' })
-    } else {
-      const text = flattenText(message.content)
-      if (text.length > 0 || toolResults.length === 0) out.push({ role: 'user', content: text })
+    // 这条消息自己的（非 tool-result 的）user 部分：文本 + 图片。
+    const ownParts = await contentParts(
+      message.content.filter((b) => b.type !== 'tool-result'),
+      attachments,
+      options.signal,
+    )
+    // 有实质 user 内容（或压根没有 tool 结果）就先发这条 user 消息；
+    // 只有 tool 结果的「纯工具」消息不发空 user，图片留到 pending 里合并。
+    if (ownParts.length > 0 || toolResults.length === 0) {
+      flushToolImages()
+      out.push({ role: 'user', content: compactUserContent(ownParts) })
     }
     for (const result of toolResults) {
+      // **tool 消息必须紧跟 assistant(tool_calls)**：中间插进任何 user 消息，
+      // 上游都会判定 tool_call 与 tool_result 失配 —— codebuddy 直接 400 网关码
+      // 11148「tool calls and tool results do not match」。
+      // 图片不能放进 tool 消息（实测模型会把两张不同的图认成同一张），
+      // 也不能插在两条 tool 之间（同样 400），所以先攒起来、发完整串再补一条 user。
+      const parts = await contentParts(result.content, attachments, options.signal)
+      const imageParts = parts.filter((p) => p.type !== 'text')
+      const text = parts.filter((p) => p.type === 'text').map((p) => (p as { text?: string }).text ?? '').join('')
       // 空结果就发空串，不要替换成 '(no output)' 之类的字面量 —— 模型会
       // 以为工具真的打印了那句话（9router 也是补 content: ""）。
-      out.push({ role: 'tool', tool_call_id: result.toolCallId, content: flattenText(result.content) })
+      out.push({ role: 'tool', tool_call_id: result.toolCallId, content: text })
+      pendingToolImages.push(...imageParts)
     }
   }
+  flushToolImages()
   return out
+}
+
+/**
+ * 纯文本 parts 收成紧凑字符串 wire 形式（无图时不回归成数组）。
+ * 与官方适配器的 userContent 同义：只要有非 text part 就保持数组，否则 join。
+ */
+function compactUserContent(parts: Array<Record<string, unknown>>): string | Array<Record<string, unknown>> {
+  const texts: string[] = []
+  for (const p of parts) {
+    if (p.type !== 'text') return parts
+    texts.push((p as { text?: string }).text ?? '')
+  }
+  return texts.join('')
 }
 
 /**
@@ -236,15 +284,6 @@ function applyReasoning(body: Record<string, unknown>, effort: string | undefine
 
 function flattenText(blocks: readonly { type: string; text?: string }[]): string {
   return blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('')
-}
-
-/** 内容块里（含递归进 tool-result）是否存在 image 块。决定走数组 content 还是字符串。 */
-function hasImageBlock(blocks: readonly { type: string }[]): boolean {
-  for (const b of blocks) {
-    if (b.type === 'image') return true
-    if (b.type === 'tool-result' && hasImageBlock((b as unknown as { content: ReadonlyArray<{ type: string }> }).content)) return true
-  }
-  return false
 }
 
 interface OpenBlock {

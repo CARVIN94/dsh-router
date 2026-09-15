@@ -71,6 +71,7 @@ function stripAlias(model: string, alias: string): string {
  *
  * 只对**瞬时**故障等：连接层失败 / 上游不可用（对应 9router 的 502/503/504）。
  * 模型不属于本供应商（no_such_model）绝不能等 —— 它不是故障，等纯属浪费。
+ * 请求本身非法（bad_request）同理：换哪个模型都是同一个 400，等也是白等。
  */
 const TRANSIENT_SETTLE_MS = 2_000
 
@@ -998,7 +999,8 @@ export class Router {
     if (s.accounts !== undefined && s.accounts().length === 0) {
       const r = await s.chatOnce('', req.lv ?? 'auto', req)
       if (!r.ok) {
-        if (r.state === 'no_such_model') return false // 不是我的模型：换供应商，不记账
+        // 模型不属于本供应商、或请求本身被上游拒收：换供应商，不记账
+        if (r.state === 'no_such_model' || r.state === 'bad_request') return false
         if (trace !== undefined) trace.lastState = r.state
         pool.noteFailure('', req.model, r.state, r.message)
         return false
@@ -1028,10 +1030,15 @@ export class Router {
       tried.add(uid)
       const r = await s.chatOnce(uid, req.lv ?? 'auto', req)
       if (!r.ok) {
-        // 模型不属于本供应商：整个供应商都跳过，换号重试没有意义，
-        // 也不能记在账号头上（否则无关账号会被攒够错误冷却掉）
-        if (r.state === 'no_such_model') {
-          if (trace !== undefined) trace.lastError = 'no_such_model'
+        // 模型不属于本供应商、或请求本身被上游拒收：整个供应商都跳过，
+        // 换号重试没有意义，也不能记在账号头上（否则无关账号会被冷掉）。
+        // bad_request（如 tool_call 配对断裂、图片格式不认）对每个号结果相同，
+        // 冷号只会把一次「请求有问题」放大成「这个模型谁都别用」。
+        if (r.state === 'no_such_model' || r.state === 'bad_request') {
+          if (trace !== undefined) {
+            trace.lastError = r.state
+            trace.lastState = r.state
+          }
           return false
         }
         pool.noteFailure(uid, req.model, r.state, r.message)

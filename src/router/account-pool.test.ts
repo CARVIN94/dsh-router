@@ -380,6 +380,22 @@ test('no_such_model 不惩罚账号：不冷却、不计数', () => {
   assert.equal(out?.err_count, 0)
 })
 
+/**
+ * 为什么要有这一条：请求本身非法（如 11133 参数错、11148 tool_call 配对断裂）
+ * 对池里**每个号**结果都相同。曾把这类归 rate_limit → 瞬冷 30s，于是一次
+ * 带图请求把 money 组合两条腿同时冷掉，之后连纯文本请求也全灭 503。
+ * 不惩罚账号，好号才不会替一条坏请求陪葬。
+ */
+test('bad_request 不惩罚账号：不冷却、不计数（一次坏请求不该冷掉整池）', () => {
+  const p = pool()
+  const list = accs(['a'])
+  for (let i = 0; i < 10; i++) p.noteFailure('a', 'm1', 'bad_request', 'codebuddy 11148: tool calls do not match')
+  assert.equal(p.pick(list, [], 'fallback', 'm1'), 'a', '号必须仍然可用')
+  const out = p.decorate(list, 'm1')[0]
+  assert.equal(out?.cooling, false, '请求非法不该把号标成冷却')
+  assert.equal(out?.err_count, 0)
+})
+
 test('状态表：各 AccountState 的处置符合预期', () => {
   const p = pool()
   const list = accs(['rate', 'quota', 'dead', 'unavail'])

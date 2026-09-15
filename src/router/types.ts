@@ -14,7 +14,6 @@ export interface SupplierAccount {
   cooling: boolean
   until?: string
   reason?: string
-  disabled: boolean
   err_count?: number
 }
 

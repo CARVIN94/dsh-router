@@ -613,7 +613,6 @@ test('组合请求不污染无关供应商的账号（no_such_model 不记账）
   const acc = other.s.pool.decorate([{ uid: 'u1', credits: 0, state: 'ok' }])[0]
   assert.equal(acc?.err_count, 0, '不该累计连续错误')
   assert.equal(acc?.cooling, false, '不该被冷却')
-  assert.equal(acc?.disabled, false, '不该被禁用')
 })
 
 /**

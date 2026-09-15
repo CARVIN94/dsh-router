@@ -30,7 +30,7 @@ function fakeRes(): { status: number; body: unknown; res: never } {
   return { get status() { return out.status }, get body() { return out.body }, res: res as never }
 }
 
-type FakeAccount = { uid: string; disabled?: boolean; credits?: number }
+type FakeAccount = { uid: string; credits?: number }
 
 /** 造一个只带 checkinNow 的假供应商：status() 返回账号列表，checkinNow 按 uid 应答。
  *  accounts 可传函数（每次 status() 重新求值，用来模拟插件后台异步刷积分）。 */
@@ -50,7 +50,6 @@ function fixture(
         nickname: a.uid,
         credits: a.credits ?? 0,
         cooling: false,
-        disabled: a.disabled ?? false,
         err_count: 0,
       })),
     }),
@@ -109,10 +108,10 @@ test('签到：遍历所有链接，逐个调 checkinNow(uid)', async () => {
   assert.deepEqual(body.results?.map((r) => r.uid), ['a', 'b'])
 })
 
-test('签到：禁用链接照样签（禁用由插件自己判定，核心不筛）', async () => {
+test('签到：插件自标 disabled 的链接照样签（筛不筛由插件自己判定，核心不筛）', async () => {
   const seen: string[] = []
   const { body } = await postCheckin(
-    fixture([{ uid: 'a', disabled: true }, { uid: 'b' }], async (uid) => {
+    fixture([{ uid: 'a' }, { uid: 'b' }], async (uid) => {
       seen.push(uid)
       // 插件（如 traework）自己会对禁用链接返回 status:'disabled'
       return uid === 'a' ? { ok: false, status: 'disabled', message: '链接已禁用' } : { ok: true, status: 'ok' }

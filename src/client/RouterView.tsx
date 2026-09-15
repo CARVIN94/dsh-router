@@ -100,7 +100,7 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
         <div className="dshr-supplierGrid">
           {group.map(supplier => {
             const supplierAccounts = accounts.filter(a => a.supplier === supplier.id)
-            const healthy = supplierAccounts.filter(a => !a.cooling && !a.disabled).length
+            const healthy = supplierAccounts.filter(a => !a.cooling).length
             return (
               <section key={supplier.id} className="dshr-supplierCard" onClick={() => setDetailSupplier(supplier)}>
                 <div className="dshr-supplierRow">

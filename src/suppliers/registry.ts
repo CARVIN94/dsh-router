@@ -66,7 +66,7 @@ function cap(set: Set<string>, key: string): boolean {
 
 /** 账号状态指纹（积分 + 健康），用于判断刷新是否落地。 */
 function fingerprint(accounts: SupplierStatus['accounts']): string {
-  return accounts.map((a) => `${a.uid}:${a.credits}:${a.cooling}:${a.disabled}`).join('|')
+  return accounts.map((a) => `${a.uid}:${a.credits}:${a.cooling}`).join('|')
 }
 
 /**

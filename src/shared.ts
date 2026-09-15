@@ -28,7 +28,6 @@ export interface RouterAccount {
   cooling: boolean
   until?: string
   reason?: string
-  disabled: boolean
   err_count?: number
   /** 所属供应商 id。 */
   supplier?: string

@@ -31,7 +31,7 @@ export interface SupplierEnv {
    * 不报上来，它就会继续留在池里被轮转选中，每次都白撞一次同一个错误。
    *
    * 核心实现 = `pool.noteFailure(uid, model, state, message)`，按该状态的规则
-   * 冷却/禁用。真实案例：TRAE 免费通道对某账号拒绝某模型时发 HTTP 200 +
+   * 冷却。真实案例：TRAE 免费通道对某账号拒绝某模型时发 HTTP 200 +
    * 流内 `code=4008`，三个号里两个如此，round-robin 下 2/3 请求直接失败
    * （2026-09-08 实测）——有了这条通道，坏号被冷一次就退出轮转。
    *
@@ -46,7 +46,7 @@ export type SupplierFactory = (env: SupplierEnv) => SupplierModule
 /**
  * 账户此刻的状态 —— 插件**解读**上游信号后的语义状态。
  *
- * 插件只报「现在怎么了」，不说「该怎么办」：冷却多久、是否禁用、要不要换号
+ * 插件只报「现在怎么了」，不说「该怎么办」：冷却多久、要不要换号
  * 都是核心的策略，见 `AccountState` 各值的处置表（docs/suppliers.md）。
  *
  * 天花板：目前是固定枚举。若将来某供应商需要更细的语义，再加值而不是放宽成
@@ -68,7 +68,7 @@ export type AccountState =
    */
   | 'no_such_model'
 
-/** 面板展示的账号此刻状态（插件只报它观察到的部分，冷却/禁用由核心叠加）。 */
+/** 面板展示的账号此刻状态（插件只报它观察到的部分，冷却由核心叠加）。 */
 export interface SupplierAccountNow {
   uid: string
   nickname?: string
@@ -98,7 +98,7 @@ export type ChatOnceResult =
   | { ok: true; stream: ReadableStream<Uint8Array> }
   /** 非流式：核心写 JSON。 */
   | { ok: true; status: number; body: string }
-  /** 失败：核心据此做冷却/禁用/换号。 */
+  /** 失败：核心据此做冷却/换号。 */
   | { ok: false; state: AccountState; message: string }
 
 /** 供应商模块 —— 契约（核心必须，差异化可选）。 */
@@ -120,7 +120,7 @@ export interface SupplierModule {
   readonly apiKeyHint?: string
 
   // ---- 核心（必须） ----
-  /** 报账号「现在状态」。冷却/禁用/错误累计由核心叠加，插件不算这些。 */
+  /** 报账号「现在状态」。冷却/错误累计由核心叠加，插件不算这些。 */
   status(): SupplierStatusNow
   /** 模型来源。`force=true` 时强制刷新来源（核心「获取模型」按钮调用）。 */
   listModels(force?: boolean): Promise<ModelInfo[]> | ModelInfo[]

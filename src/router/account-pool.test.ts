@@ -1,10 +1,11 @@
 /**
- * 账号池（核心策略）测试 —— 选号/冷却/禁用/遍历回退。
+ * 账号池（核心策略）测试 —— 选号/冷却/遍历回退。
  *
  * 关键语义（v2）：
  *   - 冷却单元 = (supplierId, modelId, uid)。某连接在模型 A 上失败，只冷
  *     (A, 该连接)，该连接调模型 B 不受影响。
- *   - 禁用(session_dead) = 连接级(uid)：该号所有模型都不可用。
+ *   - session_dead = 连接级(uid)可恢复冷却：该号所有模型都不可用，到期自愈。
+ *     **没有永久禁用**——403 分不清凭证死活与风控误伤，误伤号不该被钉死。
  *   - no_such_model 不惩罚账号（模型不属于本供应商不是号的错）。
  * 用 node --test 跑（Node 原生 TS 剥离，零新依赖）。
  */
@@ -327,16 +328,18 @@ test('【颗粒度】同一连接对不同模型的退避独立累加/清零', (
   assert.equal(p.decorate(list, 'm1')[0]?.err_count, 0)
 })
 
-// ============ 连接级禁用(跨模型) ============
+// ============ 连接级冷却(跨模型, session_dead) ============
 
-test('【颗粒度】session_dead 是连接级禁用：跨该号所有模型', () => {
+test('【颗粒度】session_dead 是连接级冷却：跨该号所有模型，到期自愈', () => {
   const p = pool()
   const list = accs(['a'])
   p.noteFailure('a', 'm1', 'session_dead', '凭证失效')
   // 该号在 m1、m2 上都不可用（登录态问题，不是模型问题）
   assert.equal(p.pick(list, [], 'fallback', 'm1'), undefined)
   assert.equal(p.pick(list, [], 'fallback', 'm2'), undefined)
-  assert.equal(p.decorate(list)[0]?.disabled, true)
+  const d = p.decorate(list)[0]
+  assert.equal(d?.cooling, true)
+  assert.ok(d?.until !== undefined, 'session_dead 冷却必须有 until（可恢复）')
 })
 
 test('处置：未知错误第一次就冷却（坏号不留在池里等下一次撞）', () => {
@@ -347,7 +350,7 @@ test('处置：未知错误第一次就冷却（坏号不留在池里等下一�
   assert.equal(p.pick(list.filter((x) => x.uid === 'a'), [], 'fallback', 'm1'), undefined)
 })
 
-test('decorate：把冷却/禁用叠加到插件报的「现在状态」上（聚合展示）', () => {
+test('decorate：把冷却叠加到插件报的「现在状态」上（聚合展示）', () => {
   const p = pool()
   const list: SupplierAccountNow[] = [
     { uid: 'ok', credits: 5, state: 'ok' },
@@ -359,10 +362,9 @@ test('decorate：把冷却/禁用叠加到插件报的「现在状态」上（�
   const out = p.decorate(list)
   const by = new Map(out.map((a) => [a.uid, a]))
   assert.equal(by.get('ok')?.cooling, false)
-  assert.equal(by.get('ok')?.disabled, false)
   assert.equal(by.get('cool')?.cooling, true)
   assert.equal(by.get('cool')?.until !== undefined, true)
-  assert.equal(by.get('dead')?.disabled, true)
+  assert.equal(by.get('dead')?.cooling, true, 'session_dead 连接级冷却也展示为冷却中')
   // 插件报的字段要原样透出（不能被 decorate 吃掉）
   assert.equal(by.get('ok')?.credits, 5)
 })
@@ -375,7 +377,6 @@ test('no_such_model 不惩罚账号：不冷却、不计数', () => {
   assert.equal(p.pick(list, [], 'fallback', 'm1'), 'a')
   const out = p.decorate(list, 'm1')[0]
   assert.equal(out?.cooling, false)
-  assert.equal(out?.disabled, false)
   assert.equal(out?.err_count, 0)
 })
 
@@ -389,7 +390,7 @@ test('状态表：各 AccountState 的处置符合预期', () => {
   const by = new Map(p.decorate(list).map((a) => [a.uid, a]))
   assert.equal(by.get('rate')?.cooling, true)
   assert.equal(by.get('quota')?.cooling, true)
-  assert.equal(by.get('dead')?.disabled, true)
+  assert.equal(by.get('dead')?.cooling, true, 'session_dead = 连接级冷却')
   assert.equal(by.get('unavail')?.cooling, true, '瞬时错误第一次就冷却')
   assert.equal(p.pick(list, [], 'fallback', 'm1'), undefined, '四个号都不可服务')
 })

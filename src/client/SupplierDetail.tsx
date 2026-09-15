@@ -62,7 +62,6 @@ function untilLabel(account: RouterAccount): string {
 }
 
 function statusBadge(account: RouterAccount): { text: string; cls: string } {
-  if (account.disabled) return { text: '已禁用', cls: 'dshr-badge-danger' }
   if (account.cooling) return { text: '冷却中', cls: 'dshr-badge-warn' }
   return { text: '健康', cls: 'dshr-badge-ok' }
 }
@@ -666,7 +665,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
               <div className="dshr-linkList">
                 {orderedAccounts.map((account, index) => {
                   const badge = statusBadge(account)
-                  const coolingText = account.cooling || account.disabled
+                  const coolingText = account.cooling
                     ? `${account.reason ?? ''}${untilLabel(account) !== '' ? ` · ${untilLabel(account)}` : ''}`
                     : ''
                   return (

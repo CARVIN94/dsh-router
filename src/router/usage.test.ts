@@ -12,6 +12,7 @@ import {
   tapStreamUsage,
   withEstimates,
   estimateTokens,
+  toTokenUsage,
 } from './usage-tokens.ts'
 import { UsageStore, localDateKey } from './usage-store.ts'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -33,6 +34,22 @@ test('归一化：Claude 形态的 prompt 不含缓存，cache_read 要折进输
   // 照 9router canonicalizeUsage：Claude 报的 input 排除 cache，得加回来
   const u = normalizeUsage({ input_tokens: 50, output_tokens: 10, cache_read_input_tokens: 80 })
   assert.deepEqual(u, { promptTokens: 130, completionTokens: 10, cachedTokens: 80 })
+})
+
+test('归一化：TRAE 借 Claude 字段名、语义却是 OpenAI —— 不得重复加 cache（命中率腰斩 bug）', () => {
+  // TRAE(SOLO) 同时报 prompt_tokens（OpenAI 总语义，**已含**缓存）和
+  // cache_read_input_tokens。语义与字段名分属两条车道，判别不能只看后者。
+  // 2026-09-16 实测同一次请求：160019 + 159744 被加两遍 → 319763，命中率腰斩
+  // 成 ~50%；真实命中率 159744/160019 = 99.8%。
+  const u = normalizeUsage({
+    prompt_tokens: 160019,
+    completion_tokens: 307,
+    cache_read_input_tokens: 159744,
+  })
+  assert.deepEqual(u, { promptTokens: 160019, completionTokens: 307, cachedTokens: 159744 }, 'prompt_tokens 已含缓存，不得再加 cache_read')
+  // DISJOINT 折算后必须还原上游真实值：160019 - 159744 = 275 未缓存输入
+  const t = toTokenUsage(u)
+  assert.deepEqual(t, { inputTokens: 275, outputTokens: 307, cacheReadTokens: 159744 })
 })
 
 test('归一化：Gemini 形态（promptTokenCount / usageMetadata）', () => {

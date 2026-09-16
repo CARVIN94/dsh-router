@@ -61,7 +61,14 @@ function num(v: unknown): number {
  * `cached_tokens` 口径照 9router 的 `canonicalizeUsage`：OpenAI 系报的
  * prompt_tokens **已含**缓存，直接透传；Claude 系报的是**不含**缓存的
  * prompt + 单独的 cache_read，要折进来，否则总输入偏小。
- * 判别式就是「有没有 cache_read_input_tokens」。
+ *
+ * 判别式**不能只看有没有 `cache_read_input_tokens`**：TRAE(SOLO) 借用了这个
+ * Claude 字段名，语义却是 OpenAI 的「prompt_tokens 已含缓存」——
+ * 于是同时报了 `prompt_tokens=160019` 和 `cache_read_input_tokens=159744`，
+ * 旧逻辑无条件相加 → 总量翻倍、命中率被腰斩成 50%。正确判别是**看 prompt
+ * 车道**：有 `prompt_tokens` = OpenAI 总语义（已含缓存，**不**再折 cache_read）；
+ * 只有 `input_tokens`/`promptTokenCount` = Claude/Gemini 不含缓存，才折。
+ * 这与供应商无关、自描述，比把 supplierId 灌进 usage 管线更干净。
  *
  * @returns 归一用量；一个非零字段都没有时返回 null（= 没拿到 usage）
  */
@@ -77,7 +84,11 @@ export function normalizeUsage(raw: unknown): UsageTokens | null {
 
   // promptTokenCount 是 Gemini 形态；input_tokens 是 Claude 形态
   let prompt = num(u.prompt_tokens) + num(u.input_tokens) + num(u.promptTokenCount)
-  if (u.cache_read_input_tokens !== undefined) prompt += num(u.cache_read_input_tokens)
+  // 有 prompt_tokens = OpenAI 总语义（含缓存）；没有 = Claude/Gemini 不含缓存，
+  // 这时才该把 cache_read 折进来，否则像 TRAE 会加两遍
+  if (u.cache_read_input_tokens !== undefined && u.prompt_tokens === undefined) {
+    prompt += num(u.cache_read_input_tokens)
+  }
 
   const completion = num(u.completion_tokens) + num(u.output_tokens) + num(u.candidatesTokenCount)
 

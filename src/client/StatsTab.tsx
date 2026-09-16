@@ -421,6 +421,12 @@ export function StatsTab({ onRefresh, refreshing, active, health }: StatsTabProp
   const successRate = s !== null && s.requests !== undefined && s.requests > 0
     ? Math.round(((s.okCount ?? 0) / s.requests) * 100)
     : null
+  // 缓存命中率 = cachedTokens / promptTokens（cachedTokens 是 promptTokens
+  // 的子集：命中缓存的输入部分）。分母 0 = 本周期没有带缓存语义的请求，
+  // 显示 — 而不是硬造 0%（那会把「没数据」和「全未命中」混为一谈）。
+  const cacheRatio = s !== null && (s.promptTokens ?? 0) > 0
+    ? Math.round(((s.cachedTokens ?? 0) / (s.promptTokens ?? 0)) * 100)
+    : null
   // 估算提示：只有真有估算时才显示，别没事吓唬人
   const estimated = s !== null && ((s.estimatedInputs ?? 0) > 0 || (s.estimatedOutputs ?? 0) > 0)
 
@@ -490,8 +496,16 @@ export function StatsTab({ onRefresh, refreshing, active, health }: StatsTabProp
                 hint={(s?.estimatedOutputs ?? 0) > 0 ? '~ 含估算' : undefined}
                 tone="ok"
               />
-              {/* 缓存排在输入/输出之后：它是输入的子集，不是并列的第三种 token */}
-              <StatCard label="缓存 Tokens" value={fmtShort(s?.cachedTokens)} hint="命中缓存的输入部分" tone="default" />
+              {/* 缓存排在输入/输出之后：它是输入的子集，不是并列的第三种 token。
+                  显示命中率而不是 token 数：50.2% 这种数一眼能读出「缓存工作是否正常」，
+                  绝对值要看的话输入 Tokens 卡里已含（title 给出原始数字）。 */}
+              <StatCard
+                label="缓存命中率"
+                value={cacheRatio === null ? '—' : `${cacheRatio}%`}
+                hint={cacheRatio === null ? '命中缓存的输入占比' : `命中 ${fmtShort(s?.cachedTokens)} / 输入 ${fmtShort(s?.promptTokens)}`}
+                tone={cacheRatio !== null && cacheRatio >= 80 ? 'ok' : 'default'}
+                title="缓存命中率 = 命中缓存的输入 tokens ÷ 总输入 tokens"
+              />
               <StatCard
                 label="平均耗时"
                 value={fmtDuration(s?.avgDurationMs)}

@@ -140,6 +140,7 @@ async function aggregateSSE(stream: ReadableStream<Uint8Array>): Promise<string>
 
   const reader = stream.getReader()
   let buf = ''
+  try {
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -188,6 +189,12 @@ async function aggregateSSE(stream: ReadableStream<Uint8Array>): Promise<string>
         }
       }
     }
+  }
+  } finally {
+    // 无论正常读完还是中途抛错，都要**解绑** reader：调用方（writeChatResult）
+    // 在失败路径里要对同一流 cancel()，而流被锁住时 cancel 会抛
+    // `Invalid state: ReadableStream is locked` —— 那样这次的连接就漏了。
+    try { reader.releaseLock() } catch { /* 有待定 read 时会抛，忽略 */ }
   }
 
   const toolCalls = [...calls.entries()]
@@ -242,9 +249,11 @@ function normalizeSSEStream(stream: ReadableStream<Uint8Array>): {
   const dec = new TextDecoder()
   let buf = ''
   let sawDone = false
+  /** 上游 reader：cancel 时要靠它把取消传下去（见下方 cancel 分支）。 */
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   const out = new ReadableStream<Uint8Array>({
     start: async (ctrl) => {
-      const reader = stream.getReader()
+      reader = stream.getReader()
       try {
         for (;;) {
           const { done, value } = await reader.read()
@@ -263,11 +272,21 @@ function normalizeSSEStream(stream: ReadableStream<Uint8Array>): {
           if (isDoneFrame(buf)) sawDone = true
           ctrl.enqueue(enc.encode(fixFrame(buf)))
         }
+      } catch {
+        // 消费方取消（客户端断开）会让挂起的 read 抛错/返回 done —— 静默收尾
       } finally {
-        reader.releaseLock()
+        try { reader.releaseLock() } catch { /* 有待定 read 时会抛，忽略 */ }
       }
-      ctrl.close()
+      try { ctrl.close() } catch { /* 已取消 */ }
     },
+    /**
+     * **取消必须往下传**：ReadableStream 的取消不会自动穿过 wrapper。
+     * 不实现这个分支，客户端断开的取消就停在这里，上游 fetch body 永不 cancel
+     * ——那条 TCP 连接和 in-flight 请求原样挂着（长跑一天就会累积到耗尽）。
+     * 用 reader.cancel() 而不是 stream.cancel()：流已被 getReader() 锁住，
+     * 直接 cancel 会抛 `Invalid state: ReadableStream is locked`。
+     */
+    cancel: (reason) => reader?.cancel(reason),
   })
   return { stream: out, sawDone: () => sawDone }
 }
@@ -338,7 +357,12 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
     try {
       body = await aggregateSSE(r.stream)
     } catch {
-      return false // 聚合失败 = 一个字节都没写，调用方可以换号重试
+      // 聚合失败 = 一个字节都没写，调用方可以换号重试。
+      // **但底层流必须 cancel**：aggregateSSE 内部 getReader() 消费到一半抛错时，
+      // reader 只是 releaseLock()，传输层毫无察觉 —— 那条上游连接会一直挂着。
+      // 不 cancel 就退化成「每次聚合失败漏一条连接」（issue #6 的路径 1）。
+      await r.stream.cancel().catch(() => {})
+      return false
     }
     if (probe !== undefined) probe.tokens = usageFromJsonBody(body)
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
@@ -351,6 +375,18 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
   let wroteAny = false
   /** 响应已死（客户端断开/res 已销毁）：等 drain 的写入要立刻放弃，别吊死。 */
   let dead = false
+  /**
+   * 唤醒「等 drain 的挂起 write」。客户端断开时必须调它：那时 'drain' 永不到来，
+   * 不唤醒就永远卡在 write 里，pipeTo 不 settle，finally 不执行，
+   * **上游流也就永不 cancel**（= 每次客户端放弃漏一条连接）。
+   */
+  let releaseWait: (() => void) | undefined
+  /**
+   * 中止 pipeTo 的信号源（客户端断开时 abort）。
+   * 单靠 `dead` 标志只能让**下一次** write 立刻返回，唤醒不了**已经挂起**的那次；
+   * abort 才能让 pipeTo 立刻收尾并走它的取消路径（进而 cancel 上游）。
+   */
+  const abort = new AbortController()
   const writeChunk = (chunk: Uint8Array): Promise<void> =>
     new Promise<void>((resolve) => {
       if (dead) { resolve(); return }
@@ -370,25 +406,44 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
       if (res.write(chunk)) resolve()
       else {
         // 背压：等 drain。但连接可能在这期间断掉 —— 那时 'drain' 永不到来，
-        // 得靠 dead 标志（onError 里置位）兜住，否则这次请求会永远挂着。
+        // 得靠 release() 兜住（客户端断开时唤醒），否则这次请求会永远挂着。
         const onDrain = (): void => { res.removeListener('error', onDrain); resolve() }
         res.once('drain', onDrain)
+        /** 让这个挂起的 write 立刻收尾（客户端断开时调用）。 */
+        releaseWait = () => { res.removeListener('drain', onDrain); resolve() }
       }
     })
 
-  // 流中途出错（客户端断开/上游断流）也要结束响应，否则连接悬挂
+  // 客户端断开 / 流中途出错都要停手，否则连接悬挂
   const onError = (): void => {
     dead = true
     res.destroy()
   }
   res.once('error', onError)
+  /**
+   * **客户端断开必须被当成取消信号**：只监听 'error' 是不够的 —— 对端关闭
+   * （pi-ai 的流空闲超时、用户取消、消费方提前退出）触发的是 'close'，
+   * 不是 'error'。此时若不收手，pipeTo 会一直等着 drain（永不到来），
+   * finally 永不执行，上游 fetch body **永不 cancel** → 那条 TCP 连接和
+   * in-flight 请求原样挂着，长跑累积到耗尽（"用久了就报 connection error"）。
+   */
+  const onClose = (): void => {
+    if (res.writableEnded) return // 正常写完的 close，不是取消
+    dead = true
+    releaseWait?.()
+    abort.abort()
+  }
+  res.once('close', onClose)
   const norm = normalizeSSEStream(tapped?.stream ?? r.stream)
   try {
-    await norm.stream.pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }))
+    // signal 让 abort 时 pipeTo 立刻收尾（而不是等 drain）；其收尾路径会
+    // cancel 源流，顺着 wrapper 的 cancel 一路传到上游 fetch body。
+    await norm.stream.pipeTo(new WritableStream<Uint8Array>({ write: writeChunk }), { signal: abort.signal })
   } catch {
-    // 流断了：一个字节都没写的话，调用方还能换号重试——交给上层决定
+    // 断流/取消：一个字节都没写的话，调用方还能换号重试——交给上层决定
   } finally {
     res.removeListener('error', onError)
+    res.removeListener('close', onClose)
     // 断流也要给客户端一个终止帧。客户端（dsh-llm adapter）严格等
     // `[DONE]`，缺了就整轮判失败（`SSE payload stream ended without
     // [DONE]`），已经流式吐出去的内容全部作废。上游自己发了就不重复发
@@ -396,10 +451,11 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
     //
     // 只在**已提交响应**时补：一个字节都没写 = 还能换号重试，补了就等于
     // 把这次失败坐实成一个空响应，组合回退就没了。
+    // dead（客户端已走）时也不补：对端没了，写了也没人收。
     if (wroteAny && !norm.sawDone() && !dead && !res.writableEnded && !res.destroyed) {
       await writeChunk(DONE_FRAME)
     }
-    if (wroteAny) res.end()
+    if (wroteAny && !dead) res.end()
     // 流走完才出得了 usage（上游多在最后一帧才发 usage）
     if (probe !== undefined && tapped !== undefined) {
       const got = await tapped.done()

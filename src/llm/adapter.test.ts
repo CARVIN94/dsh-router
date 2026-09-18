@@ -16,6 +16,13 @@ import { toTokenUsage } from '../router/usage-tokens.ts'
 import { RouterAdapter, translateSse } from './adapter.ts'
 
 /**
+ * 本文件大量用例把 `globalThis.fetch` 打桩成假上游，且**从不还原**（沿既有惯例：
+ * 每个用例自己设桩）。所以「要打真实网络」的用例必须自己把真 fetch 放回去 ——
+ * 否则会静默拿到上一个用例残留的桩（曾导致「停摆测试 0ms 就 ended」的假结果）。
+ */
+const realFetch: typeof fetch = globalThis.fetch
+
+/**
  * dsh-llm 默认可重试的错误码白名单（DEFAULT_RETRYABLE_CODES）。
  *
  * 这里**故意写死一份**而不是从依赖导入：白名单是重试能不能生效的判据，
@@ -726,4 +733,79 @@ test('wire：纯文本 tool-result 不因图片逻辑改变顺序（tool 紧跟 
   const messages = body.messages as Array<{ role: string; tool_call_id?: string; tool_calls?: Array<{ id: string }> }>
   assertToolPairingIntact(messages)
   assert.deepEqual(messages.map((m) => m.role), ['user', 'assistant', 'tool'], '纯文本 tool 结果仍紧跟 assistant')
+})
+
+/* ---------------- 流空闲超时：上游停摆不能永久挂住（issue #6） ---------------- */
+
+/**
+ * 为什么要有这一组：同一个 dsh-router `/v1`，走**自定义供应商**（llm-pi-ai 的
+ * openai-completions adapter）时有 `idleWatchdog`（默认 300s）兜底，走**内置
+ * Router adapter** 时此前没有任何超时 —— 上游连上后一停摆就永久挂着，连接和
+ * in-flight 请求都收不回。这是 issue #6「内置 vs 自定义」差异的一半。
+ *
+ * **必须用真实 http server**：合成 `ReadableStream` 上 `AbortSignal` 是无效的
+ * （实测合成流 + AbortSignal.timeout 永不收尾），拿它测只能得到假结论。
+ */
+test('流空闲超时：上游停摆 → adapter 自己中止（不依赖调用方给 signal）', async () => {
+  const http = await import('node:http')
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    res.flushHeaders()          // 一个字节都不吐，也不结束
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  globalThis.fetch = realFetch   // 本文件前面的用例会留桩，必须装回真 fetch
+  try {
+    // 用可注入的短超时（默认 300s，测起来太慢）；不注入就退回生产值。
+    const adapter = new RouterAdapter(base, { comboModels: async () => [] }, undefined, 400)
+    const started = Date.now()
+    const consume = (async () => {
+      for await (const _c of adapter.stream({ model: 'm', messages: [] } as never)) void _c
+    })()
+    const outcome = await Promise.race([
+      consume.then(() => 'ended', (e: Error) => `threw:${(e as Error & { code?: string }).code ?? e.message}`),
+      new Promise<string>((r) => setTimeout(() => r('HANG'), 4000)),
+    ])
+    const ms = Date.now() - started
+    console.log(`[gate] 无调用方 signal，停摆 → ${outcome} @${ms}ms`)
+    assert.notEqual(outcome, 'HANG', 'adapter 必须自带空闲超时，不能永久挂住')
+    assert.ok(String(outcome).includes('TIMEOUT'), `应抛 TIMEOUT（可重试码），实际 ${outcome}`)
+  } finally {
+    server.closeAllConnections?.()
+    server.close()
+  }
+})
+
+test('调用方取消必须能贯穿整条流（响应头到手后仍可中断，不永久挂住）', async () => {
+  // 用**真实 http server**：合成 ReadableStream 会给出假象（abort 对非 undici 流
+  // 无效）。这里上游发出响应头 + 一块数据后停摆，调用方给 1s 超时。
+  // 修复前：adapter 在 fetch 返回时就 removeEventListener，body 读无人打断 →
+  // 请求永久挂住（实测 6s 仍未收尾）。修复后：1s 左右被中止。
+  const http = await import('node:http')
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    res.write('data: {"choices":[{"delta":{"content":"a"}}]}\n\n')
+    res.flushHeaders()          // 之后停摆：不吐数据也不结束
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  globalThis.fetch = realFetch   // 同上：必须先装回真 fetch
+  try {
+    const adapter = new RouterAdapter(base, { comboModels: async () => [] })
+    const t0 = Date.now()
+    const consume = (async () => {
+      for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(1000) } as never)) void _c
+    })()
+    const outcome = await Promise.race([
+      consume.then(() => 'ended', (e: Error) => `threw:${e.message}`),
+      new Promise((r) => setTimeout(() => r('HANG'), 5000)),
+    ])
+    const ms = Date.now() - t0
+    console.log(`[gate] 停摆 + 1s 超时 → ${outcome} @${ms}ms`)
+    assert.notEqual(outcome, 'HANG', '调用方取消后必须收尾，不能永久挂住')
+    assert.ok(ms < 4000, `应在调用方超时附近收尾（实际 ${ms}ms）`)
+  } finally {
+    server.closeAllConnections?.()
+    server.close()
+  }
 })

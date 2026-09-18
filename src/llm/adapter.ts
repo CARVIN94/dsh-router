@@ -81,6 +81,17 @@ export interface RouterAdapterSource {
 /** tool-result 里图片挂到 user 消息时用的说明文字（与官方适配器一致）。 */
 const TOOL_RESULT_IMAGE_TEXT = 'Tool result images'
 
+/**
+ * 流空闲超时：上游连上后这么久没吐**任何**字节就判失败（抛 TIMEOUT，可重试）。
+ *
+ * 对齐 `dsh-llm-pi-ai` 的 `DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000`：同一个
+ * dsh-router `/v1`，走自定义供应商（pi-ai）时有这个兜底、走内置 adapter 时没有
+ * —— 差异导致「上游停摆」在内置路径上永久挂住。
+ *
+ * 只守空闲、不封总时长：长生成只要持续吐块就不该被打断。
+ */
+const STREAM_IDLE_TIMEOUT_MS = 300_000
+
 async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = []
   /**
@@ -530,12 +541,24 @@ export class RouterAdapter extends LlmAdapter {
   private readonly baseURL: string
   private readonly source: RouterAdapterSource
   private readonly resolveAttachments: () => RouterAttachmentStore | undefined
+  /** 流空闲超时（ms）：上游这么久不吐字节就判 TIMEOUT。 */
+  private readonly idleTimeoutMs: number
 
-  constructor(baseURL: string, source: RouterAdapterSource, resolveAttachments?: () => RouterAttachmentStore | undefined) {
+  /**
+   * @param idleTimeoutMs 流空闲超时；缺省用生产值（300s，对齐 pi-ai）。
+   *   可注入只为测试能压到几百毫秒，生产不传。
+   */
+  constructor(
+    baseURL: string,
+    source: RouterAdapterSource,
+    resolveAttachments?: () => RouterAttachmentStore | undefined,
+    idleTimeoutMs: number = STREAM_IDLE_TIMEOUT_MS,
+  ) {
     super()
     this.baseURL = baseURL
     this.source = source
     this.resolveAttachments = resolveAttachments ?? (() => undefined)
+    this.idleTimeoutMs = idleTimeoutMs
   }
 
   providerInfo(provider: string): { id: string; name: string } {
@@ -602,16 +625,24 @@ export class RouterAdapter extends LlmAdapter {
         signal: controller.signal,
       })
     } catch (error) {
+      options.signal?.removeEventListener('abort', onAbort)
       throw new LlmError(`dsh-router upstream call failed: ${(error as Error).message}`, 'TRANSPORT', { cause: error })
+    }
+    // **监听必须活到整条流结束**，不能在 fetch 返回时就摘：`controller.signal`
+    // 已经把传入的 signal 与这次 fetch 绑在一起（含 body 流），响应头到手后
+    // body 还在读，此时调用方取消（用户中断 / agent-loop 收敛 / 上游停摆被
+    // 上层超时放弃）必须还能 abort 掉这次请求 —— 摘早了，body 读就无人打断，
+    // 请求永久挂住、连接也收不回（issue #6「内置供应商才挂死」的另一半）。
+    try {
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '')
+        throw new LlmError(`dsh-router /v1 returned ${resp.status}: ${detail.slice(0, 200)}`, 'TRANSPORT')
+      }
+      if (resp.body === null) return
+      yield* translateSse(ssePayloads(resp.body, this.idleTimeoutMs))
     } finally {
       options.signal?.removeEventListener('abort', onAbort)
     }
-    if (!resp.ok) {
-      const detail = await resp.text().catch(() => '')
-      throw new LlmError(`dsh-router /v1 returned ${resp.status}: ${detail.slice(0, 200)}`, 'TRANSPORT')
-    }
-    if (resp.body === null) return
-    yield* translateSse(ssePayloads(resp.body))
   }
 }
 
@@ -641,16 +672,42 @@ function looksComplete(payload: string): boolean {
  * 跨块边界：一个 `data:` 行可能横跨两次 read()，所以留 `buffer` 接住
  * 最后一段未完整的行（9router 的 pipeTransformedSSE 同样处理）。
  */
-async function* ssePayloads(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+async function* ssePayloads(body: ReadableStream<Uint8Array>, idleTimeoutMs: number): AsyncGenerator<string> {
   const reader = body.getReader()
   const decoder = new TextDecoder('utf-8', { fatal: false })
   let buffer = ''
   /** 攒一帧内的多行 data（SSE 规范：多行用 \n 连起来）。**必须**是局部
    *  状态 —— 放模块级会让并发请求互相串数据。 */
   let payload = ''
+  /**
+   * 带**空闲超时**的读：上游连上后若长时间一个字节都不吐，就读穿不了 ——
+   * 没有超时的话这里会永久挂着，连接和 in-flight 请求都收不回。
+   *
+   * 为什么必须有（issue #6 的另一半）：`dsh-llm-pi-ai`（自定义供应商走的那条
+   * openai-completions adapter）有 `idleWatchdog`，默认 **300s** 空闲即
+   * `LLM_STREAM_IDLE_TIMEOUT` 中止；而本 adapter 此前**没有任何超时**，只靠
+   * 调用方的 `options.signal`。于是同一个组合，走内置 Router 时上游一停摆就
+   * 永久挂住（占用连接、且该请求永不收尾），走自定义供应商时 300s 后被放弃
+   * —— 放弃又会触发服务端那条「客户端断开不回收」的泄漏路径，两边叠加就是
+   * 「用久了报 connection error」。
+   *
+   * 只守**空闲**、不设总时长：长生成可以跑很久，只要还在吐块就不该被打断
+   * （总时长封顶会让长回答写到一半被砍）。
+   */
+  const readWithIdleTimeout = (): Promise<ReadableStreamReadResult<Uint8Array>> =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new LlmError(`dsh-router upstream stream idle for ${idleTimeoutMs}ms`, 'TIMEOUT')),
+        idleTimeoutMs,
+      )
+      reader.read().then(
+        (r) => { clearTimeout(timer); resolve(r) },
+        (e) => { clearTimeout(timer); reject(e) },
+      )
+    })
   try {
     for (;;) {
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithIdleTimeout()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')

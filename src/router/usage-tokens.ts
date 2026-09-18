@@ -280,9 +280,11 @@ export function tapStreamUsage(
     }
   }
 
+  /** 源 reader：cancel 时要靠它把取消传下去（见下方 cancel 分支）。 */
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   const stream = new ReadableStream<Uint8Array>({
     start: async (ctrl) => {
-      const reader = source.getReader()
+      reader = source.getReader()
       try {
         for (;;) {
           const { done, value } = await reader.read()
@@ -300,11 +302,19 @@ export function tapStreamUsage(
           ctrl.enqueue(value as Uint8Array)
         }
         if (buf !== '') parseFrame(buf)
+      } catch {
+        // 消费方取消会让挂起的 read 收尾 —— 静默退出
       } finally {
-        reader.releaseLock()
+        try { reader.releaseLock() } catch { /* 有待定 read 时会抛，忽略 */ }
       }
-      ctrl.close()
+      try { ctrl.close() } catch { /* 已取消 */ }
     },
+    /**
+     * 取消要往下传（同 normalizeSSEStream 的理由）：不传 → 客户端断开时
+     * 上游 fetch body 永不 cancel，连接与 in-flight 请求一直挂着。
+     * 必须用 reader.cancel()：流已被 getReader() 锁住，stream.cancel() 会抛。
+     */
+    cancel: (reason) => reader?.cancel(reason),
   })
 
   return {

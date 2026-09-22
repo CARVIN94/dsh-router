@@ -25,7 +25,7 @@ export default [
   {
     entry: {
       index: 'src/index.ts',
-      // opencode free：参考 9Router 实现的无鉴权免费供应商
+      // opencode：Zen 免费档（无账号，但需模拟真 CLI 握手 + 上游只支持流式）
       'suppliers/opencode': 'src/suppliers/opencode/plugin.ts',
       // openrouter：参考 9Router 实现的 apikey 免费供应商（OPENROUTER_API_KEY）
       'suppliers/openrouter': 'src/suppliers/openrouter/plugin.ts',

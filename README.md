@@ -193,7 +193,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
                  │         (usage 经 toTokenUsage 转 DSH 契约,见 docs/suppliers.md)
                  ├─ KeysStore(src/keys.ts)              密钥库 + requireApiKey
                  └─ Router(路由器) → suppliers[]
-                      ├─ OpenCodeSupplier(lib/suppliers/opencode.js) 无账号免费直连
+                      ├─ OpenCodeSupplier(lib/suppliers/opencode.js) 无账号直连(Zen 免费档,需 CLI 握手)
                       ├─ OpenRouterSupplier(lib/suppliers/openrouter.js) API key 账号
                       └─ NvidiaSupplier(lib/suppliers/nvidia.js)       API key 账号
                       └─ 外部插件供应商(经 router.suppliers service 注册)

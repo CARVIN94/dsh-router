@@ -143,6 +143,8 @@ export interface RouterExtItem {
   id: string
   name: string
   description?: string
+  /** 卡片/详情图标 logo URL（可选）。 */
+  icon?: string
   /** 是否启用改写（面板开关）。 */
   enabled?: boolean
   /** 运行时是否就绪（如 RTK 二进制是否可用）。 */
@@ -156,6 +158,25 @@ export interface RouterExtResponse {
   ok: boolean
   error?: string
   enhancers?: RouterExtItem[]
+}
+
+/** 一行 watch 进程（`/router/api/ext/watch/processes`）。 */
+export interface RouterWatchProcess {
+  pid: number
+  ppid: number
+  /** %cpu 快照 */ cpu: number
+  /** %mem 快照 */ mem: number
+  command: string
+  /** 命中的已记录 agent 命令。 */
+  match: string
+  recordedAt: number
+}
+
+/** `/router/api/ext/{id}/processes` response。 */
+export interface RouterWatchResponse {
+  ok: boolean
+  error?: string
+  processes?: RouterWatchProcess[]
 }
 
 /** 供应商模型（含启用状态）。 */

@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { ROUTER_API_BASE, type RouterExtItem, type RouterExtResponse } from '../shared.ts'
+import { ExtDetail } from './ExtDetail.tsx'
 
 function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -28,6 +29,7 @@ export function ExtTab(): JSX.Element {
   const [items, setItems] = useState<RouterExtItem[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -79,6 +81,12 @@ export function ExtTab(): JSX.Element {
     }
   }
 
+  // 打开详情视图：用 live item（否则详情里的开关状态不会随列表更新）。
+  const selected = selectedId !== null ? items.find((i) => i.id === selectedId) ?? null : null
+  if (selected !== null) {
+    return <ExtDetail item={selected} onBack={() => setSelectedId(null)} onToggle={toggle} />
+  }
+
   return (
     <div className="dshr-tabBody">
       {error !== '' && (
@@ -92,51 +100,43 @@ export function ExtTab(): JSX.Element {
           <span className="dshr-keyEmptyIcon"><Icon d={I.puzzle} size={30} /></span>
           <p className="dshr-keyEmptyTitle">暂无扩展</p>
           <p className="dshr-keyEmptyDesc">
-            安装扩展插件(如 <code>dsh-router-ext-rtk</code>)后,这里会出现开关
+            安装扩展插件(如 <code>dsh-router-ext-watch</code>)后,这里会出现开关
           </p>
         </div>
       ) : (
-        items.map(item => {
-          const notReady = item.ready === false
-          return (
-            <section key={item.id} className="dshr-card">
-              <div className="dshr-cardHead">
-                <span className="dshr-cardIcon"><Icon d={I.bolt} /></span>
-                <div className="dshr-cardTitle">{item.name}</div>
-                {/* 开关放标题行最右端:.dshr-cardAction 是现成的
-                    margin-left:auto(EndpointTab 的「创建 Key」就靠它),复用不新增。
-                    不可用时禁开——禁了就无从开启成功。 */}
-                <button
-                  type="button"
-                  className={`dshr-toggle dshr-cardAction ${item.enabled ? 'dshr-toggle-on' : ''}`}
-                  role="switch"
-                  aria-checked={!!item.enabled}
-                  disabled={notReady && !item.enabled}
-                  onClick={() => void toggle(item, !item.enabled)}
-                  title={notReady && !item.enabled
-                    ? '当前不可用,无法开启'
-                    : item.enabled ? `关闭 ${item.name}` : `开启 ${item.name}`}
-                >
-                  <span className="dshr-toggleKnob" />
-                </button>
-              </div>
+        <div className="dshr-supplierGrid">
+          {items.map(item => {
+            const notReady = item.ready === false
+            return (
+              <section key={item.id} className="dshr-supplierCard" onClick={() => setSelectedId(item.id)}>
+                <div className="dshr-supplierRow">
+                  {item.icon !== undefined ? (
+                    <img
+                      className="dshr-supplierIcon dshr-extLogo"
+                      src={item.icon}
+                      alt=""
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                    />
+                  ) : (
+                    <span className="dshr-supplierIcon"><Icon d={I.bolt} size={24} /></span>
+                  )}
+                  <div className="dshr-supplierName">{item.name}</div>
+                </div>
 
-              {/* 内容区：说明 + 未就绪红字（左对齐、与卡片图标对齐） */}
-              <div className="dshr-extBody">
-                {item.description !== undefined && item.description !== '' && (
-                  <div className="dshr-muted">{item.description}</div>
-                )}
                 {notReady && (
-                  <div className="dshr-ext-error">
-                    {item.detail !== undefined && item.detail !== ''
-                      ? item.detail
-                      : '未就绪,无法开启'}
+                  <div className="dshr-extCardError">
+                    {item.detail !== undefined && item.detail !== '' ? item.detail : '未就绪'}
                   </div>
                 )}
-              </div>
-            </section>
-          )
-        })
+
+                <div className="dshr-supplierMeta">
+                  <span className="dshr-muted">{item.enabled ? '已启用' : '未启用'}</span>
+                  <span className="dshr-chevron">›</span>
+                </div>
+              </section>
+            )
+          })}
+        </div>
       )}
     </div>
   )

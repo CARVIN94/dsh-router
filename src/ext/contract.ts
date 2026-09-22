@@ -25,6 +25,7 @@
  *     file IO —— 落盘位置由核心锚定（不跟 cwd 跑），读写经核心，插件无状态。
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
 /** 扩展器唯一 id（注册键）。 */
 export type ExtId = string
@@ -53,8 +54,16 @@ export interface RouterExt {
   readonly name: string
   /** 面板副标题说明。 */
   readonly description?: string
+  /** 卡片/详情图标的 logo URL（可选；缺省用默认图标）。 */
+  readonly icon?: string
   /** 当前运行时状态（ready + 不就绪时的说明）。 */
   getState(): ExtState
+  /**
+   * 通用扩展 API 点（可选）：核心把 `/router/api/ext/{id}/{subpath}` 兜底路由派发进来，
+   * 由扩展器自己裁决/处理（如 watch 的 `processes`/`kill`）。返回 true 表示已处理；
+   * false / 未实现 → 核心回 404。这样扩展的执行面逻辑进插件，核心只加一条通用转发。
+   */
+  api?(subpath: string, req: IncomingMessage, res: ServerResponse): boolean | Promise<boolean>
   /** 卸载清理（表删除时由 dsh-router 调用，可选）。 */
   dispose?(): void
 }
@@ -64,6 +73,8 @@ export interface ExtInfo {
   id: string
   name: string
   description?: string
+  /** 卡片/详情图标 logo URL（可选）。 */
+  icon?: string
   /** 核心持久化的开关（默认关）。 */
   enabled: boolean
   /** 插件报的运行时就绪状态。 */

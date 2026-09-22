@@ -525,6 +525,7 @@ export function apply(rawContext: unknown): void {
           id: e.id,
           name: e.name ?? e.id,
           ...(e.description !== undefined ? { description: e.description } : {}),
+          ...(e.icon !== undefined ? { icon: e.icon } : {}),
           enabled: extStore.isEnabled(e.id),
           ready: st?.ready === true,
           ...(st?.detail !== undefined ? { detail: st.detail } : {}),
@@ -533,6 +534,34 @@ export function apply(rawContext: unknown): void {
       .filter((e): e is ExtInfo => e !== undefined)
     writeJson(res, 200, { ok: true, enhancers: list })
   })
+
+  // ---- 扩展通用 API 转发：/router/api/ext/{id}/{subpath} → 该扩展器的 api() ----
+  // watch 这类自定义扩展用它暴露自己的面板接口（如 processes）。分开的 exact 路由
+  // `/ext`（上方）管开关列表；这里必须是 **prefix** 路由兜子路径（`route()` 是 exact,
+  // 匹配不了 `/ext/watch/processes`——用 exact 会造成 404 空 body → 前端 res.json() 崩）。
+  // 核心不知道子路径长什么样——是否处理、怎么处理全由扩展器自己裁决（执行面），核心只转发。
+  const extDispatch = ctx.webServer.register({
+    kind: 'prefix',
+    path: `${ROUTER_API_BASE}/ext/`,
+    handler: async (req, res) => {
+      const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
+      const mount = `${ROUTER_API_BASE}/ext/`
+      const rest = pathname.startsWith(mount) ? pathname.slice(mount.length) : ''
+      const slash = rest.indexOf('/')
+      const extId = slash < 0 ? rest : rest.slice(0, slash)
+      const subpath = slash < 0 ? '' : rest.slice(slash + 1)
+      if (extId === '') {
+        writeJson(res, 404, { ok: false, error: 'extension not found' })
+        return
+      }
+      const ext = (exts[extId] as RouterExt | undefined)
+      if (ext !== undefined && typeof ext.api === 'function' && (await ext.api(subpath, req, res))) {
+        return // 扩展器已处理并写出响应
+      }
+      writeJson(res, 404, { ok: false, error: 'extension api not found' })
+    },
+  })
+  disposers.push(extDispatch)
 
   // ---- 概览看板：用量统计 ----
 

@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EMPTY_RESPONSE_CODE } from '@deepseek-ai/dsh-llm'
+import { AssistantStreamAccumulator, EMPTY_RESPONSE_CODE } from '@deepseek-ai/dsh-llm'
 import { toTokenUsage } from '../router/usage-tokens.ts'
 import { RouterAdapter, translateSse } from './adapter.ts'
 
@@ -190,6 +190,59 @@ async function toolCallsOf(...payloads: string[]): Promise<Array<{ name?: string
   }
   return out
 }
+
+test('工具调用：后续 delta 把 id/name 重发成 null 时，不能冲掉首帧也不许发 null', async () => {
+  // 真实事故（2026-09-22，OpenCode/Zen）：上游首帧给 id+name，后续分片帧把
+  // 它们**显式重发成 null**（不是省略、不是空串）。用对象构造、交给 frame() 序列化，
+  // 免得在字符串字面量里跟引号打架。
+  const tcDelta = (tc: unknown): string => frame({ choices: [{ delta: { tool_calls: [tc] } }] })
+  const payloads = [
+    tcDelta({ index: 0, id: 'call_abc', type: 'function', function: { name: 'bash', arguments: '' } }),
+    tcDelta({ index: 0, id: null, type: 'function', function: { name: null, arguments: '{' } }),
+    tcDelta({ index: 0, id: null, type: 'function', function: { name: null, arguments: '"command": "ls"}' } }),
+    frame({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+    '[DONE]',
+  ]
+
+  // 旧判据是 `!== undefined`，null 通不过它却被当成真值：既把 "bash" 冲成 null，
+  // 又把 `name: null` 发进 StreamChunk。而真实运行路径
+  // （dsh-llm 的 AssistantStreamAccumulator.push）判据是
+  // `Object.hasOwn(chunk,'name') && typeof chunk.name !== 'string'` → 抛
+  // `TypeError: tool-call-delta name must be a string`（用户看到的
+  // 「本轮运行失败 tool-call-delta name must be a string」）。
+  //
+  // 用**真实的那个累加器**验收，而不是自己复述规则：它就是运行时会抛的那一段。
+  const acc = new AssistantStreamAccumulator()
+  let n = 0
+  for await (const chunk of translateSse(payloads)) {
+    acc.push({ time: n++, chunk }) // 这里就是线上抛错的那一步
+  }
+
+  // 逐条再按原判据过一遍，失败时能直接指向违规的那条 delta
+  for await (const chunk of translateSse(payloads)) {
+    if (chunk.type !== 'tool-call-delta') continue
+    if (Object.hasOwn(chunk, 'name')) assert.equal(typeof chunk.name, 'string', 'name 一旦出现就必须是字符串')
+    assert.equal(typeof chunk.id, 'string', 'id 必须是字符串')
+    assert.equal(typeof chunk.argumentsDelta, 'string', 'argumentsDelta 必须是字符串')
+  }
+
+  // 首帧给的 name/id 必须在后续 null 帧里**保持**
+  const deltas: Array<Record<string, unknown>> = []
+  for await (const chunk of translateSse(payloads)) {
+    if (chunk.type === 'tool-call-delta') deltas.push(chunk as unknown as Record<string, unknown>)
+  }
+  assert.ok(deltas.length >= 3, '三个分片帧都该产出 delta')
+  for (const d of deltas) {
+    assert.equal(d.name, 'bash', 'name 被后续 null 帧冲掉了（工具名会变成空）')
+    assert.equal(d.id, 'call_abc', 'id 被后续 null 帧冲掉了')
+  }
+
+  // 收尾后的完整调用也要正确
+  const calls = await toolCallsOf(...payloads)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.name, 'bash', '工具名必须保住')
+  assert.equal(calls[0]?.arguments, '{"command": "ls"}')
+})
 
 test('工具调用：参数分片发完才收尾，完整 JSON 原样保留', async () => {
   const calls = await toolCallsOf(

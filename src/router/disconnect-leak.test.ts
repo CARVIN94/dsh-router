@@ -198,3 +198,53 @@ test('聚合失败：reader 必须被解绑（否则连接还活着时上层无�
   assert.equal(releaseLocked, true, '聚合失败后必须 releaseLock，否则流锁死、上层无法回收')
   assert.equal(failing.locked, false, '流必须处于未锁定状态（可被 cancel / 已被回收）')
 })
+
+test('fixFrame：把后续 delta 里重发成 null 的 id/name 剥掉（否则外部 OpenAI 客户端会丢工具名）', async () => {
+  // 为什么这一层也得修（adapter 的修复保护不到它）：`/v1/chat/completions` 是
+  // **对外**的 OpenAI 兼容端点，外部客户端（Cline/Cursor/其它工具）直接读这条流。
+  // 上游 OpenCode/Zen 在工具调用的后续分片帧里会把首帧已给过的 id/name 显式重发成
+  // null——外部客户端普遍按 `name !== undefined` 判「有没有新值」，于是把已经拿到的
+  // "bash" 冲成 null，表现为 `unknown tool ""`。fixFrame 是核心的**线上归一化层**，
+  // 职责就是抹掉这类不合规的空值（空串早就抹了，null 语义相同）。
+  const enc = new TextEncoder()
+  const sse =
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"bash","arguments":""}}]}}]}\n\n' +
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":null,"type":"function","function":{"name":null,"arguments":"{"}}]}}]}\n\n' +
+    'data: [DONE]\n\n'
+  const upstream = new ReadableStream<Uint8Array>({
+    start(ctrl) { ctrl.enqueue(enc.encode(sse)); ctrl.close() },
+  })
+
+  const router = new Router('')
+  router.add(supplierWith(upstream) as never)
+
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      void router.chatCompletions(
+        { model: 'sup,m1', stream: true, rawBody: body } as never,
+        res as never,
+      )
+    })
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const port = (server.address() as { port: number }).port
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'sup,m1', messages: [{ role: 'user', content: 'hi' }], stream: true }),
+    })
+    const text = await resp.text()
+    // 第一帧给的 "bash"/"call_abc" 必须还在
+    assert.ok(text.includes('"name":"bash"'), `首帧的工具名丢了：${text.slice(0, 200)}`)
+    assert.ok(text.includes('"id":"call_abc"'), `首帧的 id 丢了：${text.slice(0, 200)}`)
+    // 后续帧的 null 必须被剥掉（不能出现在线上字节里）
+    assert.equal(/"name":null/.test(text), false, `null 的 name 泄漏到了线上：${text.slice(0, 200)}`)
+    assert.equal(/"id":null/.test(text), false, `null 的 id 泄漏到了线上：${text.slice(0, 200)}`)
+  } finally {
+    server.closeAllConnections?.()
+    server.close()
+  }
+})

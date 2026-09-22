@@ -439,9 +439,21 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
           toolBlocks.set(key, block)
           yield { type: 'block-start', index: block.index, blockType: 'tool-call' }
         }
-        if (call.id !== undefined) block.callId = call.id
-        if (call.function?.name !== undefined) block.name = call.function.name
-        const fragment = call.function?.arguments ?? ''
+        // 身份字段只认**非空字符串**。上游（OpenCode/Zen）在后续 delta 里会把
+        // 首帧已给过的 id/name 显式重发成 `null`（不是省略、也不是空串）——
+        // 实测帧形状：
+        //   {"index":0,"id":"call_abc","function":{"name":"bash","arguments":""}}
+        //   {"index":0,"id":null,   "function":{"name":null,  "arguments":"{"}}
+        // 用 `!== undefined` 挡不住 null：它既会把首帧的 "bash"/"call_abc" **冲成
+        // null**（工具名丢失），又会把 `name: null` 原样发进 StreamChunk，而
+        // dsh-llm 的校验是 `typeof chunk.name !== 'string'`（Object.hasOwn 先判存在）
+        // → 抛 `TypeError: tool-call-delta name must be a string` →「本轮运行失败」。
+        // 判据与核心 aggregateSSE（非流式聚合路径）保持一致，两条路不能有分歧。
+        if (typeof call.id === 'string' && call.id !== '') block.callId = call.id
+        if (typeof call.function?.name === 'string' && call.function.name !== '') block.name = call.function.name
+        // arguments 同理只认字符串：`?? ''` 挡得住 null/undefined，但挡不住
+        // 上游偶发把参数发成对象/数字——那会撞 dsh-llm 的同一条校验。
+        const fragment = typeof call.function?.arguments === 'string' ? call.function.arguments : ''
         block.text += fragment
         yield {
           type: 'tool-call-delta',

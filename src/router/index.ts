@@ -296,7 +296,16 @@ function isDoneFrame(frame: string): boolean {
   return /(^|\n)data:[ \t]*\[DONE\][ \t]*(\n|$)/.test(frame)
 }
 
-/** 修一帧 SSE：只剥空的 name/id，出任何问题都原样返回。 */
+/**
+ * 修一帧 SSE：剥掉**空的**（`''` 或 `null`）name/id，出任何问题都原样返回。
+ *
+ * 为什么 `null` 也算空：上游（OpenCode/Zen）在后续 delta 里会把首帧已给过的
+ * id/name 显式重发成 `null`——`{"id":null,"function":{"name":null,"arguments":"{"}}`。
+ * 下游判「有没有新值」用的是 `name !== undefined`（dsh 的 BlockAssembler 就是），
+ * null 过不了这个判断、却也不该覆盖首帧：客户端会把已拿到的 "bash" 冲成 null，
+ * 工具名丢失（表现为 `unknown tool ""`）。空串早就剥了，null 语义上同样是
+ * 「本帧没给新值」，一并剥掉。
+ */
 function fixFrame(frame: string): string {
   // 绝大多数帧没有 tool_calls，先廉价字符串筛查，避免无谓的 JSON 解析
   if (!frame.includes('tool_calls')) return frame
@@ -314,9 +323,13 @@ function fixFrame(frame: string): string {
       const tcs = delta?.tool_calls as Array<Record<string, unknown>> | undefined
       if (Array.isArray(tcs)) {
         for (const tc of tcs) {
-          if (tc.id === '') { delete tc.id; changed = true }
+          // 空串与 null 都是「本帧没给新值」，剥掉让下游沿用首帧那个
+          if (tc.id === '' || tc.id === null) { delete tc.id; changed = true }
           const fn = tc.function as Record<string, unknown> | undefined
-          if (fn !== null && typeof fn === 'object' && fn.name === '') { delete fn.name; changed = true }
+          if (fn !== null && typeof fn === 'object' && (fn.name === '' || fn.name === null)) {
+            delete fn.name
+            changed = true
+          }
         }
       }
       return changed ? `data: ${JSON.stringify(obj)}` : line

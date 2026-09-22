@@ -160,25 +160,6 @@ export interface RouterExtResponse {
   enhancers?: RouterExtItem[]
 }
 
-/** 一行 watch 进程（`/router/api/ext/watch/processes`）。 */
-export interface RouterWatchProcess {
-  pid: number
-  ppid: number
-  /** %cpu 快照 */ cpu: number
-  /** %mem 快照 */ mem: number
-  command: string
-  /** 命中的已记录 agent 命令。 */
-  match: string
-  recordedAt: number
-}
-
-/** `/router/api/ext/{id}/processes` response。 */
-export interface RouterWatchResponse {
-  ok: boolean
-  error?: string
-  processes?: RouterWatchProcess[]
-}
-
 /** 供应商模型（含启用状态）。 */
 export interface RouterSupplierModel {
   id: string

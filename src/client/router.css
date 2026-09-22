@@ -923,6 +923,31 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   margin-top: 4px;
 }
 
+/* watch 进程行动作区（复制 PID / kill 命令，只读） */
+.dshr-procOps {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* 扩展供应商式小卡片：未就绪红字（描述只在详情页，卡片不放） */
+.dshr-extCardError {
+  color: var(--rs-danger);
+  font-size: 11px;
+}
+
+/* 扩展卡 logo（如 rtk 白底 logo）：浅色背衬,免得白色图标在浅背景上隐形 */
+.dshr-extLogo {
+  background: var(--rs-layer-2);
+}
+
+/* 扩展详情头部右侧的开关（顶到标题行右边，同供应商详情的编辑按钮位） */
+.dshr-extDetailToggle {
+  margin-left: auto;
+}
+
 /* 扩展卡片内容区：文字左对齐，左侧留白与标题行的图标位对齐 */
 .dshr-extBody {
   padding: 10px 14px 12px 48px;

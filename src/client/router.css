@@ -938,9 +938,12 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
   font-size: 11px;
 }
 
-/* 扩展卡 logo（如 rtk 白底 logo）：浅色背衬,免得白色图标在浅背景上隐形 */
+/* 扩展卡 logo（如 rtk 白底 logo）：黑底 + 内边距,白色 logo 在黑底上显形 */
 .dshr-extLogo {
-  background: var(--rs-layer-2);
+  background: #000;
+  padding: 3px;
+  box-sizing: border-box;
+  object-fit: contain;
 }
 
 /* 扩展详情头部右侧的开关（顶到标题行右边，同供应商详情的编辑按钮位） */

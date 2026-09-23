@@ -3085,8 +3085,10 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
    两行的后一列就对不齐。固定宽度让表头与每一行严格同宽。 */
 .dshr-recentTokens {
     flex: none;
-    width: 116px;
+    width: 80px;
+    overflow: hidden;
     text-align: right;
+    text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }

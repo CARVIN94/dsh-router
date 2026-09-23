@@ -26,6 +26,7 @@ const POLL_MS = 3000
 interface LastHit {
   supplier: string
   model: string
+  requested: string
   uid: string
   account?: string
   credits?: number
@@ -96,10 +97,23 @@ export function mountLastHitBadge(): () => void {
       return
     }
     card.replaceChildren()
+    // 头部照宿主聊天气泡的 bRhRbq_title 结构：左标签（图标+文字）+ 右值 + 分隔线
     const head = document.createElement('div')
-    head.className = BADGE_CLASS + '-head'
-    head.textContent = '本次命中'
-    card.appendChild(head)
+    head.className = BADGE_CLASS + '-title'
+    const headLabel = document.createElement('span')
+    headLabel.className = BADGE_CLASS + '-titleLabel'
+    headLabel.innerHTML = ICON
+    const headText = document.createElement('span')
+    headText.textContent = '路由'
+    headLabel.appendChild(headText)
+    const headValue = document.createElement('span')
+    headValue.className = BADGE_CLASS + '-titleValue'
+    headValue.textContent = latest.requested === '' ? '—' : latest.requested
+    headValue.title = latest.requested
+    head.append(headLabel, headValue)
+    const rule = document.createElement('div')
+    rule.className = BADGE_CLASS + '-titleRule'
+    card.append(head, rule)
     const rows: Array<[string, string]> = [
       ['服务商', latest.supplier],
       ['模型', modelShort(latest)],

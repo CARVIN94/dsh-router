@@ -3201,11 +3201,43 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     cursor: default;
 }
 
-.dshr-lastHit-head {
+/* 头部：照宿主聊天气泡的 .bRhRbq_title 规格
+   （label-primary / space-between / gap16 / margin-bottom8 / font-weight500）
+   左标签带 14px 图标，右值 tabular-nums，下接一条 0.5px 分隔线。 */
+.dshr-lastHit-title {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+    color: var(--dsw-alias-label-primary);
+    font-weight: 500;
+}
+
+.dshr-lastHit-titleLabel {
+    display: inline-flex;
+    align-items: center;
     gap: 6px;
+    min-width: 0;
+}
+
+.dshr-lastHit-titleLabel svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
     color: var(--dsw-alias-label-tertiary);
+}
+
+.dshr-lastHit-titleValue {
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dshr-lastHit-titleRule {
+    border-top: .5px solid var(--dsw-alias-border-l2);
+    margin-bottom: 10px;
 }
 
 .dshr-lastHit-row {

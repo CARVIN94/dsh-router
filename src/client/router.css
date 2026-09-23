@@ -3080,6 +3080,25 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     white-space: nowrap;
 }
 
+/* 最近请求的 In/Out 与耗时列：**固定宽度**（不是 min-width）——
+   rankNum 的 min-width 会让表头（纯文本）与数据行（更长）算出的列宽不同，
+   两行的后一列就对不齐。固定宽度让表头与每一行严格同宽。 */
+.dshr-recentTokens {
+    flex: none;
+    width: 116px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dshr-recentDuration {
+    flex: none;
+    width: 64px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .dshr-recentRow-fail .dshr-recentModel {
     color: var(--rs-danger);
 }

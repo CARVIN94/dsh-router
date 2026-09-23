@@ -334,8 +334,8 @@ function RecentTable({ rows }: { rows: RouterUsageRecord[] }): JSX.Element {
               <span className="dshr-recentTime">时间</span>
               <span className="dshr-recentModel">模型</span>
               <span className="dshr-recentSupplier">连接</span>
-              <span className="dshr-rankNum">In / Out</span>
-              <span className="dshr-rankNum">耗时</span>
+              <span className="dshr-recentTokens">In / Out</span>
+              <span className="dshr-recentDuration">耗时</span>
             </div>
             {rows.map((r, i) => (
               // 明细没有 id；同毫秒两条请求是可能的，索引用 ts+模型+序号兜底
@@ -350,12 +350,12 @@ function RecentTable({ rows }: { rows: RouterUsageRecord[] }): JSX.Element {
                 <span className="dshr-recentSupplier" title={r.uid ?? ''}>
                   {r.connection === undefined || r.connection === '' ? '—' : r.connection}
                 </span>
-                <span className="dshr-rankNum">
+                <span className="dshr-recentTokens">
                   <span className="dshr-tokenIn">{fmtShort(r.promptTokens)}{r.inputEstimated ? '~' : ''}</span>
                   {' / '}
                   <span className="dshr-tokenOut">{fmtShort(r.completionTokens)}{r.outputEstimated ? '~' : ''}</span>
                 </span>
-                <span className="dshr-rankNum dshr-muted">{fmtDuration(r.durationMs)}</span>
+                <span className="dshr-recentDuration dshr-muted">{fmtDuration(r.durationMs)}</span>
               </div>
             ))}
           </div>

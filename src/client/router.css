@@ -3075,6 +3075,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     width: 92px;
     overflow: hidden;
     color: var(--rs-muted);
+    text-align: center;
     text-overflow: ellipsis;
     white-space: nowrap;
 }

@@ -61,6 +61,10 @@ const serveHits = (p: AccountPool, uid: string, n: number, model = 'm1'): void =
 const serveMiss = (p: AccountPool, uid: string, n: number, model = 'm1'): void => {
   for (let i = 0; i < n; i++) p.noteCache(uid, model, 0)
 }
+/** 同上，但指定会话（按会话隔离的样本）。 */
+const serveMissSession = (p: AccountPool, session: string, uid: string, n: number, model = 'm1'): void => {
+  for (let i = 0; i < n; i++) p.noteCache(uid, model, 0, session)
+}
 
 test('【块】OR：计数<N(最短驻留)且没达标 → 留守，哪怕缓存已热', () => {
   const p = pool()
@@ -261,6 +265,30 @@ test('【亲和】绑定的号降权（缓存无效）→ 跳过它', () => {
   serveMiss(p, first, 48)
   const second = p.pick(list, [], 'm1', m)
   assert.notEqual(second, first, '降权中的号不应被亲和继续选中')
+})
+
+test('【亲和/会话隔离】多会话共用同号互踩 → 不误伤降权（team 降权串回归）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  // 两个会话被分到同一个号 a 上（号数 < 会话数，必然共用）。
+  // 各自只服务了 24 次、命中率 0.5 >= 0.85? 否 —— 但关键在于：
+  // 按会话隔离后，每个会话的样本只有 24 次 < BLOCK_MAX(48)，**不会**判降权；
+  // 若把两会话混在一起（旧逻辑），48 次 / 命中 24 → 50% < 85% → 立刻误降 a，
+  // 逼着两个会话都落到 b（降权串）。
+  const s1 = 'sid-team-1'
+  const s2 = 'sid-team-2'
+  for (let i = 0; i < 24; i++) {
+    p.noteCache('a', 'm1', i % 2 === 0 ? 1000 : 0, s1)
+    p.noteCache('a', 'm1', i % 2 === 0 ? 1000 : 0, s2)
+  }
+  // a 未被降权：两个会话都还能被分/粘在 a 上
+  const first = p.pick(list, [], 'm1', msgs('s1'), s1)!
+  assert.equal(first, 'a', 'a 不该因多会话混算而被误降权')
+  const second = p.pick(list, [], 'm1', msgs('s2'), s2)!
+  assert.equal(second, 'b', '新会话仍按游标独立分发（不因误降权被挤到 a）')
+  // 单会话真·反复不命中（自己攒满 48 次）→ 仍然会降权它，隔离不等于免疫
+  serveMissSession(p, s1, 'a', 48)
+  assert.notEqual(p.pick(list, [], 'm1', msgs('s1'), s1), 'a', '该会话自己攒满 miss 仍应降权 a')
 })
 
 test('【亲和】messages 拿不到 → 回退块轮询（旧行为不破坏）', () => {

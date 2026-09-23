@@ -1120,7 +1120,7 @@ export class Router {
       const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
       if (committed) {
         // 块轮询反馈：只有成功请求才计入（失败没产生缓存，计入会污染命中率）
-        pool.noteCache(uid, req.model, probe?.tokens?.cachedTokens ?? 0)
+        pool.noteCache(uid, req.model, probe?.tokens?.cachedTokens ?? 0, req.session)
         return true
       }
       // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试

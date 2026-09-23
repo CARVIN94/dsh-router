@@ -182,9 +182,9 @@ export class AccountPool {
   private rrCursor = 0
   /** (supplier, model) → 当前驻留的号（只有**无亲和**的回退路径用它）。 */
   private blocks = new Map<string, string>()
-  /** (supplier, model, uid) → 该号的缓存质量样本（降权判据，跨驻留累计）。 */
+  /** (supplier, model, uid[, session]) → 该号在某会话下的缓存质量样本。 */
   private samples = new Map<string, Sample>()
-  /** (supplier, model, uid) → 缓存无效降权。 */
+  /** 同上键 → 缓存无效降权。 */
   private demoted = new Map<string, DemoteEntry>()
   /** (supplier, model) → Map<前缀指纹, uid>：前缀亲和的选号记忆（LRU 封顶）。 */
   private affinity = new Map<string, Map<string, string>>()
@@ -195,6 +195,23 @@ export class AccountPool {
 
   private key(model: string, uid: string): string {
     return `${this.supplierId}${SEP}${model}${SEP}${uid}`
+  }
+
+  /**
+   * 缓存质量样本/降权的键。
+   *
+   * **按会话隔离**（team 场景的关键）：同一个号被多个会话共用时，各会话的
+   * 前缀会互相驱逐，把它们混在一起算命中率，会把「多会话互踩」误判成
+   * 「这个号缓存坏了」→ 错误降权 → 只剩一个号 → 那个号又被打低 → 降权串。
+   * 所以有会话身份时按 (model, uid, session) 记，降权只反映**该会话自己**
+   * 在这个号上的真实缓存表现。
+   *
+   * 无会话身份（外部 OpenAI 客户端，走无指纹回退路径）→ 保持 (model, uid)，
+   * 与块轮询的原语义一致（那时本就是单会话视角）。
+   */
+  private sampleKey(model: string, uid: string, session?: string): string {
+    const base = this.key(model, uid)
+    return session === undefined || session === '' ? base : `${base}${SEP}${session}`
   }
 
   private entry(model: string, uid: string): CooldownEntry {
@@ -272,7 +289,7 @@ export class AccountPool {
     const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
     if (healthy.length === 0) return undefined
     // 缓存无效降权：该号缓存质量样本长期不达标 → 跳过它（可到期恢复）
-    const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now))
+    const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now, session))
     const pool = usable.length > 0 ? usable : healthy
     // 前缀亲和：指纹有绑定且该号仍可用 → 直接复用（不进驻留逻辑）
     const fp = sessionFingerprint(session, messages)
@@ -324,9 +341,14 @@ export class AccountPool {
     }
   }
 
-  /** 该号在本模型上是否被判定「缓存无效」（降权中）。 */
-  private isDemoted(uid: string, modelId: string, now: number): boolean {
-    const e = this.demoted.get(this.key(modelId, uid))
+  /**
+   * 该号在**本会话**（有身份时）本模型上是否被判定「缓存无效」（降权中）。
+   *
+   * 判据按会话隔离（见 sampleKey）：降权只惩罚「这个会话在这个号上真的
+   * 反复不命中」，不会因别的会话共用同号互踩而被牵连。
+   */
+  private isDemoted(uid: string, modelId: string, now: number, session?: string): boolean {
+    const e = this.demoted.get(this.sampleKey(modelId, uid, session))
     return e !== undefined && e.until > now
   }
 
@@ -354,14 +376,16 @@ export class AccountPool {
    * 记录一次成功请求的缓存命中情况（降权判据的反馈信号）。
    *
    * 只有**成功**请求才计入：失败没产生缓存，计入会污染命中率并导致错降权。
-   * 统计按 (model, uid) 记，**不管这个号是不是「当前驻留」**——亲和开启后
-   * 多个会话各绑各的号交错服务，按驻留记会漏掉大部分真实反馈。
+   * 统计按 (model, uid[, session]) 记，**不管这个号是不是「当前驻留」**——
+   * 亲和开启后多个会话各绑各的号交错服务，按驻留记会漏掉大部分真实反馈。
+   * 按会话隔离（见 sampleKey）则保证「多会话共用同号互踩」不会误伤降权。
    * @param uid 实际服务的号
    * @param modelId 模型（块粒度）
    * @param cachedTokens 上游报的命中 token 数；0 = 全量重算
+   * @param session 宿主会话身份；有则按会话隔离统计
    */
-  noteCache(uid: string, modelId: string, cachedTokens: number): void {
-    const k = this.key(modelId, uid)
+  noteCache(uid: string, modelId: string, cachedTokens: number, session?: string): void {
+    const k = this.sampleKey(modelId, uid, session)
     const s = this.samples.get(k) ?? { served: 0, hits: 0 }
     s.served += 1
     if (cachedTokens > 0) s.hits += 1

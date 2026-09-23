@@ -10,8 +10,8 @@ import assert from 'node:assert/strict'
 import { routerHintRewrite, ROUTER_MODEL_HINT_COPY } from './model-hint-copy.ts'
 
 test('认出宿主提示（中/英两种文案 + 命名空间指纹）', () => {
-  const zh = '其余字段在 settings.yaml 中，请直接编辑对应段。 (llm-dsh-router)'
-  const en = 'Other fields live in settings.yaml; edit that section directly. (llm-dsh-router)'
+  const zh = '其余字段在 settings.yaml 中，请直接编辑对应段。 (dsh-router)'
+  const en = 'Other fields live in settings.yaml; edit that section directly. (dsh-router)'
   assert.equal(routerHintRewrite(zh), ROUTER_MODEL_HINT_COPY)
   assert.equal(routerHintRewrite(en), ROUTER_MODEL_HINT_COPY)
 })
@@ -19,6 +19,11 @@ test('认出宿主提示（中/英两种文案 + 命名空间指纹）', () => {
 test('别的 provider 的同类提示不动（指纹只属于 Router）', () => {
   const deepseek = '其余字段在 settings.yaml 中，请直接编辑对应段。 (llm-deepseek)'
   assert.equal(routerHintRewrite(deepseek), undefined)
+})
+
+test('旧命名空间指纹不再认领 —— 0.1.7 起宿主渲染的是行 id', () => {
+  const legacy = '其余字段在 settings.yaml 中，请直接编辑对应段。 (llm-dsh-router)'
+  assert.equal(routerHintRewrite(legacy), undefined)
 })
 
 test('已是目标文案时早退 —— 观察器不自激', () => {

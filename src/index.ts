@@ -54,6 +54,14 @@ export const name = 'dsh-router-core'
 /** Services required before mounting: the webserver (routes) + llm (设置-模型). */
 export const inject = ['webServer', 'llm']
 
+/**
+ * 0.1.7 的设置镜像只认「插件导出的 Config + 配置树行 id」这条收录链，且空 object
+ * 会被 volatileForm 过滤掉 —— 顶层 `.volatile()` 才能让 Router 卡片出现在设置-模型。
+ * Router 的真配置在自己的 state.json（路由系统面板），这里故意不暴露任何字段。
+ * 0.1.5 走 installSection（下方能力检测调用），对多出的 Config 导出无感。
+ */
+export const Config = Schema.object({}).volatile()
+
 /** Minimal shape of the webServer service face used here. */
 interface WebServerRoute {
   kind: 'prefix' | 'exact'
@@ -96,12 +104,12 @@ interface Llm {
 }
 
 /**
- * 设置服务（`ctx.settings`，dsh-settings）的最小切面：本插件只用 `installSection`
- * 注册一个命名空间，让设置-模型页能列出 Router provider 卡片。dsh-settings 是
- * 宿主注入的 peer service，这里不深绑它的类型，只声明用到的这一个方法。
+ * 设置服务（`ctx.settings`，dsh-settings）的最小切面。0.1.5 用 `installSection`
+ * 注册命名空间；0.1.7 已移除该方法、改由插件导出的 Config 驱动 —— 故声明为可选，
+ * 调用处做能力检测（不是版本分支）。dsh-settings 是宿主注入的 peer service，不深绑类型。
  */
 interface SettingsServiceFace {
-  installSection: (
+  installSection?: (
     owner: CordisContext,
     ns: string,
     schema: unknown,
@@ -156,6 +164,8 @@ export function apply(rawContext: unknown): void {
     logger: { info: (message: string) => void; warn: (message: string) => void }
     effect: (fn: () => () => void, label?: string) => void
     inject: (services: string[], callback: (sctx: unknown) => void) => void
+    /** cordis-plugin-loader 挂在 fiber 上的配置树锚点（tests 等环境可能没有）。 */
+    fiber?: { entry?: { options?: { id?: string } } }
     /** 配置树锚点 = profile 目录（宿主注入），用来把数据钉在 profile 里。 */
     baseUrl?: string
   }
@@ -392,26 +402,26 @@ export function apply(rawContext: unknown): void {
   })
 
   route(`${ROUTER_API_BASE}/combos/create`, async (req, res) => {
-    let body: { name?: string; strategy?: string; models?: string[] }
+    let body: { name?: string; models?: string[] }
     try {
-      body = JSON.parse(await readBody(req, 64 << 10)) as { name?: string; strategy?: string; models?: string[] }
+      body = JSON.parse(await readBody(req, 64 << 10)) as { name?: string; models?: string[] }
     } catch {
       writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
       return
     }
-    const result = router.createCombo(body.name ?? '', body.strategy ?? 'fallback', body.models ?? [])
+    const result = router.createCombo(body.name ?? '', body.models ?? [])
     writeJson(res, result.ok ? 200 : 400, result)
   })
 
   route(`${ROUTER_API_BASE}/combos/update`, async (req, res) => {
-    let body: { id?: string; name?: string; strategy?: string; models?: string[] }
+    let body: { id?: string; name?: string; models?: string[] }
     try {
-      body = JSON.parse(await readBody(req, 64 << 10)) as { id?: string; name?: string; strategy?: string; models?: string[] }
+      body = JSON.parse(await readBody(req, 64 << 10)) as { id?: string; name?: string; models?: string[] }
     } catch {
       writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
       return
     }
-    const result = router.updateCombo(body.id ?? '', body.name ?? '', body.strategy ?? 'fallback', body.models ?? [])
+    const result = router.updateCombo(body.id ?? '', body.name ?? '', body.models ?? [])
     writeJson(res, result.ok ? 200 : 400, result)
   })
 
@@ -582,28 +592,31 @@ export function apply(rawContext: unknown): void {
 
   // ---- 设置-模型：Router 提供方（固定卡片，插件注册，不可删）+ 模型目录（= 组合） ----
 
+  // settings ns = 配置树行 id（cordis.patch.yml insert 的 id）—— 0.1.7 设置镜像按
+  // entry.options.id 收录；loader 未挂 entry 时回落到同一默认值，两版一个 ns。
+  const settingsNs = ctx.fiber?.entry?.options?.id ?? 'dsh-router'
+
   // llm 缺失时（如测试环境）跳过，不影响 /v1 核心。
   if (ctx.llm !== undefined) {
-    const LLM_NS = 'llm-dsh-router'
     try {
       const providerReg = ctx.llm.registerConfigurableProviders([
         {
           provider: 'router',
           displayName: 'Router',
-          settingsNs: LLM_NS,
+          settingsNs,
           settingsPath: [],
         },
       ])
       disposers.push(providerReg)
-      disposers.push(ctx.llm.registerModelDiscovery(LLM_NS, async () => {
+      disposers.push(ctx.llm.registerModelDiscovery(settingsNs, async () => {
         const combos = await router.combos()
         return combos.map((c) => ({ id: c.name }))
       }))
       // Router 的配置（组合/密钥/签到）存在 core 自己的 state.json，走插件自己的
-      // 「路由系统」面板；设置-模型 这边**仍必须注册 `llm-dsh-router` 命名空间**。
-      // 原因：设置-模型 的 provider 列表只渲染 settingsNs 能在设置镜像里解析出来的
-      // 行（见 dsh-client-ui-settings-models 的 configurable 过滤）。只调
-      // registerConfigurableProviders 而不注册 section，Router 卡片**不会出现**。
+      // 「路由系统」面板；设置-模型 这边必须让 settingsNs 在设置镜像里能解析出来
+      // （见 dsh-client-ui-settings-models 的 configurable 过滤），否则卡片不出现。
+      // 0.1.7：镜像行来自顶部导出的 volatile Config（ns = 行 id）。
+      // 0.1.5 兼容：镜像行来自 installSection（0.1.7 已无此方法，能力检测跳过）。
       // 空 schema = 卡片是入口/占位（该布局下不可提交），真正的配置在路由系统面板。
       const routerSettingsSchema = Schema.object({})
       ctx.inject(['settings'], (sctx: unknown) => {
@@ -612,11 +625,15 @@ export function apply(rawContext: unknown): void {
           log('settings service absent — skip Router settings-section registration')
           return
         }
-        settings.installSection(rawContext as CordisContext, LLM_NS, routerSettingsSchema, {}, {
+        if (settings.installSection === undefined) {
+          log(`settings section driven by exported Config (${settingsNs})`)
+          return
+        }
+        settings.installSection(rawContext as CordisContext, settingsNs, routerSettingsSchema, {}, {
           setSource: () => {},
           onChange: () => {},
         })
-        log(`Router settings section registered (${LLM_NS})`)
+        log(`Router settings section registered (${settingsNs})`)
       })
       // adapter：模型目录自动带出组合；对话转发到本插件 /v1（组合路由在 /v1 内完成）。
       // 带上组合的上下文窗口：没有它 dsh 的自动压缩算不出阈值、会静默关闭。
@@ -680,7 +697,7 @@ export function apply(rawContext: unknown): void {
       directory,
       registeredProviders,
       settingsNamespaces,
-      routerNamespaceRegistered: Array.isArray(settingsNamespaces) && settingsNamespaces.includes('llm-dsh-router'),
+      routerNamespaceRegistered: Array.isArray(settingsNamespaces) && settingsNamespaces.includes(settingsNs),
     })
   })
 

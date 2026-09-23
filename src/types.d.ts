@@ -22,7 +22,7 @@ declare module '@deepseek-ai/dsh-settings' {
 }
 
 declare module '@deepseek-ai/schemastery' {
-  interface Schema<T> {
+  export interface Schema<T> {
     default(value: T): Schema<T>
     optional(): Schema<T | undefined>
     required(): Schema<T>
@@ -30,6 +30,7 @@ declare module '@deepseek-ai/schemastery' {
     min(n: number): Schema<T>
     max(n: number): Schema<T>
     role(name: string): Schema<T>
+    volatile(): Schema<T>
   }
   interface Z {
     string(): Schema<string>

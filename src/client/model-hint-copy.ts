@@ -3,7 +3,7 @@
  *
  * 为什么不能直接改源头：Router 的卡片走宿主的 "unknown" 布局（宿主只认得
  * llm-deepseek / llm-pi-ai 两套表单），那句
- *   「其余字段在 settings.yaml 中，请直接编辑对应段。 (llm-dsh-router)」
+ *   「其余字段在 settings.yaml 中，请直接编辑对应段。 (dsh-router)」
  * 属于宿主 `settings.models` 的 locale 字典，而字典注册对同一个 (ns, locale)
  * 只允许一个占位者（重复注册直接抛），插件覆写不了，契约也没给可覆写字段。
  * 所以沿用本插件既有的认领手法（同 settings-nav-icon.ts）：按文案指纹认出宿主
@@ -16,7 +16,7 @@
  */
 
 /** 指纹：语言无关（不受中英文切换影响），且只出现在 Router 卡片上。 */
-const FINGERPRINT = '(llm-dsh-router)'
+const FINGERPRINT = '(dsh-router)'
 
 /** 正确说法：对齐 README「组合即模型」。 */
 export const ROUTER_MODEL_HINT_COPY = '组合即模型 · 建好的组合会自动出现在 DSH 模型目录中，选中组合名即可直接使用。'

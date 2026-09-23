@@ -205,6 +205,13 @@ export interface RouterUsageRecord {
   durationMs: number
   /** 首字节延迟（ms）；非流式为 0。 */
   ttfbMs: number
+  /**
+   * 连接名（uid → 显示别名，后端解析好）。空串 = 无连接（失败/未服务）。
+   * 「最近请求」的「连接」列用它，而不是 supplier。
+   */
+  connection?: string
+  /** 实际服务的连接 uid（成功且有账号时）。 */
+  uid?: string
   error?: string
 }
 

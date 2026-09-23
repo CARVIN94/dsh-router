@@ -625,7 +625,14 @@ export function apply(rawContext: unknown): void {
       bySupplier: s.bySupplier,
       byModel: s.byModel,
       byRequested: s.byRequested,
-      recent: router.usage.recentList(20),
+      // 「最近请求」的「连接」列要显示连接名（uid → 显示别名）。后端一次解析，
+      // 前端不必再拉 /status。无 uid（失败/未服务）→ 返回空串，前端显示「—」。
+      recent: router.usage.recentList(20).map((r) => ({
+        ...r,
+        connection: r.uid === undefined || r.uid === ''
+          ? ''
+          : store.getAccountName(r.supplier, r.uid) ?? r.uid,
+      })),
     })
   })
 

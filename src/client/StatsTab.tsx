@@ -347,7 +347,9 @@ function RecentTable({ rows }: { rows: RouterUsageRecord[] }): JSX.Element {
                 <span className="dshr-recentModel dshr-mono" title={`请求 ${r.requested}${r.error === undefined ? '' : ` · ${r.error}`}`}>
                   {r.model === '' ? r.requested : r.model}
                 </span>
-                <span className="dshr-recentSupplier">{r.supplier === '' ? '—' : r.supplier}</span>
+                <span className="dshr-recentSupplier" title={r.uid ?? ''}>
+                  {r.connection === undefined || r.connection === '' ? '—' : r.connection}
+                </span>
                 <span className="dshr-rankNum">
                   <span className="dshr-tokenIn">{fmtShort(r.promptTokens)}{r.inputEstimated ? '~' : ''}</span>
                   {' / '}

@@ -198,6 +198,39 @@ test('【亲和】不同会话散到不同号：新指纹按游标分发', () =>
   assert.equal(p.pick(list, [], 'm1', msgs('s2', 5)), s2)
 })
 
+test('【亲和】给了 session 就以它为主键：即使内容指纹会漂移也粘住同一号', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  // 同一 sessionId，但 messages 每轮都不同（模拟 system 前缀变化）
+  const first = p.pick(list, [], 'm1', msgs('round-1'), 'sid-1')
+  for (let i = 2; i <= 8; i++) {
+    assert.equal(p.pick(list, [], 'm1', msgs(`round-${i}`), 'sid-1'), first, '同会话不得漂移')
+  }
+})
+
+test('【亲和】不同 session 天然隔离：内容雷同也分号（team 成员场景）', () => {
+  const p = pool()
+  const list = accs(['a', 'b', 'c'])
+  // 三个会话的首条 user 前缀几乎逐字相同（模拟 team 各成员的身份前缀）
+  const same = msgs('you are teammate "x"')
+  const a = p.pick(list, [], 'm1', same, 'sid-lead')
+  const b = p.pick(list, [], 'm1', same, 'sid-surveyor')
+  const c = p.pick(list, [], 'm1', same, 'sid-gitwatch')
+  assert.equal(new Set([a, b, c]).size, 3, '三个会话应散到三个号，内容雷同也不撞车')
+})
+
+test('【亲和】新会话交错到来也要散开（回归：block 干扰曾让它们全挤一个号）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  // 模拟 team：Lead 先起，成员紧随其后，然后双方交错发请求（各用同一 model）
+  const l1 = p.pick(list, [], 'm1', msgs('lead-1'), 'sid-lead')
+  const b1 = p.pick(list, [], 'm1', msgs('beta-1'), 'sid-beta')
+  assert.notEqual(l1, b1, '先后两个新会话必须落到不同号')
+  // 交错回访仍各自粘住
+  assert.equal(p.pick(list, [], 'm1', msgs('lead-2'), 'sid-lead'), l1)
+  assert.equal(p.pick(list, [], 'm1', msgs('beta-2'), 'sid-beta'), b1)
+})
+
 test('【亲和】会话增长指纹稳定：前缀相同、轮数不同 → 同一号', () => {
   const p = pool()
   const list = accs(['a', 'b'])

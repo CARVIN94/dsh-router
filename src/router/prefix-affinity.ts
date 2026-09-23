@@ -59,7 +59,28 @@ function textOf(content: unknown): string {
 }
 
 /**
- * 算请求的前缀指纹。
+ * 算请求的亲和指纹（选号主键）。
+ *
+ * **身份优先，内容兜底**：
+ *   1. 宿主给了会话身份（`session`，来自 dsh-llm 的 `sessionId`）→ 直接用它。
+ *      精确、零撞车 —— 同一会话永不漂移，不同会话（含 team 各成员）天然隔离。
+ *   2. 没有身份（外部 OpenAI 客户端）→ 回落 {@link prefixFingerprint}。
+ *
+ * 为什么优先身份而不是内容指纹：DSH 的 system prompt 是同一个 agent preset
+ * 生成的几 KB 文本，内容指纹只取前 512 字符 → 各会话高度雷同 → 撞车导致
+ * 绑定互相覆盖、同会话漂移（team 多成员时实测过）。
+ *
+ * @param session 宿主会话身份；无则 undefined
+ * @param messages OpenAI 请求体的 `messages`（无身份时才用）
+ * @returns 指纹字符串；**空串 = 算不出来（无亲和，回退到块轮询）**
+ */
+export function sessionFingerprint(session: string | undefined, messages: unknown): string {
+  if (session !== undefined && session !== '') return `sid:${session}`
+  return prefixFingerprint(messages)
+}
+
+/**
+ * 算请求的前缀指纹（内容兜底）。
  * @param messages OpenAI 请求体的 `messages` 字段（未校验，来自外部输入）
  * @returns 指纹字符串；**空串 = 算不出来（无亲和，回退到块轮询）**
  */

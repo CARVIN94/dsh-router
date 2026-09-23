@@ -1081,7 +1081,7 @@ export class Router {
     const messages = reqMessages(req.rawBody)
     const tried = new Set<string>()
     for (;;) {
-      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages)
+      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages, req.session)
       if (uid === undefined) return false
       tried.add(uid)
       const r = await s.chatOnce(uid, req.lv ?? 'auto', req)

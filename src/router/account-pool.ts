@@ -24,7 +24,7 @@
  * 得落盘，届时加 stateFile 即可，接口不用变。
  */
 import type { AccountState, SupplierAccountNow } from '../suppliers/contract.ts'
-import { prefixFingerprint } from './prefix-affinity.ts'
+import { sessionFingerprint } from './prefix-affinity.ts'
 
 /** 各 AccountState 的处置：冷却策略 / 是否计入连续错误。 */
 interface Rule {
@@ -257,10 +257,11 @@ export class AccountPool {
    * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）
    * @param poolOrder 用户在面板拖出来的顺序（核心管）
    * @param modelId 当前要路由的模型（决定查哪个 (model, uid) 冷却单元）
-   * @param messages 请求体的 messages（可选；给了才能算前缀指纹）
+   * @param messages 请求体的 messages（算亲和指纹的内容兜底）
+   * @param session 宿主会话身份；给了就以它为主键（精确、零撞车）
    * @returns 选中的 uid；无健康账号返回 undefined
    */
-  pick(accounts: SupplierAccountNow[], poolOrder: string[], modelId: string, messages?: unknown): string | undefined {
+  pick(accounts: SupplierAccountNow[], poolOrder: string[], modelId: string, messages?: unknown, session?: string): string | undefined {
     const now = Date.now()
     const byUid = new Map(accounts.map((a) => [a.uid, a]))
     // 池顺序优先，未配置的按插件自然顺序追加
@@ -274,17 +275,26 @@ export class AccountPool {
     const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now))
     const pool = usable.length > 0 ? usable : healthy
     // 前缀亲和：指纹有绑定且该号仍可用 → 直接复用（不进驻留逻辑）
-    const fp = messages === undefined ? '' : prefixFingerprint(messages)
+    const fp = sessionFingerprint(session, messages)
     if (fp !== '' && pool.includes(this.affinity.get(this.blockKey(modelId))?.get(fp) ?? '')) {
       return this.affinity.get(this.blockKey(modelId))!.get(fp)!
     }
+    // 无指纹：沿用块轮询语义 —— 块内粘住（blockKeeps）则留守当前 block。
     const block = this.blocks.get(this.blockKey(modelId))
     if (fp === '' && block !== undefined && pool.includes(block) && this.blockKeeps(modelId, block)) {
       return block
     }
-    // 无亲和（或块满/块达标）→ 前进游标。从当前号之后开始找，保证轮转顺序稳定。
-    const from = block === undefined ? this.rrCursor : Math.max(0, pool.indexOf(block) + 1)
-    const uid = pool[from % pool.length]!
+    // 分配一个号并记住绑定。
+    //
+    // 游标推进分两种情况，**不能混用**：
+    //   - 有指纹（新会话）：按全局游标 rrCursor 分发，**不看 block**。
+    //     block 是按 (supplier, model) 记的「无指纹驻留」，多会话共用同一
+    //     model 时会被上一个会话反复改写；若新会话按 block 推进，多个会话
+    //     交错到来就会反复指向同一位置 → 全挤一个号（team 实测过）。
+    //   - 无指纹：从 block 之后前进（块轮询原语义）。
+    const uid = fp !== ''
+      ? pool[this.rrCursor % pool.length]!
+      : pool[(block === undefined ? this.rrCursor : Math.max(0, pool.indexOf(block) + 1)) % pool.length]!
     this.rrCursor = (pool.indexOf(uid) + 1) % pool.length
     this.blocks.set(this.blockKey(modelId), uid)
     if (fp !== '') {

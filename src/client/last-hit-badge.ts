@@ -1,8 +1,9 @@
 /**
  * 输入框旁的「最近命中」指示器。
  *
- * 在宿主 composer 的上下文环（`.JObwrW_root`）之前插一个小徽章，显示当前
- * 请求命中的服务商/模型；点击展开一张小卡，显示账号显示别名与积分。
+ * 在宿主 composer 的上下文环（`.JObwrW_root`）之前插一个徽章：图标 + 模型名；
+ * 点击展开一张小卡，显示账号显示别名与积分。样式与隔壁环对齐（同高、同 hover、
+ * 图标同 14px / 同描边色），视觉上属于同一排原生控件。
  *
  * 数据源：核心的 `/router/api/last-hit`（全局最近一条，取 usage 明细环首项）。
  * 为什么不在前端直连 status：status 要遍历所有供应商拉积分（重），而这个
@@ -47,9 +48,16 @@ function accountLine(hit: LastHit): string {
   return `${name} · ${Math.round(hit.credits)} 积分`
 }
 
-/** 模型全名（服务商/模型）。 */
+/** 模型全名（服务商/模型）—— 徽章上用。 */
 function modelLine(hit: LastHit): string {
   return hit.model === '' ? hit.supplier : hit.model
+}
+
+/** 模型短名 —— 卡片里用（去掉 `prefix/`，前缀在「服务商」行已单独列出）。 */
+function modelShort(hit: LastHit): string {
+  const full = hit.model === '' ? hit.supplier : hit.model
+  const slash = full.lastIndexOf('/')
+  return slash > 0 ? full.slice(slash + 1) : full
 }
 
 /**
@@ -59,12 +67,14 @@ function modelLine(hit: LastHit): string {
 export function mountLastHitBadge(): () => void {
   let latest: LastHit | null = null
   let badge: HTMLElement | null = null
+  let label: HTMLElement | null = null
   let card: HTMLElement | null = null
   let cardOpen = false
 
   const renderBadge = (): void => {
-    if (badge === null) return
-    // 圆钮只放图标（与隔壁环同形）；模型名走 title + 弹卡，避免长名撑破圆钮
+    if (badge === null || label === null) return
+    // 按钮 = 图标 + 模型名；完整信息（含账号/积分）走 title 与弹卡
+    label.textContent = latest === null ? '—' : modelLine(latest)
     badge.title = latest === null ? '暂无命中记录' : `${modelLine(latest)} · ${accountLine(latest)}`
     badge.classList.toggle(BADGE_CLASS + '-fail', latest !== null && !latest.ok)
   }
@@ -81,7 +91,7 @@ export function mountLastHitBadge(): () => void {
     head.textContent = '本次命中'
     card.appendChild(head)
     const rows: Array<[string, string]> = [
-      ['模型', modelLine(latest)],
+      ['模型', modelShort(latest)],
       ['服务商', latest.supplier],
       ['账号', accountLine(latest)],
       ['请求', latest.requested],
@@ -120,7 +130,11 @@ export function mountLastHitBadge(): () => void {
     button.type = 'button'
     button.className = BADGE_CLASS + '-btn'
     button.setAttribute('aria-label', '最近一次命中')
-    button.innerHTML = ICON
+    const icon = document.createElement('span')
+    icon.innerHTML = ICON
+    const text = document.createElement('span')
+    text.className = BADGE_CLASS + '-label'
+    button.append(icon.firstElementChild as Element, text)
     button.addEventListener('click', (e) => {
       e.stopPropagation()
       cardOpen = !cardOpen
@@ -135,6 +149,7 @@ export function mountLastHitBadge(): () => void {
     wrapper.append(button, panel)
     anchor.parentElement.insertBefore(wrapper, anchor)
     badge = button
+    label = text
     card = panel
     renderBadge()
     if (cardOpen) renderCard()
@@ -173,6 +188,7 @@ export function mountLastHitBadge(): () => void {
     document.removeEventListener('click', onDocClick, true)
     badge?.parentElement?.remove()
     badge = null
+    label = null
     card = null
   }
 }

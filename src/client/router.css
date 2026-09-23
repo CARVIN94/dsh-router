@@ -3140,30 +3140,46 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 .dshr-lastHit-btn {
-    display: grid;
-    width: 28px;
+    display: inline-flex;
     height: 28px;
     flex: none;
-    place-items: center;
+    align-items: center;
+    gap: 6px;
     color: var(--dsw-alias-label-secondary);
     background: 0 0;
     border: none;
     border-radius: 999px;
-    padding: 0;
+    padding: 0 8px;
+    font-size: 12px;
+    line-height: 1;
     cursor: pointer;
+    max-width: 220px;
 }
 
 .dshr-lastHit-btn:hover {
     background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* 图标跟随宿主字色；失败态转红，一眼可辨 */
+/* 图标：与隔壁上下文环的描边同色（它用 label-tertiary 画进度弧），
+   尺寸 14px 也对齐该环的 svg —— 两个控件并排时看着是一套。 */
 .dshr-lastHit-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
+    flex: none;
+    color: var(--dsw-alias-label-tertiary);
+}
+
+.dshr-lastHit-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-lastHit-fail {
+    color: var(--dsw-alias-label-error, #e5534b);
+}
+
+.dshr-lastHit-fail svg {
     color: var(--dsw-alias-label-error, #e5534b);
 }
 

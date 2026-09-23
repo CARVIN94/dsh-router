@@ -24,6 +24,8 @@ interface ChatTrace {
   lastError?: string
   /** 最后一次失败的状态（组合据此判断要不要「喘口气」再降级）。 */
   lastState?: AccountState
+  /** 本次选号的理由（诊断「为什么没粘住原号」）。 */
+  pickWhy?: string
 }
 
 /**
@@ -1029,7 +1031,7 @@ export class Router {
       outTrace.lastState = trace.lastState
     }
     this.logChat(req.model, served
-      ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}`
+      ? `${s.id}/${modelId} (${trace.uid ?? '?'}) ok${trace.attempts > 0 ? ` 重试${trace.attempts}次` : ''}${trace.pickWhy !== undefined ? ` [选号: ${trace.pickWhy}]` : ''}`
       : `${s.id}/${modelId} 失败 ${trace.lastError ?? 'no account'}`, Date.now() - t0)
     return served
   }
@@ -1080,9 +1082,11 @@ export class Router {
     // 否则同一会话的两次尝试会绑到不同的号上）。
     const messages = reqMessages(req.rawBody)
     const tried = new Set<string>()
+    let pickWhy = ''
     for (;;) {
       const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages, req.session)
       if (uid === undefined) return false
+      pickWhy = pool.lastWhy
       tried.add(uid)
       const r = await s.chatOnce(uid, req.lv ?? 'auto', req)
       if (!r.ok) {
@@ -1108,7 +1112,10 @@ export class Router {
         continue
       }
       pool.noteSuccess(uid, req.model)
-      if (trace !== undefined) trace.uid = uid
+      if (trace !== undefined) {
+        trace.uid = uid
+        trace.pickWhy = pickWhy
+      }
       if (probe !== undefined) {
         probe.supplier = s.id
         // 记对外全名 alias/model：与直接调用路径一致。组合里存的是裸

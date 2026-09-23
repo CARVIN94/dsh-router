@@ -291,6 +291,22 @@ test('【亲和/会话隔离】多会话共用同号互踩 → 不误伤降权�
   assert.notEqual(p.pick(list, [], 'm1', msgs('s1'), s1), 'a', '该会话自己攒满 miss 仍应降权 a')
 })
 
+test('【诊断】lastWhy 说清「为什么没粘住原号」（冷却/降权/首见）', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  const sid = 'sid-why'
+  // 首见：无绑定
+  const first = p.pick(list, [], 'm1', msgs('s1'), sid)!
+  assert.match(p.lastWhy, /无绑定|首次出现/, `首见应说明无绑定，实际: ${p.lastWhy}`)
+  // 回访：亲和命中
+  assert.equal(p.pick(list, [], 'm1', msgs('s1', 3), sid), first)
+  assert.match(p.lastWhy, /亲和命中/, `回访应报告亲和命中，实际: ${p.lastWhy}`)
+  // 让原绑定号冷却 → 换号，理由必须点名「冷却」
+  p.noteFailure(first, 'm1', 'rate_limit', '429')
+  assert.notEqual(p.pick(list, [], 'm1', msgs('s1', 5), sid), first)
+  assert.match(p.lastWhy, /冷却/, `绑定号冷却应点名，实际: ${p.lastWhy}`)
+})
+
 test('【亲和】messages 拿不到 → 回退块轮询（旧行为不破坏）', () => {
   const p = pool()
   const list = accs(['a', 'b'])

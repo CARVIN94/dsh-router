@@ -370,7 +370,7 @@ test('每次 chat 记一行：组合名 → 供应商/模型 (账号) 结果', a
   await router.chatCompletions({ model: 'combo1', stream: false, rawBody: JSON.stringify({ model: 'combo1', messages: [] }) }, res)
 
   assert.equal(lines.length, 1)
-  assert.match(lines[0] ?? '', /^chat "combo1" → supA\/a-m \(u1\) ok \d+ms$/, `日志格式不对: ${lines[0]}`)
+  assert.match(lines[0] ?? '', /^chat "combo1" → supA\/a-m \(u1\) ok( \[选号: .+?\])? \d+ms$/, `日志格式不对: ${lines[0]}`)
 })
 
 test('失败的成员也要记，且带真实原因（不能笼统写 no account）', async () => {

@@ -287,18 +287,40 @@ export class AccountPool {
       ...accounts.map((a) => a.uid).filter((uid) => !poolOrder.includes(uid)),
     ]
     const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
-    if (healthy.length === 0) return undefined
+    if (healthy.length === 0) {
+      this.lastWhy = '全池无健康号（都在冷却）'
+      return undefined
+    }
     // 缓存无效降权：该号缓存质量样本长期不达标 → 跳过它（可到期恢复）
     const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now, session))
     const pool = usable.length > 0 ? usable : healthy
     // 前缀亲和：指纹有绑定且该号仍可用 → 直接复用（不进驻留逻辑）
     const fp = sessionFingerprint(session, messages)
-    if (fp !== '' && pool.includes(this.affinity.get(this.blockKey(modelId))?.get(fp) ?? '')) {
-      return this.affinity.get(this.blockKey(modelId))!.get(fp)!
+    const bound = fp === '' ? undefined : this.affinity.get(this.blockKey(modelId))?.get(fp)
+    if (bound !== undefined && pool.includes(bound)) {
+      this.lastWhy = `亲和命中 ${bound}（会话/前缀已绑定）`
+      return bound
+    }
+    // 走到这里说明没粘住：把「为什么没用原绑定」记清楚，否则每次换号都要靠猜
+    const why: string[] = []
+    if (fp === '') {
+      why.push('无指纹（拿不到 messages/会话）')
+    } else if (bound === undefined) {
+      why.push('该指纹无绑定（会话首次出现）')
+    } else {
+      if (!healthy.includes(bound)) {
+        const c = this.cooldowns.get(this.key(modelId, bound))
+        why.push(`原绑定 ${bound} 正在冷却${c?.reason ? `(${c.reason})` : ''}`)
+      } else if (!usable.includes(bound)) {
+        why.push(`原绑定 ${bound} 被降权（本会话样本不达标）`)
+      } else {
+        why.push(`原绑定 ${bound} 不在当前健康池`)
+      }
     }
     // 无指纹：沿用块轮询语义 —— 块内粘住（blockKeeps）则留守当前 block。
     const block = this.blocks.get(this.blockKey(modelId))
     if (fp === '' && block !== undefined && pool.includes(block) && this.blockKeeps(modelId, block)) {
+      this.lastWhy = `块驻留 ${block}（无指纹路径）`
       return block
     }
     // 分配一个号并记住绑定。
@@ -316,13 +338,19 @@ export class AccountPool {
     this.blocks.set(this.blockKey(modelId), uid)
     if (fp !== '') {
       this.bind(modelId, fp, uid)
+      why.push(`按游标新分配 ${uid}`)
     } else {
       // 新驻留 = 新观察窗口（旧行为：块计数从 0 开始）。样本是跨驻留累计的，
       // 不清的话上一个大样本会立刻把新驻留判走。
       this.samples.delete(this.key(modelId, uid))
+      why.push(`块推进到 ${uid}`)
     }
+    this.lastWhy = why.join('；')
     return uid
   }
+
+  /** 上一次 pick 的选号理由（诊断用：解释"为什么没粘住原号"）。 */
+  lastWhy = ''
 
   /** 记下「前缀指纹 → 号」的绑定（LRU：超上限丢最久未用的）。 */
   private bind(modelId: string, fp: string, uid: string): void {

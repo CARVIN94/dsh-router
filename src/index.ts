@@ -729,7 +729,6 @@ export function apply(rawContext: unknown): void {
           const w = router.comboContextWindow(c)
           return { id: c.name, ...(w !== undefined ? { contextWindow: w } : {}) }
         }),
-        host017Plus: () => host017Plus,
       }, () => ctx.get('attachments') as RouterAttachmentStore | undefined)))
       log('llm provider (Router) + discovery + adapter registered ok')
       // 预热模型缓存：`comboContextWindow` 只读缓存、不打上游，缓存空着就

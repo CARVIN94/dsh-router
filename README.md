@@ -5,7 +5,8 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/dsh-router-core"><img src="https://img.shields.io/npm/v/dsh-router-core?style=flat-square&logo=npm&label=npm" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT license"></a>
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="支持的 DSH 版本：0.1.5-rc.1+" src="https://img.shields.io/badge/DSH-0.1.5--rc.1%2B-4d6bfe" /></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.1.5" src="https://img.shields.io/badge/DSH-0.1.5-4d6bfe?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.1.7-alpha.2 支持" src="https://img.shields.io/badge/DSH-0.1.7--alpha.2-e400dd?style=flat-square" /></a>
 </p>
 
 <p align="center">
@@ -42,16 +43,16 @@ dsh plugin --profile web add dsh-router-core
 
 ## 它解决什么问题
 
-| 能力 | 说明 |
-|---|---|
-| 零额外进程 | 就是 DSH 插件,随 `dsh web` 启停,天然同源(`/router/api/*` 无 CORS、面板嵌在设置里)。 |
-| 扩展即插即拔 | 扩展插件(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk))经 `router.ext` 注册,在 bash 执行前改写命令(如加 `rtk` 前缀压缩输出)。面板「扩展」页一键开关,带自检。 |
-| 供应商即插即拔 | 内置供应商随插件分发;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`。 |
-| 模型不内置 | 供应商只实现差异化能力,模型拉取与缓存由核心统一管,不写死、不过时。 |
-| 策略只写一次 | 组合回退、账号池(选号/冷却/禁用)、响应写入、凭证存储、积分持久化、模型管理都由核心提供。供应商 js 只对**单个账号**调一次上游并报告成败,不自己遍历账号、不维护冷却表、不落盘积分——否则每个插件都会长出一份互相不一致的实现,而核心也就无从判断「该不该换号」。 |
-| 凭证单库 | `auths/credentials.sqlite`,供应商凭证不透明 blob,核心统一生命周期,干净可备份。 |
-| 组合即模型 | 建好的组合自动带出为 DSH 模型目录里的 `router` provider 选项,设置 → 模型直接选组合名即可。 |
-| 用量可观测 | 面板概览看板:周期切换、汇总卡、趋势折线、Top 榜、最近请求。 |
+| 能力           | 说明                                                                                                                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 零额外进程     | 就是 DSH 插件,随 `dsh web` 启停,天然同源(`/router/api/*` 无 CORS、面板嵌在设置里)。                                                                                                                                                                          |
+| 扩展即插即拔   | 扩展插件(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk))经 `router.ext` 注册,在 bash 执行前改写命令(如加 `rtk` 前缀压缩输出)。面板「扩展」页一键开关,带自检。                                                                     |
+| 供应商即插即拔 | 内置供应商随插件分发;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`。                                                                                                                                       |
+| 模型不内置     | 供应商只实现差异化能力,模型拉取与缓存由核心统一管,不写死、不过时。                                                                                                                                                                                           |
+| 策略只写一次   | 组合回退、账号池(选号/冷却/禁用)、响应写入、凭证存储、积分持久化、模型管理都由核心提供。供应商 js 只对**单个账号**调一次上游并报告成败,不自己遍历账号、不维护冷却表、不落盘积分——否则每个插件都会长出一份互相不一致的实现,而核心也就无从判断「该不该换号」。 |
+| 凭证单库       | `auths/credentials.sqlite`,供应商凭证不透明 blob,核心统一生命周期,干净可备份。                                                                                                                                                                               |
+| 组合即模型     | 建好的组合自动带出为 DSH 模型目录里的 `router` provider 选项,设置 → 模型直接选组合名即可。                                                                                                                                                                   |
+| 用量可观测     | 面板概览看板:周期切换、汇总卡、趋势折线、Top 榜、最近请求。                                                                                                                                                                                                  |
 
 > 面板布局、组合 fallback、连接池/账号池、API key 管理都贴近
 > [9router](https://github.com/decolua/9router),但按 DSH「一切皆插件」的方式
@@ -93,8 +94,7 @@ dsh plugin --profile web add dsh-router-core
   - **链接池** — 账号列表(冷却/禁用/健康数/积分),支持删除;
   - **加链接** — 按供应商能力弹出不同流程:URL 登录(生成链接 → 浏览器登录 → 回调)、
     API key 弹窗(填名字 + key)、轮询登录(登录后自动取凭证);
-  - **签到** — 供应商实现了签到的才显示(如 codebuddy:每日 100 积分,连续第 7 天
-    1000)。核心遍历所有链接逐个签,汇总「N/M 成功 · X 今日已签」;上游「今日已
+  - **签到** — 供应商实现了签到的才显示(如 codebuddy:每日 100 积分,连续第 7 天1000)。核心遍历所有链接逐个签,汇总「N/M 成功 · X 今日已签」;上游「今日已
     签到」按成功处理(幂等),账号额度或凭证失效会单独标出;
   - **刷新** — 刷所有链接的积分,并跑一次最简会话探测该供应商是否还有活着的链接
     (走真实对话路径 + 账号池回退,能分清是账号额度没了还是供应商真挂了);
@@ -131,24 +131,24 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 ## 面板 API(`/router/api/*`,同源)
 
-| 端点 | 方法 | 说明 |
-|---|---|---|
-| `/health` | GET | 供应商列表(含来源/能力) |
-| `/status` | GET | 全部账号(含供应商 id) |
-| `/models` | GET | 合并模型列表(已过滤禁用) |
-| `/combos` | GET | 组合 fallback 链 |
-| `/keys` | GET/POST | 密钥列表(含完整 key)/ 创建 `{name}` → 返回明文一次 |
-| `/keys/toggle` | POST | `{id, isActive}` |
-| `/keys/delete` | POST | `{id}` |
-| `/settings` | GET/PATCH | `{requireApiKey}` |
-| `/ext` | GET/PATCH | 扩展插件列表 + 开关 `{id, enabled}`(见下) |
-| `/stats` | GET | 用量统计 `?period=today\|24h\|7d\|30d`(汇总 + Top 榜 + 最近请求 20 条) |
-| `/stats/chart` | GET | 趋势图数据 `?period=…`(today/24h = 24 小时桶,7d/30d = 天桶) |
-| `/stats/clear` | POST | 清空全部用量统计 |
-| `/suppliers/:id/login` | POST | 生成登录链接 |
-| `/suppliers/:id/login/callback` | POST | `{callbackUrl}` → 加账号 |
-| `/suppliers/:id/models` | GET | 模型 + 启用状态 |
-| `/suppliers/:id/models/toggle` | POST | `{id, enabled}` |
+| 端点                            | 方法      | 说明                                                                   |
+| ------------------------------- | --------- | ---------------------------------------------------------------------- |
+| `/health`                       | GET       | 供应商列表(含来源/能力)                                                |
+| `/status`                       | GET       | 全部账号(含供应商 id)                                                  |
+| `/models`                       | GET       | 合并模型列表(已过滤禁用)                                               |
+| `/combos`                       | GET       | 组合 fallback 链                                                       |
+| `/keys`                         | GET/POST  | 密钥列表(含完整 key)/ 创建 `{name}` → 返回明文一次                     |
+| `/keys/toggle`                  | POST      | `{id, isActive}`                                                       |
+| `/keys/delete`                  | POST      | `{id}`                                                                 |
+| `/settings`                     | GET/PATCH | `{requireApiKey}`                                                      |
+| `/ext`                          | GET/PATCH | 扩展插件列表 + 开关 `{id, enabled}`(见下)                              |
+| `/stats`                        | GET       | 用量统计 `?period=today\|24h\|7d\|30d`(汇总 + Top 榜 + 最近请求 20 条) |
+| `/stats/chart`                  | GET       | 趋势图数据 `?period=…`(today/24h = 24 小时桶,7d/30d = 天桶)            |
+| `/stats/clear`                  | POST      | 清空全部用量统计                                                       |
+| `/suppliers/:id/login`          | POST      | 生成登录链接                                                           |
+| `/suppliers/:id/login/callback` | POST      | `{callbackUrl}` → 加账号                                               |
+| `/suppliers/:id/models`         | GET       | 模型 + 启用状态                                                        |
+| `/suppliers/:id/models/toggle`  | POST      | `{id, enabled}`                                                        |
 
 ## 扩展插件(`router.ext`)
 
@@ -200,9 +200,9 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 ```
 
 - **供应商抽象**:可插拔 js 模块只提供**差异化能力**(`status/listModels/getAlias/chatOnce`
-  + 可选登录/签到/加 key);**策略与通用能力**(组合回退、账号池选号/冷却/禁用、
-  连接池排序、模型启用/自定义、别名、凭证、响应写入)由核心统一管。
-  `chatOnce(uid, req)` 一次只服务一个账号,返回成功/失败 + 语义状态,换号由核心决定。
+  - 可选登录/签到/加 key);**策略与通用能力**(组合回退、账号池选号/冷却/禁用、
+    连接池排序、模型启用/自定义、别名、凭证、响应写入)由核心统一管。
+    `chatOnce(uid, req)` 一次只服务一个账号,返回成功/失败 + 语义状态,换号由核心决定。
 - **供应商加载**(三来源,见 [`docs/suppliers.md`](docs/suppliers.md)):
   1. 内置:`lib/suppliers/*.js`(随插件分发,如 opencode)
   2. 用户:`~/.dsh/profiles/web/suppliers/*.js`

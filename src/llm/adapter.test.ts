@@ -479,6 +479,51 @@ test('wire：空工具结果发空串，不伪造 (no output) 字面量', async 
   assert.equal(tool?.content, '', '空结果就该是空串')
 })
 
+// 0.1.7+ 消息模型：tool 结果是**独立 role:"tool" 消息**、toolCallId 挂消息级，
+// ContentBlockMap 已无 'tool-result' 块。必须原样发 role:"tool"，否则工具结果被
+// 序列化成 role:"user"、夹在 assistant(tool_calls) 与 tool 之间，上游判定失配 → 400
+// code=11148。下面几条锁死新分支；老的 'tool-result' 块路径（≤0.1.6）仍有各自的用例。
+test('wire：0.1.7+ 独立 role:"tool" 消息序列化为 role:"tool"，正确带 tool_call_id', async () => {
+  const body = await captureBody({
+    messages: [
+      { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
+      { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] },
+    ],
+  })
+  const messages = body.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>
+  const tool = messages.find((m) => m.role === 'tool')
+  assert.ok(tool, '0.1.7 tool 消息必须原样发 role:"tool"')
+  assert.equal(tool.tool_call_id, 'c1', 'tool_call_id 取自消息级 toolCallId')
+  assert.equal(tool.content, 'out', '纯文本重组为字符串')
+  assert.equal(messages.filter((m) => m.role === 'user').length, 0, '不容许被误序列化成 user 消息')
+})
+
+test('wire：0.1.7+ 独立 role:"tool" 消息不带图时不在其后插 user(图)', async () => {
+  // 图片才攒批补 user(图)；纯文本 tool 后面绝不能冒出 user，配对接续必须完整。
+  const body = await captureBody({
+    messages: [
+      { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'a', name: 'bash', arguments: '{}' }] },
+      { role: 'tool', toolCallId: 'a', content: [{ type: 'text', text: 'x' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+    ],
+  })
+  const messages = body.messages as Array<{ role: string }>
+  // 没有任何位置允许 user 夹在 tool 与下一 assistant 之间。
+  for (let i = 1; i < messages.length; i++) {
+    const m = messages[i]
+    assert.ok(m, `第 ${i} 条缺失`)
+    assert.notEqual(m.role, 'user', `第 ${i} 条不应该是 user（tool 配对接续被插断）`)
+  }
+})
+
+test('wire：0.1.7+ 空 tool 结果发空串（不伪造字面量）', async () => {
+  const body = await captureBody({
+    messages: [{ role: 'tool', toolCallId: 'c2', content: [] }],
+  })
+  const tool = (body.messages as Array<{ role: string; content: string }>).find((m) => m.role === 'tool')
+  assert.equal(tool?.content, '', '空结果该是空串')
+})
+
 /**
  * 为什么要有这一条：只不发 `block-end` **并不能**拦住残缺调用。
  *

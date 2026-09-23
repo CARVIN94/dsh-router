@@ -3,64 +3,64 @@
    ============================================================ */
 
 .dshr-entry {
-  box-sizing: border-box;
-  display: flex;
-  width: 100%;
-  min-height: 36px;
-  align-items: center;
-  gap: 10px;
-  border: none;
-  border-radius: 8px;
-  padding: 0 10px;
-  color: var(--dsw-alias-label-secondary);
-  background: transparent;
-  font-size: 13px;
-  white-space: nowrap;
-  cursor: pointer;
+    box-sizing: border-box;
+    display: flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    gap: 10px;
+    border: none;
+    border-radius: 8px;
+    padding: 0 10px;
+    color: var(--dsw-alias-label-secondary);
+    background: transparent;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
 }
 
 .dshr-entry:hover {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .dshr-entry[data-active] {
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-interactive-bg-active);
-  font-weight: 600;
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-interactive-bg-active);
+    font-weight: 600;
 }
 
 .dshr-entryIcon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
 }
 
 .dshr-entryIcon svg {
-  display: block;
-  width: 18px;
-  height: 18px;
+    display: block;
+    width: 18px;
+    height: 18px;
 }
 
 .dshr-entryLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 [data-dsh-frame][data-sidebar-collapsed] .dshr-entry {
-  width: 36px;
-  min-height: 36px;
-  justify-content: center;
-  margin: 0 auto 12px;
-  padding: 0;
-  border-radius: 50%;
+    width: 36px;
+    min-height: 36px;
+    justify-content: center;
+    margin: 0 auto 12px;
+    padding: 0;
+    border-radius: 50%;
 }
 
 [data-dsh-frame][data-sidebar-collapsed] .dshr-entryLabel {
-  display: none;
+    display: none;
 }
 
 /* ============================================================
@@ -69,28 +69,39 @@
 
 .dshr-settings,
 .dshr-shell {
-  --rs-bg: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
-  --rs-layer-1: var(--dsw-alias-bg-layer-1);
-  --rs-layer-2: var(--dsw-alias-bg-layer-2);
-  --rs-input: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-2));
-  --rs-text: var(--dsw-alias-label-primary);
-  --rs-muted: var(--dsw-alias-label-secondary);
-  --rs-faint: var(--dsw-alias-label-tertiary);
-  --rs-line: var(--dsw-alias-border-l1);
-  --rs-line-strong: var(--dsw-alias-border-l2);
-  --rs-accent: var(--dsw-alias-state-business-primary);
-  --rs-hover: var(--dsw-alias-interactive-bg-hover);
-  --rs-danger: var(--dsw-alias-state-error-primary);
-  --rs-success: var(--dsw-alias-state-success-primary);
-  --rs-ok: var(--rs-success);
-  --rs-warn: #9a6a18;
-  --rs-mono: var(--ds-font-family-code, 'SFMono-Regular', Consolas, monospace);
-  --rs-sans: var(--dsw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
-  box-sizing: border-box;
-  min-width: 0;
-  color: var(--rs-text);
-  font: 13px/1.55 var(--rs-sans);
-  -webkit-tap-highlight-color: transparent;
+    --rs-bg: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
+    --rs-layer-1: var(--dsw-alias-bg-layer-1);
+    --rs-layer-2: var(--dsw-alias-bg-layer-2);
+    --rs-input: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-2));
+    --rs-text: var(--dsw-alias-label-primary);
+    --rs-muted: var(--dsw-alias-label-secondary);
+    --rs-faint: var(--dsw-alias-label-tertiary);
+    --rs-line: var(--dsw-alias-border-l1);
+    --rs-line-strong: var(--dsw-alias-border-l2);
+    --rs-accent: var(--dsw-alias-state-business-primary);
+    --rs-hover: var(--dsw-alias-interactive-bg-hover);
+    --rs-danger: var(--dsw-alias-state-error-primary);
+    --rs-success: var(--dsw-alias-state-success-primary);
+    --rs-ok: var(--rs-success);
+    --rs-warn: #9a6a18;
+    --rs-mono: var(
+        --ds-font-family-code,
+        "SFMono-Regular",
+        Consolas,
+        monospace
+    );
+    --rs-sans: var(
+        --dsw-font-family,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif
+    );
+    box-sizing: border-box;
+    min-width: 0;
+    color: var(--rs-text);
+    font: 13px/1.55 var(--rs-sans);
+    -webkit-tap-highlight-color: transparent;
 }
 
 /* ============================================================
@@ -111,159 +122,187 @@
    关键字是 min-height:0 —— flex 子项默认 min-height:auto，不给 0 的话
    子项缩不小，overflow 永远不触发。 */
 .dshr-settings {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  gap: 14px;
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    gap: 14px;
 }
 
 .dshr-settings *,
 .dshr-settings *::before,
-.dshr-settings *::after { box-sizing: border-box; }
+.dshr-settings *::after {
+    box-sizing: border-box;
+}
 
 /* 主导航 = tab 条。照 DSH 原生的内容区 tab（插件页那套 pbvGtq_tab）：
    容器一条 1px 底部分隔线，激活项用 ::after 画 2px 下划线压在线上。
    刻意**不用**填充色块——那会跟下面的周期按钮组撞成同一种控件，
    层级也反了（导航是页面级，周期是筛选级）。 */
 .dshr-tabs {
-  display: flex;
-  flex: none;          /* 固定：内容区滚，tab 条不动 */
-  align-items: center;
-  gap: 4px;
-  border-bottom: 1px solid var(--rs-line);
-  /* 右端跟卡片对齐（实测数字，别凭感觉调）：
+    display: flex;
+    flex: none; /* 固定：内容区滚，tab 条不动 */
+    align-items: center;
+    gap: 4px;
+    border-bottom: 1px solid var(--rs-line);
+    /* 右端跟卡片对齐（实测数字，别凭感觉调）：
        root = 564；内容区因 padding-right 8px → 内容可视宽 556；
        卡片再贴着可视区排 → 548。
      tab 条是 .dshr-settings 的直接子项，起点是 root（564），
      要落到 548 就得让掉 8(padding) + 8(滚动条) = 16px。
      写成 margin 而不用 padding，是为了不把分隔线画到 padding 区域外。 */
-  margin-right: 16px;
+    margin-right: 16px;
 }
 
 .dshr-tab {
-  position: relative;
-  min-width: 0;
-  height: 36px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 0;
-  color: var(--rs-muted);
-  background: transparent;
-  font-size: 13px;
-  font-weight: 400;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color .12s ease;
+    position: relative;
+    min-width: 0;
+    height: 36px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 0;
+    color: var(--rs-muted);
+    background: transparent;
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 0.12s ease;
 }
 
-.dshr-tab:hover { color: var(--rs-text); }
+.dshr-tab:hover {
+    color: var(--rs-text);
+}
 
 /* 激活：主文字色 + 2px 下划线（bottom:-1px 压在容器的分隔线上）。
    双类是因为上面有 `.dshr-settings button { color: inherit; font: inherit }` (1,1)，
    单类的 .dshr-tab-on 只有 (1,0)，颜色和字号会被吃掉。 */
 .dshr-settings .dshr-tab-on {
-  color: var(--rs-text);
-  font-size: 13px;
-  font-weight: 500;
+    color: var(--rs-text);
+    font-size: 13px;
+    font-weight: 500;
 }
 
 .dshr-settings .dshr-tab-on::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  content: '';
-  background: var(--rs-text);
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    content: "";
+    background: var(--rs-text);
 }
 
 .dshr-tabBack {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: transparent;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: transparent;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
 }
 
-.dshr-tabBack:hover { color: var(--rs-text); background: var(--rs-hover); }
+.dshr-tabBack:hover {
+    color: var(--rs-text);
+    background: var(--rs-hover);
+}
 
 /* 内容区：吃掉剩余高度并**自己滚**，这样 tab 条永远留在顶部。
    flex:1 + min-height:0 是必须的（见 .dshr-settings 的注释）。 */
 .dshr-settingsBody {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  overflow-y: auto;
-  /* 恒定预留滚动条槽位。
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    overflow-y: auto;
+    /* 恒定预留滚动条槽位。
      实测不设它时 clientWidth 在 564（内容短、无滚动条）和 556（内容长、有滚动条）
      之间跳，卡片宽也跟着 556/548 跳 —— 切 tab 时内容会横向抖一下。
      不支持 scrollbar-gutter 的浏览器只是退化成「照样占宽」，不会坏。 */
-  scrollbar-gutter: stable;
-  /* 右内边距：内容别贴到滚动条上。滚动条宽 8px 且占布局宽度
+    scrollbar-gutter: stable;
+    /* 右内边距：内容别贴到滚动条上。滚动条宽 8px 且占布局宽度
      （offsetWidth 564 vs clientWidth 556），不撑开的话内容右边缘正好压在它上面。 */
-  padding-right: 8px;
+    padding-right: 8px;
 }
 
 /* 细滚动条：跟 .dshr-content / .dshr-modalBody 一个套路 */
 .dshr-settingsBody::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+    width: 8px;
+    height: 8px;
 }
 
 .dshr-settingsBody::-webkit-scrollbar-thumb {
-  border-radius: 4px;
-  background: var(--rs-line-strong);
+    border-radius: 4px;
+    background: var(--rs-line-strong);
 }
 
 .dshr-settingsBody::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 /* ============================================================
    dsh-router — 老的中心栏劫持骨架（settings 不可用时的回退，非主路径）
    ============================================================ */
 
-[data-pane='conversation'] { position: relative; }
-.dshDesktopConversationSurface { position: relative; }
+[data-pane="conversation"] {
+    position: relative;
+}
+.dshDesktopConversationSurface {
+    position: relative;
+}
 
 [data-dsh-router-view] {
-  position: absolute;
-  z-index: 60;
-  inset: 0;
-  display: none;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
+    position: absolute;
+    z-index: 60;
+    inset: 0;
+    display: none;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--dsw-alias-bg-overlay, var(--dsw-alias-bg-base));
 }
 
-.dshr-panelView { isolation: isolate; }
-
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-dsh-router-view] {
-  display: block;
+.dshr-panelView {
+    isolation: isolate;
 }
 
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [data-pane='conversation'] > :not([data-dsh-router-view]),
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) [class*='centerCol'] > :not([data-dsh-router-view]),
-html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-active]):not([data-dsh-mnemon-active]) .dshDesktopConversationSurface > :not([data-dsh-router-view]) {
-  display: none !important;
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
+        [data-dsh-ssh-active]
+    ):not([data-dsh-mnemon-active])
+    [data-dsh-router-view] {
+    display: block;
+}
+
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
+        [data-dsh-ssh-active]
+    ):not([data-dsh-mnemon-active])
+    [data-pane="conversation"]
+    > :not([data-dsh-router-view]),
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
+        [data-dsh-ssh-active]
+    ):not([data-dsh-mnemon-active])
+    [class*="centerCol"]
+    > :not([data-dsh-router-view]),
+html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
+        [data-dsh-ssh-active]
+    ):not([data-dsh-mnemon-active])
+    .dshDesktopConversationSurface
+    > :not([data-dsh-router-view]) {
+    display: none !important;
 }
 
 .dshr-shell {
-  display: flex;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--rs-bg);
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--rs-bg);
 }
 
 .dshr-settings *,
@@ -271,7 +310,9 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 .dshr-settings *::after,
 .dshr-shell *,
 .dshr-shell *::before,
-.dshr-shell *::after { box-sizing: border-box; }
+.dshr-shell *::after {
+    box-sizing: border-box;
+}
 
 /* 按钮/表单重置 + 聚焦环：两个挂载容器都要覆盖。
    只写 .dshr-shell 的话设置页整套控件样式全掉（踩过：周期按钮变裸文字）。 */
@@ -282,7 +323,10 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 .dshr-shell button,
 .dshr-shell input,
 .dshr-shell select,
-.dshr-shell textarea { color: inherit; font: inherit; }
+.dshr-shell textarea {
+    color: inherit;
+    font: inherit;
+}
 
 .dshr-settings button:focus-visible,
 .dshr-settings input:focus-visible,
@@ -292,288 +336,329 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 .dshr-shell input:focus-visible,
 .dshr-shell select:focus-visible,
 .dshr-shell textarea:focus-visible {
-  outline: 2px solid var(--rs-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--rs-accent);
+    outline-offset: 2px;
 }
 
 /* Masthead */
 .dshr-masthead {
-  display: flex;
-  min-height: 56px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 16px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--rs-line);
+    display: flex;
+    min-height: 56px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 16px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--rs-line);
 }
 
 .dshr-brand {
-  display: grid;
-  min-width: 0;
-  flex: 0 1 auto;
-  align-content: center;
-  gap: 1px 9px;
+    display: grid;
+    min-width: 0;
+    flex: 0 1 auto;
+    align-content: center;
+    gap: 1px 9px;
 }
 
 .dshr-brandTitle {
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-brandSub {
-  overflow: hidden;
-  color: var(--rs-faint);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    overflow: hidden;
+    color: var(--rs-faint);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-statusCluster {
-  display: inline-flex;
-  min-width: 0;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 7px;
-  margin-left: auto;
-  color: var(--rs-muted);
-  font-size: 12px;
-  white-space: nowrap;
+    display: inline-flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    margin-left: auto;
+    color: var(--rs-muted);
+    font-size: 12px;
+    white-space: nowrap;
 }
 
 .dshr-statusEndpoint {
-  overflow: hidden;
-  max-width: 220px;
-  color: var(--rs-faint);
-  font: 11px var(--rs-mono);
-  text-overflow: ellipsis;
+    overflow: hidden;
+    max-width: 220px;
+    color: var(--rs-faint);
+    font: 11px var(--rs-mono);
+    text-overflow: ellipsis;
 }
 
 .dshr-headerActions {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 10px;
 }
 
 .dshr-refreshedAt {
-  color: var(--rs-faint);
-  font-size: 11px;
-  white-space: nowrap;
+    color: var(--rs-faint);
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .dshr-iconButton {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: var(--rs-layer-1);
-  cursor: pointer;
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: var(--rs-layer-1);
+    cursor: pointer;
 }
 
-.dshr-iconButton:hover { color: var(--rs-text); background: var(--rs-hover); }
-.dshr-iconButton:disabled { opacity: 0.5; cursor: default; }
+.dshr-iconButton:hover {
+    color: var(--rs-text);
+    background: var(--rs-hover);
+}
+.dshr-iconButton:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
 
 .dshr-backButton {
-  display: inline-flex;
-  height: 28px;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  color: var(--rs-text);
-  background: transparent;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
+    display: inline-flex;
+    height: 28px;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    color: var(--rs-text);
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.dshr-backButton:hover { background: var(--rs-hover); }
-.dshr-backButton svg { display: block; }
+.dshr-backButton:hover {
+    background: var(--rs-hover);
+}
+.dshr-backButton svg {
+    display: block;
+}
 
 /* Alert banner */
 .dshr-alert {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: baseline;
-  gap: 10px;
-  margin: 12px 18px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--rs-line-strong);
-  border-radius: 8px;
-  background: var(--rs-layer-1);
+    display: flex;
+    flex: 0 0 auto;
+    align-items: baseline;
+    gap: 10px;
+    margin: 12px 18px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--rs-line-strong);
+    border-radius: 8px;
+    background: var(--rs-layer-1);
 }
 
-.dshr-alert strong { color: var(--rs-danger); font-size: 12px; }
-.dshr-alert span { color: var(--rs-muted); font-size: 12px; }
+.dshr-alert strong {
+    color: var(--rs-danger);
+    font-size: 12px;
+}
+.dshr-alert span {
+    color: var(--rs-muted);
+    font-size: 12px;
+}
 
 /* Nav tabs */
 .dshr-nav {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 2px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--rs-line);
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--rs-line);
 }
 
 .dshr-nav button {
-  position: relative;
-  min-height: 42px;
-  padding: 0 12px;
-  border: none;
-  color: var(--rs-muted);
-  background: transparent;
-  font-size: 13px;
-  cursor: pointer;
+    position: relative;
+    min-height: 42px;
+    padding: 0 12px;
+    border: none;
+    color: var(--rs-muted);
+    background: transparent;
+    font-size: 13px;
+    cursor: pointer;
 }
 
-.dshr-nav button:hover { color: var(--rs-text); }
-
-.dshr-nav button[aria-current='page'] {
-  color: var(--rs-text);
-  font-weight: 600;
+.dshr-nav button:hover {
+    color: var(--rs-text);
 }
 
-.dshr-nav button[aria-current='page']::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  content: '';
-  background: var(--rs-accent);
+.dshr-nav button[aria-current="page"] {
+    color: var(--rs-text);
+    font-weight: 600;
+}
+
+.dshr-nav button[aria-current="page"]::after {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    content: "";
+    background: var(--rs-accent);
 }
 
 .dshr-navCount {
-  display: inline-block;
-  margin-left: 5px;
-  padding: 0 6px;
-  border-radius: 9px;
-  color: var(--rs-faint);
-  background: var(--rs-layer-2);
-  font-size: 11px;
-  line-height: 16px;
+    display: inline-block;
+    margin-left: 5px;
+    padding: 0 6px;
+    border-radius: 9px;
+    color: var(--rs-faint);
+    background: var(--rs-layer-2);
+    font-size: 11px;
+    line-height: 16px;
 }
 
 /* Content */
 .dshr-content {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  overflow: auto;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    overflow: auto;
 }
 
 .dshr-empty {
-  display: flex;
-  min-height: 120px;
-  align-items: center;
-  justify-content: center;
-  color: var(--rs-faint);
-  font-size: 13px;
+    display: flex;
+    min-height: 120px;
+    align-items: center;
+    justify-content: center;
+    color: var(--rs-faint);
+    font-size: 13px;
 }
 
 /* Accounts table */
 .dshr-tableWrap {
-  overflow: auto;
-  padding: 12px 18px;
+    overflow: auto;
+    padding: 12px 18px;
 }
 
 .dshr-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
 }
 
 .dshr-table th {
-  position: sticky;
-  top: 0;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--rs-line-strong);
-  color: var(--rs-faint);
-  background: var(--rs-bg);
-  font-size: 11px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
+    position: sticky;
+    top: 0;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rs-line-strong);
+    color: var(--rs-faint);
+    background: var(--rs-bg);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
 }
 
 .dshr-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--rs-line);
-  vertical-align: middle;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--rs-line);
+    vertical-align: middle;
 }
 
-.dshr-table tbody tr:hover { background: var(--rs-hover); }
+.dshr-table tbody tr:hover {
+    background: var(--rs-hover);
+}
 
-.dshr-mono { font-family: var(--rs-mono); font-size: 11px; }
-.dshr-num { text-align: right; }
-.dshr-muted { color: var(--rs-faint); }
-.dshr-reason { color: var(--rs-muted); font-size: 11px; }
+.dshr-mono {
+    font-family: var(--rs-mono);
+    font-size: 11px;
+}
+.dshr-num {
+    text-align: right;
+}
+.dshr-muted {
+    color: var(--rs-faint);
+}
+.dshr-reason {
+    color: var(--rs-muted);
+    font-size: 11px;
+}
 
 .dshr-badge {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 9px;
-  font-size: 11px;
-  line-height: 16px;
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 9px;
+    font-size: 11px;
+    line-height: 16px;
 }
 
-.dshr-badge-ok { color: var(--rs-success); background: color-mix(in srgb, var(--rs-success) 12%, transparent); }
-.dshr-badge-warn { color: var(--rs-warn); background: color-mix(in srgb, var(--rs-warn) 14%, transparent); }
-.dshr-badge-danger { color: var(--rs-danger); background: color-mix(in srgb, var(--rs-danger) 12%, transparent); }
+.dshr-badge-ok {
+    color: var(--rs-success);
+    background: color-mix(in srgb, var(--rs-success) 12%, transparent);
+}
+.dshr-badge-warn {
+    color: var(--rs-warn);
+    background: color-mix(in srgb, var(--rs-warn) 14%, transparent);
+}
+.dshr-badge-danger {
+    color: var(--rs-danger);
+    background: color-mix(in srgb, var(--rs-danger) 12%, transparent);
+}
 
 /* Models grid */
 .dshr-modelGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-  padding: 14px 18px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+    padding: 14px 18px;
 }
 
 /* 设置页里横向 padding 归零：内容区已经贴着容器边，再加 18px 会把卡片挤成
    1 列、图表也跟着变窄。上下 padding 保留。 */
 .dshr-settings .dshr-modelGrid,
 .dshr-settings .dshr-tableWrap {
-  padding-right: 0;
-  padding-left: 0;
+    padding-right: 0;
+    padding-left: 0;
 }
 
 .dshr-modelCard {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  background: var(--rs-layer-1);
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--rs-line);
+    border-radius: 8px;
+    background: var(--rs-layer-1);
 }
 
-.dshr-modelCard:hover { border-color: var(--rs-line-strong); }
+.dshr-modelCard:hover {
+    border-color: var(--rs-line-strong);
+}
 
 .dshr-modelId {
-  overflow: hidden;
-  font-family: var(--rs-mono);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    overflow: hidden;
+    font-family: var(--rs-mono);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-modelCtx {
-  flex: none;
-  color: var(--rs-faint);
-  font-size: 10px;
+    flex: none;
+    color: var(--rs-faint);
+    font-size: 10px;
 }
 
 /* ============================================================
@@ -584,123 +669,126 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
    那一块）。这里再给 overflow 就会出现嵌套滚动条（内容区一个、tabBody 一个）。
    老的 .dshr-shell 中心栏挂载方式没有 settingsBody 那层，滚动由它自己承担。 */
 .dshr-tabBody {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 14px;
-  padding: 0;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0;
 }
 
 .dshr-shell .dshr-tabBody {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 14px 18px;
-  overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 14px 18px;
+    overflow-y: auto;
 }
 
 .dshr-card {
-  flex: none;          /* 不参与 flex 伸缩:高度=内容,避免被压缩裁切 */
-  min-width: 0;
-  border: 1px solid var(--rs-line);
-  border-radius: 10px;
-  background: var(--rs-layer-1);
-  overflow: hidden;
+    flex: none; /* 不参与 flex 伸缩:高度=内容,避免被压缩裁切 */
+    min-width: 0;
+    border: 1px solid var(--rs-line);
+    border-radius: 10px;
+    background: var(--rs-layer-1);
+    overflow: hidden;
 }
 
 .dshr-cardHead {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--rs-line);
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rs-line);
 }
 
 .dshr-cardTitle {
-  font-size: 13px;
-  font-weight: 650;
+    font-size: 13px;
+    font-weight: 650;
 }
 
 .dshr-cardMeta {
-  margin-left: auto;
-  font-size: 11px;
-  white-space: nowrap;
+    margin-left: auto;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 /* 组合链 */
 .dshr-comboChain {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 14px;
 }
 
 .dshr-comboStep {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .dshr-comboArrow {
-  color: var(--rs-faint);
-  margin-right: 8px;
+    color: var(--rs-faint);
+    margin-right: 8px;
 }
 
 .dshr-comboSupplier {
-  font-family: var(--rs-mono);
-  font-size: 12px;
+    font-family: var(--rs-mono);
+    font-size: 12px;
 }
 
 /* 端点与密钥 */
 .dshr-endpointRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
 }
 
 .dshr-endpointCode {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  padding: 8px 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  background: var(--rs-layer-2);
-  color: var(--rs-text);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding: 8px 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    background: var(--rs-layer-2);
+    color: var(--rs-text);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-miniButton {
-  display: inline-flex;
-  flex: none;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: var(--rs-layer-1);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
+    display: inline-flex;
+    flex: none;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: var(--rs-layer-1);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
 }
 
-.dshr-miniButton:hover { color: var(--rs-text); background: var(--rs-hover); }
+.dshr-miniButton:hover {
+    color: var(--rs-text);
+    background: var(--rs-hover);
+}
 
 .dshr-code {
-  margin: 0;
-  padding: 12px 14px;
-  overflow-x: auto;
-  color: var(--rs-text);
-  background: var(--rs-layer-2);
-  font: 12px/1.6 var(--rs-mono);
-  white-space: pre-wrap;
-  word-break: break-all;
+    margin: 0;
+    padding: 12px 14px;
+    overflow-x: auto;
+    color: var(--rs-text);
+    background: var(--rs-layer-2);
+    font: 12px/1.6 var(--rs-mono);
+    white-space: pre-wrap;
+    word-break: break-all;
 }
 
 /* ============================================================
@@ -709,254 +797,259 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* 详情页头 */
 .dshr-detailHead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
 }
 
 .dshr-detailTitle {
-  font-size: 14px;
-  font-weight: 650;
+    font-size: 14px;
+    font-weight: 650;
 }
 
 /* 可点击卡片 */
 .dshr-card-click {
-  cursor: pointer;
-  transition: border-color .12s ease;
+    cursor: pointer;
+    transition: border-color 0.12s ease;
 }
 
-.dshr-card-click:hover { border-color: var(--rs-accent); }
+.dshr-card-click:hover {
+    border-color: var(--rs-accent);
+}
 
 .dshr-cardHint {
-  padding: 0 14px 12px;
+    padding: 0 14px 12px;
 }
 
 /* 供应商小卡片（grid 布局，替代整行大卡片） */
 .dshr-supplierGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 12px;
 }
 
 /* 供应商分组（内置 / 插件分开） */
 .dshr-supplierGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .dshr-supplierGroup + .dshr-supplierGroup {
-  margin-top: 22px;
+    margin-top: 22px;
 }
 
 .dshr-supplierGroupTitle {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--rs-muted);
-  letter-spacing: .04em;
-  padding-left: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--rs-muted);
+    letter-spacing: 0.04em;
+    padding-left: 2px;
 }
 
 .dshr-supplierCard {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 16px 18px;
-  border: 1px solid var(--rs-line);
-  border-radius: 12px;
-  background: var(--rs-layer-1);
-  cursor: pointer;
-  transition: border-color .12s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 16px 18px;
+    border: 1px solid var(--rs-line);
+    border-radius: 12px;
+    background: var(--rs-layer-1);
+    cursor: pointer;
+    transition: border-color 0.12s ease;
 }
 
-.dshr-supplierCard:hover { border-color: var(--rs-accent); }
+.dshr-supplierCard:hover {
+    border-color: var(--rs-accent);
+}
 
 .dshr-supplierName {
-  font-size: 14px;
-  font-weight: 650;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+    font-size: 14px;
+    font-weight: 650;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .dshr-supplierRow {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
 }
 
 .dshr-supplierIcon {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  border-radius: 5px;
-  object-fit: contain;
-  color: var(--rs-faint);
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 5px;
+    object-fit: contain;
+    color: var(--rs-faint);
 }
 
 .dshr-supplierMeta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .dshr-chevron {
-  color: var(--rs-faint);
-  font-size: 18px;
-  line-height: 1;
-  margin-left: auto;
+    color: var(--rs-faint);
+    font-size: 18px;
+    line-height: 1;
+    margin-left: auto;
 }
 
 /* 登录框 */
 .dshr-loginBox {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rs-line);
-  background: var(--rs-layer-2);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rs-line);
+    background: var(--rs-layer-2);
 }
 
 .dshr-loginUrl {
-  display: block;
-  overflow: hidden;
-  padding: 8px 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  background: var(--rs-layer-1);
-  color: var(--rs-accent);
-  font: 11px/1.5 var(--rs-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  word-break: break-all;
+    display: block;
+    overflow: hidden;
+    padding: 8px 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    background: var(--rs-layer-1);
+    color: var(--rs-accent);
+    font: 11px/1.5 var(--rs-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: break-all;
 }
 
 /* 输入框 */
 .dshr-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  background: var(--rs-layer-1);
-  color: var(--rs-text);
-  font-size: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    background: var(--rs-layer-1);
+    color: var(--rs-text);
+    font-size: 12px;
 }
 
 .dshr-input:focus {
-  outline: none;
-  border-color: var(--rs-accent);
+    outline: none;
+    border-color: var(--rs-accent);
 }
 
 /* 成功提示 */
 .dshr-alert-ok {
-  border-color: color-mix(in srgb, var(--rs-ok) 45%, transparent);
-  background: color-mix(in srgb, var(--rs-ok) 10%, transparent);
+    border-color: color-mix(in srgb, var(--rs-ok) 45%, transparent);
+    background: color-mix(in srgb, var(--rs-ok) 10%, transparent);
 }
 
 .dshr-createdKey {
-  display: block;
-  margin: 6px 0;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--rs-layer-1);
-  word-break: break-all;
+    display: block;
+    margin: 6px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--rs-layer-1);
+    word-break: break-all;
 }
 
 /* 模型卡片行 */
 .dshr-modelRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
 }
 
 .dshr-modelCard-off {
-  opacity: .55;
+    opacity: 0.55;
 }
 
 /* 开关 */
 .dshr-toggle {
-  position: relative;
-  flex: none;
-  width: 30px;
-  height: 16px;
-  border: none;
-  border-radius: 8px;
-  background: var(--rs-line);
-  cursor: pointer;
-  padding: 0;
-  transition: background .15s ease;
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--rs-line);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s ease;
 }
 
-.dshr-toggle-on { background: var(--rs-ok); }
+.dshr-toggle-on {
+    background: var(--rs-ok);
+}
 
 .dshr-toggleKnob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform .15s ease;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s ease;
 }
 
-.dshr-toggle-on .dshr-toggleKnob { transform: translateX(14px); }
+.dshr-toggle-on .dshr-toggleKnob {
+    transform: translateX(14px);
+}
 
 /* 开关禁用态：不可用(未就绪)且未开启时,灰显 + 不可点 */
 .dshr-toggle:disabled {
-  cursor: default;
-  opacity: .45;
+    cursor: default;
+    opacity: 0.45;
 }
 
 /* 扩展页：未就绪问题描述(红字) */
 .dshr-ext-error {
-  color: var(--rs-danger);
-  font-size: 11px;
-  margin-top: 4px;
+    color: var(--rs-danger);
+    font-size: 11px;
+    margin-top: 4px;
 }
 
 /* 扩展供应商式小卡片：未就绪红字（描述只在详情页，卡片不放） */
 .dshr-extCardError {
-  color: var(--rs-danger);
-  font-size: 11px;
-}
-
-/* 扩展卡 logo（如 rtk 白底 logo）：黑底 + 内边距,白色 logo 在黑底上显形 */
-.dshr-extLogo {
-  background: #000;
-  padding: 3px;
-  box-sizing: border-box;
-  object-fit: contain;
+    color: var(--rs-danger);
+    font-size: 11px;
 }
 
 /* 扩展详情头部右侧的开关（顶到标题行右边，同供应商详情的编辑按钮位） */
 .dshr-extDetailToggle {
-  margin-left: auto;
+    margin-left: auto;
 }
 
 /* 扩展卡片内容区：文字左对齐，左侧留白与标题行的图标位对齐 */
 .dshr-extBody {
-  padding: 10px 14px 12px 48px;
-  text-align: left;
+    padding: 10px 14px 12px 48px;
+    text-align: left;
 }
 
 /* 操作按钮组 */
 .dshr-ops {
-  display: flex;
-  gap: 6px;
-  white-space: nowrap;
+    display: flex;
+    gap: 6px;
+    white-space: nowrap;
 }
 
-.dshr-danger { color: var(--rs-danger); }
-.dshr-danger:hover { color: var(--rs-danger); border-color: var(--rs-danger); }
+.dshr-danger {
+    color: var(--rs-danger);
+}
+.dshr-danger:hover {
+    color: var(--rs-danger);
+    border-color: var(--rs-danger);
+}
 
 /* ============================================================
    dsh-router — 弹窗 + 按钮 + 整体打磨
@@ -964,185 +1057,213 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* 弹窗 */
 .dshr-modalOverlay {
-  position: fixed;
-  z-index: 1000;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: color-mix(in srgb, #000 42%, transparent);
-  backdrop-filter: blur(2px);
-  animation: dshrFadeIn .12s ease;
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: color-mix(in srgb, #000 42%, transparent);
+    backdrop-filter: blur(2px);
+    animation: dshrFadeIn 0.12s ease;
 }
 
 .dshr-modal {
-  width: min(560px, 100%);
-  max-height: min(80vh, 640px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--rs-line-strong);
-  border-radius: 12px;
-  background: var(--rs-layer-1);
-  box-shadow: 0 20px 50px rgb(0 0 0 / .35), 0 0 0 1px rgb(0 0 0 / .05);
-  animation: dshrModalIn .16s ease;
+    width: min(560px, 100%);
+    max-height: min(80vh, 640px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--rs-line-strong);
+    border-radius: 12px;
+    background: var(--rs-layer-1);
+    box-shadow:
+        0 20px 50px rgb(0 0 0 / 0.35),
+        0 0 0 1px rgb(0 0 0 / 0.05);
+    animation: dshrModalIn 0.16s ease;
 }
 
 .dshr-modalHead {
-  display: flex;
-  min-height: 48px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--rs-line);
+    display: flex;
+    min-height: 48px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--rs-line);
 }
 
 .dshr-modalTitle {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-modalClose {
-  display: inline-flex;
-  flex: none;
-  width: 26px;
-  height: 26px;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: transparent;
-  cursor: pointer;
+    display: inline-flex;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: transparent;
+    cursor: pointer;
 }
 
-.dshr-modalClose:hover { color: var(--rs-text); background: var(--rs-hover); }
+.dshr-modalClose:hover {
+    color: var(--rs-text);
+    background: var(--rs-hover);
+}
 
 .dshr-modalBody {
-  min-height: 0;
-  overflow: auto;
-  padding: 16px;
+    min-height: 0;
+    overflow: auto;
+    padding: 16px;
 }
 
 .dshr-modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
 }
 
-@keyframes dshrFadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes dshrModalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes dshrFadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+@keyframes dshrModalIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
 
 /* 按钮 */
 .dshr-settings .dshr-primaryButton,
 .dshr-shell .dshr-primaryButton {
-  display: inline-flex;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 14px;
-  border: none;
-  border-radius: 7px;
-  color: #fff;
-  background: var(--rs-accent);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: filter .12s ease;
+    display: inline-flex;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 14px;
+    border: none;
+    border-radius: 7px;
+    color: #fff;
+    background: var(--rs-accent);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.12s ease;
 }
 
 .dshr-settings .dshr-primaryButton:hover,
-.dshr-shell .dshr-primaryButton:hover { filter: brightness(1.08); }
+.dshr-shell .dshr-primaryButton:hover {
+    filter: brightness(1.08);
+}
 .dshr-settings .dshr-primaryButton:disabled,
-.dshr-shell .dshr-primaryButton:disabled { opacity: .55; cursor: default; }
+.dshr-shell .dshr-primaryButton:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
 
 .dshr-settings .dshr-dangerButton,
 .dshr-shell .dshr-dangerButton {
-  display: inline-flex;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 14px;
-  border: none;
-  border-radius: 7px;
-  color: #fff;
-  background: var(--rs-danger);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: filter .12s ease;
+    display: inline-flex;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 14px;
+    border: none;
+    border-radius: 7px;
+    color: #fff;
+    background: var(--rs-danger);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.12s ease;
 }
 
 .dshr-settings .dshr-dangerButton:hover,
-.dshr-shell .dshr-dangerButton:hover { filter: brightness(1.1); }
+.dshr-shell .dshr-dangerButton:hover {
+    filter: brightness(1.1);
+}
 
 /* 登录步骤 */
 .dshr-loginBox {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .dshr-loginStep {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  color: var(--rs-muted);
-  font-size: 12px;
-  line-height: 1.6;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--rs-muted);
+    font-size: 12px;
+    line-height: 1.6;
 }
 
 .dshr-loginNum {
-  display: inline-flex;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
-  font-size: 11px;
-  font-weight: 700;
+    display: inline-flex;
+    flex: none;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+    font-size: 11px;
+    font-weight: 700;
 }
 
 .dshr-loginUrl {
-  display: block;
-  overflow: hidden;
-  padding: 9px 11px;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  background: var(--rs-layer-2);
-  color: var(--rs-accent);
-  font: 11px/1.5 var(--rs-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  word-break: break-all;
+    display: block;
+    overflow: hidden;
+    padding: 9px 11px;
+    border: 1px solid var(--rs-line);
+    border-radius: 8px;
+    background: var(--rs-layer-2);
+    color: var(--rs-accent);
+    font: 11px/1.5 var(--rs-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: break-all;
 }
 
 /* 新 Key 弹窗 */
 .dshr-createdKeyBox {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .dshr-createdKey {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--rs-layer-2);
-  word-break: break-all;
-  user-select: all;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--rs-layer-2);
+    word-break: break-all;
+    user-select: all;
 }
 
 /* ============================================================
@@ -1151,80 +1272,100 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* Masthead: 细腻渐变 + 底部微阴影 */
 .dshr-masthead {
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--rs-layer-1) 62%, transparent), transparent);
+    background: linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--rs-layer-1) 62%, transparent),
+        transparent
+    );
 }
 
 /* Brand 标题更突出 */
 .dshr-brandTitle {
-  letter-spacing: .01em;
+    letter-spacing: 0.01em;
 }
 
 /* 卡片:阴影 + hover 微抬升 */
 .dshr-card {
-  box-shadow: 0 1px 2px rgb(0 0 0 / .04);
-  transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    transition:
+        box-shadow 0.15s ease,
+        transform 0.15s ease,
+        border-color 0.15s ease;
 }
 
 .dshr-card-click:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--rs-accent) 55%, var(--rs-line));
-  box-shadow: 0 6px 18px rgb(0 0 0 / .10);
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--rs-accent) 55%, var(--rs-line));
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.1);
 }
 
 /* Tab:悬停背景 + 计数徽标配色 */
 .dshr-nav button {
-  transition: color .12s ease, background .12s ease;
+    transition:
+        color 0.12s ease,
+        background 0.12s ease;
 }
 
 .dshr-nav button:hover {
-  background: var(--rs-hover);
-  border-radius: 6px 6px 0 0;
+    background: var(--rs-hover);
+    border-radius: 6px 6px 0 0;
 }
 
 .dshr-navCount {
-  background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
-  color: var(--rs-accent);
-  font-weight: 600;
+    background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
+    color: var(--rs-accent);
+    font-weight: 600;
 }
 
 /* 徽标:更柔和 */
 .dshr-badge {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 12%, transparent);
+    box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, currentColor 12%, transparent);
 }
 
 /* 表格行悬停 + 表头层级 */
-.dshr-table tbody tr { transition: background .1s ease; }
-.dshr-table th { letter-spacing: .02em; }
+.dshr-table tbody tr {
+    transition: background 0.1s ease;
+}
+.dshr-table th {
+    letter-spacing: 0.02em;
+}
 
 /* 输入框聚焦 */
 .dshr-input:focus {
-  border-color: var(--rs-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent);
+    border-color: var(--rs-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent);
 }
 
 /* 开关微过渡 */
-.dshr-toggle { transition: background .15s ease, box-shadow .15s ease; }
-.dshr-toggle:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent); }
+.dshr-toggle {
+    transition:
+        background 0.15s ease,
+        box-shadow 0.15s ease;
+}
+.dshr-toggle:hover {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent);
+}
 
 /* 内容区细滚动条 */
 .dshr-content::-webkit-scrollbar,
 .dshr-tableWrap::-webkit-scrollbar,
 .dshr-modalBody::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+    width: 8px;
+    height: 8px;
 }
 
 .dshr-content::-webkit-scrollbar-thumb,
 .dshr-tableWrap::-webkit-scrollbar-thumb,
 .dshr-modalBody::-webkit-scrollbar-thumb {
-  border-radius: 4px;
-  background: var(--rs-line-strong);
+    border-radius: 4px;
+    background: var(--rs-line-strong);
 }
 
 .dshr-content::-webkit-scrollbar-track,
 .dshr-tableWrap::-webkit-scrollbar-track,
 .dshr-modalBody::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 /* ============================================================
@@ -1233,257 +1374,292 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* 卡片头图标 */
 .dshr-cardIcon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
 }
 
 .dshr-cardAction {
-  margin-left: auto;
+    margin-left: auto;
 }
 
 /* Endpoint 列表 */
 .dshr-endpointList {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
 }
 
 .dshr-endpointRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .dshr-endpointLabel {
-  flex: none;
-  min-width: 88px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: var(--rs-layer-2);
-  font: 11px var(--rs-mono);
-  text-align: center;
+    flex: none;
+    min-width: 88px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: var(--rs-layer-2);
+    font: 11px var(--rs-mono);
+    text-align: center;
 }
 
 .dshr-endpointRow .dshr-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: var(--rs-muted);
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--rs-muted);
 }
 
 .dshr-endpointNote {
-  padding: 2px 2px 0;
+    padding: 2px 2px 0;
 }
 
 /* 图标按钮 */
 .dshr-iconBtn {
-  display: inline-flex;
-  flex: none;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: transparent;
-  cursor: pointer;
-  transition: color .12s ease, background .12s ease;
+    display: inline-flex;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: transparent;
+    cursor: pointer;
+    transition:
+        color 0.12s ease,
+        background 0.12s ease;
 }
 
-.dshr-iconBtn:hover { color: var(--rs-accent); background: var(--rs-hover); }
+.dshr-iconBtn:hover {
+    color: var(--rs-accent);
+    background: var(--rs-hover);
+}
 
-.dshr-iconBtn svg { display: block; }
+.dshr-iconBtn svg {
+    display: block;
+}
 
-.dshr-iconBtn-sm { width: 26px; height: 26px; }
+.dshr-iconBtn-sm {
+    width: 26px;
+    height: 26px;
+}
 
 /* 禁用态必须看得出来：纯图标按钮没有文字可读（不像「刷新中…」），
    只靠 hover 反馈会让人以为还能点。 */
-.dshr-iconBtn:disabled { opacity: .4; cursor: default; }
+.dshr-iconBtn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
 
-.dshr-iconBtn:disabled:hover { color: var(--rs-muted); background: transparent; }
+.dshr-iconBtn:disabled:hover {
+    color: var(--rs-muted);
+    background: transparent;
+}
 
 /* Require API key 行 */
 .dshr-requireRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rs-line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rs-line);
 }
 
 .dshr-requireTitle {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
 }
 
 .dshr-requireDesc {
-  margin: 2px 0 0;
-  color: var(--rs-faint);
-  font-size: 12px;
+    margin: 2px 0 0;
+    color: var(--rs-faint);
+    font-size: 12px;
 }
 
 /* 空状态 */
 .dshr-keyEmpty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 40px 16px 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 40px 16px 44px;
 }
 
 .dshr-keyEmptyIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 6px;
-  border-radius: 50%;
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 6px;
+    border-radius: 50%;
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
 }
 
 .dshr-keyEmptyTitle {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 .dshr-keyEmptyDesc {
-  margin: 0 0 8px;
-  color: var(--rs-faint);
-  font-size: 12px;
+    margin: 0 0 8px;
+    color: var(--rs-faint);
+    font-size: 12px;
 }
 
 /* key 列表（flex 行，非表格） */
 .dshr-keyList {
-  display: flex;
-  flex-direction: column;
+    display: flex;
+    flex-direction: column;
 }
 
 .dshr-keyRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rs-line);
-  transition: opacity .12s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rs-line);
+    transition: opacity 0.12s ease;
 }
 
-.dshr-keyRow:last-child { border-bottom: none; }
-.dshr-keyRow-paused { opacity: .6; }
+.dshr-keyRow:last-child {
+    border-bottom: none;
+}
+.dshr-keyRow-paused {
+    opacity: 0.6;
+}
 
 .dshr-keyInfo {
-  min-width: 0;
-  flex: 1 1 auto;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 .dshr-keyNameRow {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .dshr-keyName {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
 }
 
 .dshr-keyValue {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-top: 2px;
 }
 
 .dshr-keyValue code {
-  overflow: hidden;
-  color: var(--rs-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    overflow: hidden;
+    color: var(--rs-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-keyCreated {
-  margin: 3px 0 0;
-  color: var(--rs-faint);
-  font-size: 11px;
+    margin: 3px 0 0;
+    color: var(--rs-faint);
+    font-size: 11px;
 }
 
-.dshr-keyPaused { color: var(--rs-warn); }
+.dshr-keyPaused {
+    color: var(--rs-warn);
+}
 
 .dshr-keyOps {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
 }
 
 /* 删除按钮 hover 才明显（9router：group-hover 显示） */
 .dshr-keyDelete {
-  color: var(--rs-muted);
-  opacity: 0;
-  transition: opacity .12s ease, color .12s ease, background .12s ease;
+    color: var(--rs-muted);
+    opacity: 0;
+    transition:
+        opacity 0.12s ease,
+        color 0.12s ease,
+        background 0.12s ease;
 }
 
-.dshr-keyRow:hover .dshr-keyDelete { opacity: 1; }
-.dshr-keyDelete:focus-visible { opacity: 1; }
+.dshr-keyRow:hover .dshr-keyDelete {
+    opacity: 1;
+}
+.dshr-keyDelete:focus-visible {
+    opacity: 1;
+}
 .dshr-keyDelete:hover {
-  color: var(--rs-danger);
-  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+    color: var(--rs-danger);
+    background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
 }
 
 /* 弹窗表单 */
 .dshr-modalForm {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
 }
 
 .dshr-fieldLabel {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--rs-text);
-  margin-top: 4px;
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--rs-text);
+    margin-top: 4px;
 }
 
 .dshr-warnBox {
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--rs-warn) 40%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--rs-warn) 8%, transparent);
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--rs-warn) 40%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--rs-warn) 8%, transparent);
 }
 
 .dshr-warnTitle {
-  margin: 0 0 4px;
-  color: var(--rs-warn);
-  font-size: 13px;
-  font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--rs-warn);
+    font-size: 13px;
+    font-weight: 700;
 }
 
 .dshr-warnDesc {
-  margin: 0;
-  color: var(--rs-muted);
-  font-size: 12px;
+    margin: 0;
+    color: var(--rs-muted);
+    font-size: 12px;
 }
 
-.dshr-createdRow { padding: 0; }
+.dshr-createdRow {
+    padding: 0;
+}
 
-.dshr-createdRow .dshr-input { color: var(--rs-text); }
+.dshr-createdRow .dshr-input {
+    color: var(--rs-text);
+}
 
-.dshr-fullButton { width: 100%; }
+.dshr-fullButton {
+    width: 100%;
+}
 
 /* ============================================================
    dsh-router — 供应商详情（9router 风格）
@@ -1491,270 +1667,324 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* Header */
 .dshr-providerHead {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .dshr-backLink {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
-  border: none;
-  padding: 2px 0;
-  color: var(--rs-muted);
-  background: transparent;
-  font-size: 12px;
-  cursor: pointer;
-  transition: color .12s ease;
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 4px;
+    border: none;
+    padding: 2px 0;
+    color: var(--rs-muted);
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.12s ease;
 }
 
-.dshr-backLink:hover { color: var(--rs-accent); }
+.dshr-backLink:hover {
+    color: var(--rs-accent);
+}
 
 .dshr-providerTitleRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .dshr-providerIcon {
-  display: inline-flex;
-  flex: none;
-  width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
+    display: inline-flex;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
 }
 
 .dshr-providerImg {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
 .dshr-providerName {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -.01em;
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
 }
 
 .dshr-providerCount {
-  margin: 2px 0 0;
-  color: var(--rs-muted);
-  font-size: 12px;
+    margin: 2px 0 0;
+    color: var(--rs-muted);
+    font-size: 12px;
 }
 
 /* 链接池空状态 */
 .dshr-linkEmpty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 36px 16px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 36px 16px 40px;
 }
 
 .dshr-linkEmptyIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
 }
 
-.dshr-linkEmptyText { text-align: center; }
+.dshr-linkEmptyText {
+    text-align: center;
+}
 
 .dshr-linkEmptyTitle {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
 }
 
 .dshr-linkEmptyDesc {
-  margin: 2px 0 0;
-  color: var(--rs-faint);
-  font-size: 12px;
+    margin: 2px 0 0;
+    color: var(--rs-faint);
+    font-size: 12px;
 }
 
 /* 链接列表（9router ConnectionRow 风格行） */
 .dshr-linkList {
-  display: flex;
-  flex-direction: column;
+    display: flex;
+    flex-direction: column;
 }
 
 .dshr-linkRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--rs-line);
-  transition: background .1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rs-line);
+    transition: background 0.1s ease;
 }
 
-.dshr-linkRow:last-child { border-bottom: none; }
-.dshr-linkRow:hover { background: var(--rs-hover); }
-.dshr-linkRow[draggable='true'] { cursor: grab; }
-.dshr-linkRow[draggable='true']:active { cursor: grabbing; }
-.dshr-linkRowDragging { opacity: .45; background: var(--rs-hover); }
+.dshr-linkRow:last-child {
+    border-bottom: none;
+}
+.dshr-linkRow:hover {
+    background: var(--rs-hover);
+}
+.dshr-linkRow[draggable="true"] {
+    cursor: grab;
+}
+.dshr-linkRow[draggable="true"]:active {
+    cursor: grabbing;
+}
+.dshr-linkRowDragging {
+    opacity: 0.45;
+    background: var(--rs-hover);
+}
 
 .dshr-linkGrip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--rs-muted);
-  flex: 0 0 auto;
-  cursor: grab;
-  padding: 4px 2px;
-  user-select: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--rs-muted);
+    flex: 0 0 auto;
+    cursor: grab;
+    padding: 4px 2px;
+    user-select: none;
 }
-.dshr-linkGrip:active { cursor: grabbing; }
-.dshr-linkGrip svg { opacity: .65; }
-.dshr-linkRow:hover .dshr-linkGrip svg { opacity: 1; }
+.dshr-linkGrip:active {
+    cursor: grabbing;
+}
+.dshr-linkGrip svg {
+    opacity: 0.65;
+}
+.dshr-linkRow:hover .dshr-linkGrip svg {
+    opacity: 1;
+}
 
 .dshr-linkMain {
-  min-width: 0;
-  flex: 1 1 auto;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 .dshr-linkTitleLine {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .dshr-linkName {
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-linkSub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  color: var(--rs-faint);
-  font-size: 11px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    color: var(--rs-faint);
+    font-size: 11px;
 }
 
-.dshr-linkUid { color: var(--rs-faint); }
-.dshr-linkCredits { color: var(--rs-muted); }
-.dshr-linkErr { color: var(--rs-warn); }
-.dshr-linkCooling { color: var(--rs-warn); }
-.dshr-linkDot { color: var(--rs-faint); opacity: .6; }
+.dshr-linkUid {
+    color: var(--rs-faint);
+}
+.dshr-linkCredits {
+    color: var(--rs-muted);
+}
+.dshr-linkErr {
+    color: var(--rs-warn);
+}
+.dshr-linkCooling {
+    color: var(--rs-warn);
+}
+.dshr-linkDot {
+    color: var(--rs-faint);
+    opacity: 0.6;
+}
 
 .dshr-linkOps {
-  display: flex;
-  flex: none;
-  align-items: center;
+    display: flex;
+    flex: none;
+    align-items: center;
 }
 
 /* 删除链接 hover 显示 + 红色 */
 .dshr-linkDelete {
-  color: var(--rs-muted);
-  opacity: 0;
-  transition: opacity .12s ease, color .12s ease, background .12s ease;
+    color: var(--rs-muted);
+    opacity: 0;
+    transition:
+        opacity 0.12s ease,
+        color 0.12s ease,
+        background 0.12s ease;
 }
 
-.dshr-linkRow:hover .dshr-linkDelete { opacity: 1; }
-.dshr-linkDelete:focus-visible { opacity: 1; }
+.dshr-linkRow:hover .dshr-linkDelete {
+    opacity: 1;
+}
+.dshr-linkDelete:focus-visible {
+    opacity: 1;
+}
 .dshr-linkDelete:hover {
-  color: var(--rs-danger);
-  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+    color: var(--rs-danger);
+    background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
 }
 
 /* 改名：与删除一致，hover 行才显示；编辑中保持可见（否则保存按钮被藏住） */
 .dshr-linkEdit {
-  color: var(--rs-muted);
-  opacity: 0;
-  transition: opacity .12s ease, color .12s ease, background .12s ease;
+    color: var(--rs-muted);
+    opacity: 0;
+    transition:
+        opacity 0.12s ease,
+        color 0.12s ease,
+        background 0.12s ease;
 }
-.dshr-linkRow:hover .dshr-linkEdit { opacity: 1; }
-.dshr-linkEdit:focus-visible { opacity: 1; }
+.dshr-linkRow:hover .dshr-linkEdit {
+    opacity: 1;
+}
+.dshr-linkEdit:focus-visible {
+    opacity: 1;
+}
 .dshr-linkEdit:hover {
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
 }
-.dshr-linkEdit.dshr-linkEdit-active { opacity: 1; }
+.dshr-linkEdit.dshr-linkEdit-active {
+    opacity: 1;
+}
 
 /* 模型 chips（9router ModelRow 风格） */
 .dshr-modelChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px;
 }
 
 .dshr-modelChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  color: var(--rs-text);
-  background: var(--rs-layer-1);
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color .12s ease, background .12s ease, color .12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 8px;
+    color: var(--rs-text);
+    background: var(--rs-layer-1);
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+        border-color 0.12s ease,
+        background 0.12s ease,
+        color 0.12s ease;
 }
 
 .dshr-modelChip:hover {
-  border-color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
+    border-color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
 }
 
-.dshr-modelChip:disabled { opacity: .6; cursor: default; }
+.dshr-modelChip:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
 
 .dshr-modelChipId {
-  font-family: var(--rs-mono);
-  font-size: 11px;
+    font-family: var(--rs-mono);
+    font-size: 11px;
 }
 
 .dshr-modelChipCtx {
-  flex: none;
-  color: var(--rs-faint);
-  font-size: 10px;
+    flex: none;
+    color: var(--rs-faint);
+    font-size: 10px;
 }
 
 .dshr-modelChip-off {
-  border-style: dashed;
-  color: var(--rs-faint);
-  opacity: .8;
+    border-style: dashed;
+    color: var(--rs-faint);
+    opacity: 0.8;
 }
 
 .dshr-modelChip-off:hover {
-  color: var(--rs-accent);
-  border-color: var(--rs-accent);
+    color: var(--rs-accent);
+    border-color: var(--rs-accent);
 }
 
 .dshr-modelChipRestore {
-  color: var(--rs-accent);
-  font-size: 10px;
+    color: var(--rs-accent);
+    font-size: 10px;
 }
 
 /* 已禁用区 */
 .dshr-disabledModels {
-  width: 100%;
+    width: 100%;
 }
 
 .dshr-disabledLabel {
-  margin: 4px 0 0;
-  color: var(--rs-faint);
-  font-size: 11px;
+    margin: 4px 0 0;
+    color: var(--rs-faint);
+    font-size: 11px;
 }
 
 .dshr-disabledModels .dshr-modelChips {
-  padding: 8px 0 0;
+    padding: 8px 0 0;
 }
 
 /* ============================================================
@@ -1763,561 +1993,609 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* 卡片头操作组 */
 .dshr-cardActions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
 }
 
 /* 连接池策略选择 */
-.dshr-poolStrategy {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
 .dshr-select {
-  appearance: none;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  background: var(--rs-surface, transparent);
-  color: inherit;
-  font-size: 12px;
-  padding: 3px 22px 3px 8px;
-  cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, var(--rs-muted) 50%), linear-gradient(135deg, var(--rs-muted) 50%, transparent 50%);
-  background-position: calc(100% - 12px) 55%, calc(100% - 7px) 55%;
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
+    appearance: none;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    background: var(--rs-surface, transparent);
+    color: inherit;
+    font-size: 12px;
+    padding: 3px 22px 3px 8px;
+    cursor: pointer;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--rs-muted) 50%),
+        linear-gradient(135deg, var(--rs-muted) 50%, transparent 50%);
+    background-position:
+        calc(100% - 12px) 55%,
+        calc(100% - 7px) 55%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
 }
-.dshr-select:focus { outline: none; border-color: var(--rs-accent, #4c7dff); }
-
+.dshr-select:focus {
+    outline: none;
+    border-color: var(--rs-accent, #4c7dff);
+}
 
 /* 模型 chip 包装（状态边框） */
 .dshr-modelChipWrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  background: var(--rs-layer-1);
-  transition: border-color .12s ease, background .12s ease;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--rs-line);
+    border-radius: 8px;
+    background: var(--rs-layer-1);
+    transition:
+        border-color 0.12s ease,
+        background 0.12s ease;
 }
 
 .dshr-modelChipWrap:hover {
-  border-color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
+    border-color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
 }
 
-.dshr-modelChipWrap.dshr-modelChip-ok { border-color: var(--rs-ok); }
-.dshr-modelChipWrap.dshr-modelChip-err { border-color: var(--rs-danger); }
+.dshr-modelChipWrap.dshr-modelChip-ok {
+    border-color: var(--rs-ok);
+}
+.dshr-modelChipWrap.dshr-modelChip-err {
+    border-color: var(--rs-danger);
+}
 
 /* chip 本体（点击禁用） */
 .dshr-modelChipWrap .dshr-modelChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px 6px 6px;
-  border: none;
-  border-radius: 8px;
-  color: var(--rs-text);
-  background: transparent;
-  font-size: 12px;
-  cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px 6px 6px;
+    border: none;
+    border-radius: 8px;
+    color: var(--rs-text);
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
 }
 
 .dshr-modelChipStatus {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  color: var(--rs-faint);
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--rs-faint);
 }
 
-.dshr-modelChipWrap.dshr-modelChip-ok .dshr-modelChipStatus { color: var(--rs-ok); }
-.dshr-modelChipWrap.dshr-modelChip-err .dshr-modelChipStatus { color: var(--rs-danger); }
+.dshr-modelChipWrap.dshr-modelChip-ok .dshr-modelChipStatus {
+    color: var(--rs-ok);
+}
+.dshr-modelChipWrap.dshr-modelChip-err .dshr-modelChipStatus {
+    color: var(--rs-danger);
+}
 
 /* chip 右侧操作（hover 显示） */
 .dshr-modelChipOps {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding-right: 4px;
-  opacity: 0;
-  transition: opacity .12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    padding-right: 4px;
+    opacity: 0;
+    transition: opacity 0.12s ease;
 }
 
 .dshr-modelChipWrap:hover .dshr-modelChipOps,
-.dshr-modelChipOps:focus-within { opacity: 1; }
+.dshr-modelChipOps:focus-within {
+    opacity: 1;
+}
 
 /* 旧 .dshr-modelChip 独立样式（disabled 区仍用） */
 .dshr-modelChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  color: var(--rs-text);
-  background: var(--rs-layer-1);
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color .12s ease, background .12s ease, color .12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--rs-line);
+    border-radius: 8px;
+    color: var(--rs-text);
+    background: var(--rs-layer-1);
+    font-size: 12px;
+    cursor: pointer;
+    transition:
+        border-color 0.12s ease,
+        background 0.12s ease,
+        color 0.12s ease;
 }
 
 .dshr-modelChip:hover {
-  border-color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
+    border-color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
 }
 
-.dshr-modelChip:disabled { opacity: .6; cursor: default; }
+.dshr-modelChip:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
 
 .dshr-modelChipId {
-  font-family: var(--rs-mono);
-  font-size: 11px;
+    font-family: var(--rs-mono);
+    font-size: 11px;
 }
 
 .dshr-modelChipCtx {
-  flex: none;
-  color: var(--rs-faint);
-  font-size: 10px;
+    flex: none;
+    color: var(--rs-faint);
+    font-size: 10px;
 }
 
 .dshr-modelChip-off {
-  border-style: dashed;
-  color: var(--rs-faint);
-  opacity: .8;
+    border-style: dashed;
+    color: var(--rs-faint);
+    opacity: 0.8;
 }
 
 .dshr-modelChip-off:hover {
-  color: var(--rs-accent);
-  border-color: var(--rs-accent);
+    color: var(--rs-accent);
+    border-color: var(--rs-accent);
 }
 
 .dshr-modelChipRestore {
-  color: var(--rs-accent);
-  font-size: 10px;
+    color: var(--rs-accent);
+    font-size: 10px;
 }
 
 /* 计数徽标跟在标题/操作按钮右侧（模型卡片） */
 .dshr-cardMetaAfter {
-  margin-left: 0;
+    margin-left: 0;
 }
 
 /* 测试 loading 转圈 */
 .dshr-spin {
-  display: inline-flex;
-  animation: dshrSpin .8s linear infinite;
+    display: inline-flex;
+    animation: dshrSpin 0.8s linear infinite;
 }
 
 @keyframes dshrSpin {
-  to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* 供应商标题行编辑按钮（靠右） */
 .dshr-providerEdit {
-  margin-left: auto;
+    margin-left: auto;
 }
 
 /* 模型搜索栏 */
 .dshr-modelSearch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px 0;
 }
 
 .dshr-modelSearchIcon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  color: var(--rs-faint);
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--rs-faint);
 }
 
 .dshr-modelSearch .dshr-input {
-  flex: 1 1 auto;
-  min-width: 0;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 /* 自定义模型删除按钮（hover 红色） */
 .dshr-modelDelete {
-  color: var(--rs-muted);
-  transition: color .12s ease, background .12s ease;
+    color: var(--rs-muted);
+    transition:
+        color 0.12s ease,
+        background 0.12s ease;
 }
 
 .dshr-modelDelete:hover {
-  color: var(--rs-danger);
-  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+    color: var(--rs-danger);
+    background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
 }
 
 /* 全局浮窗提示（toast） */
 .dshr-toast {
-  position: fixed;
-  z-index: 2000;
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%);
-  padding: 8px 16px;
-  border-radius: 8px;
-  color: var(--rs-text);
-  background: var(--rs-layer-2);
-  border: 1px solid var(--rs-line-strong);
-  box-shadow: 0 6px 20px rgb(0 0 0 / .18);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  animation: dshrToastIn .18s ease;
+    position: fixed;
+    z-index: 2000;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    border-radius: 8px;
+    color: var(--rs-text);
+    background: var(--rs-layer-2);
+    border: 1px solid var(--rs-line-strong);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    animation: dshrToastIn 0.18s ease;
 }
 
 @keyframes dshrToastIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
 }
 
 /* ============ 组合（9router combos 布局交互） ============ */
-.dshr-comboIntro { overflow: visible; }
+.dshr-comboIntro {
+    overflow: visible;
+}
 
 .dshr-comboIntroDesc {
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .dshr-comboIntroBody {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  padding: 10px 14px;
-  font-size: 12px;
-  color: var(--rs-muted);
-  border-top: 1px solid var(--rs-line);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--rs-muted);
+    border-top: 1px solid var(--rs-line);
 }
 
 .dshr-comboHeaderKey {
-  font-weight: 600;
-  color: var(--rs-text);
-  background: color-mix(in srgb, var(--rs-success) 14%, transparent);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 11px;
+    font-weight: 600;
+    color: var(--rs-text);
+    background: color-mix(in srgb, var(--rs-success) 14%, transparent);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
 }
 
 .dshr-comboHeaderKey-2 {
-  margin-left: 4px;
-  background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+    margin-left: 4px;
+    background: color-mix(in srgb, var(--rs-accent) 14%, transparent);
 }
 
-.dshr-comboList { display: flex; flex-direction: column; gap: 10px; }
+.dshr-comboList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
 
-.dshr-comboCard { display: flex; flex-direction: column; }
+.dshr-comboCard {
+    display: flex;
+    flex-direction: column;
+}
 
 .dshr-comboName {
-  font-family: var(--rs-mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--rs-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 200px;
+    font-family: var(--rs-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--rs-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
 }
 
 .dshr-comboOps {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  margin-left: 10px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    margin-left: 10px;
 }
 
-.dshr-comboOpBtn-danger { color: var(--rs-danger); }
+.dshr-comboOpBtn-danger {
+    color: var(--rs-danger);
+}
 .dshr-comboOpBtn-danger:hover {
-  color: var(--rs-danger);
-  background: color-mix(in srgb, var(--rs-danger) 12%, transparent);
+    color: var(--rs-danger);
+    background: color-mix(in srgb, var(--rs-danger) 12%, transparent);
 }
 
 .dshr-comboCardBody {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border-top: 1px solid var(--rs-line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--rs-line);
 }
 
 .dshr-comboChips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
 }
 
 .dshr-comboChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: color-mix(in srgb, var(--rs-text) 6%, transparent);
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  padding: 3px 8px 3px 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: color-mix(in srgb, var(--rs-text) 6%, transparent);
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    padding: 3px 8px 3px 5px;
 }
 
 .dshr-comboChipNum {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--rs-primary);
-  background: color-mix(in srgb, var(--rs-primary) 12%, transparent);
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--rs-primary);
+    background: color-mix(in srgb, var(--rs-primary) 12%, transparent);
 }
 
 .dshr-comboChipSupplier {
-  font-family: var(--rs-mono);
-  font-size: 11px;
-  color: var(--rs-text);
+    font-family: var(--rs-mono);
+    font-size: 11px;
+    color: var(--rs-text);
 }
 
-.dshr-comboEmptySteps { font-style: italic; font-size: 12px; }
-
-.dshr-comboMore { font-size: 10px; color: var(--rs-muted); }
-
-.dshr-comboStrategySelect {
-  width: 84px;
-  height: 26px;
-  padding: 0 6px;
-  font-size: 12px;
+.dshr-comboEmptySteps {
+    font-style: italic;
+    font-size: 12px;
 }
 
-.dshr-comboStrategySelect:disabled {
-  opacity: .55;
-  cursor: not-allowed;
+.dshr-comboMore {
+    font-size: 10px;
+    color: var(--rs-muted);
 }
 
 /* 表单 */
 .dshr-formLabel {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--rs-text);
-  margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--rs-text);
+    margin: 0 0 6px;
 }
 
 .dshr-formHint {
-  font-size: 10px;
-  color: var(--rs-muted);
-  margin: 4px 0 0;
+    font-size: 10px;
+    color: var(--rs-muted);
+    margin: 4px 0 0;
 }
 
 .dshr-comboEmptyStepsBox {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 20px 0;
-  border: 1px dashed color-mix(in srgb, var(--rs-text) 16%, transparent);
-  border-radius: 9px;
-  color: var(--rs-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 20px 0;
+    border: 1px dashed color-mix(in srgb, var(--rs-text) 16%, transparent);
+    border-radius: 9px;
+    color: var(--rs-muted);
 }
 
 .dshr-comboStepList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 260px;
-  overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;
+    overflow-y: auto;
 }
 
 .dshr-comboStepRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 4px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  cursor: grab;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 4px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    cursor: grab;
 }
 
-.dshr-comboStepRow:active { cursor: grabbing; }
+.dshr-comboStepRow:active {
+    cursor: grabbing;
+}
 
 .dshr-comboStepRow-dragging {
-  opacity: .45;
-  border-color: var(--rs-accent);
+    opacity: 0.45;
+    border-color: var(--rs-accent);
 }
 
 .dshr-comboStepRow-over {
-  border-color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 8%, transparent);
+    border-color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 8%, transparent);
 }
 
 .dshr-comboGrip {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--rs-faint);
-  cursor: grab;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--rs-faint);
+    cursor: grab;
 }
 
 .dshr-comboStepNum {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--rs-primary);
-  background: color-mix(in srgb, var(--rs-primary) 12%, transparent);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--rs-primary);
+    background: color-mix(in srgb, var(--rs-primary) 12%, transparent);
 }
 
-.dshr-comboStepSelect { flex: 1; min-width: 0; }
+.dshr-comboStepSelect {
+    flex: 1;
+    min-width: 0;
+}
 
 .dshr-comboStepRemove:hover {
-  color: var(--rs-danger);
-  background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
+    color: var(--rs-danger);
+    background: color-mix(in srgb, var(--rs-danger) 14%, transparent);
 }
 
 .dshr-comboAddStep {
-  width: 100%;
-  margin-top: 8px;
-  padding: 8px 0;
-  border: 1px dashed color-mix(in srgb, var(--rs-text) 20%, transparent);
-  border-radius: 9px;
-  background: transparent;
-  color: var(--rs-primary);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: border-color .12s ease, background .12s ease;
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 0;
+    border: 1px dashed color-mix(in srgb, var(--rs-text) 20%, transparent);
+    border-radius: 9px;
+    background: transparent;
+    color: var(--rs-primary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition:
+        border-color 0.12s ease,
+        background 0.12s ease;
 }
 
 .dshr-comboAddStep:hover {
-  border-color: color-mix(in srgb, var(--rs-primary) 50%, transparent);
-  background: color-mix(in srgb, var(--rs-primary) 5%, transparent);
+    border-color: color-mix(in srgb, var(--rs-primary) 50%, transparent);
+    background: color-mix(in srgb, var(--rs-primary) 5%, transparent);
 }
 
 /* 组合：已选模型行 + 添加模型挑选列表 */
 .dshr-comboSelectedModel {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--rs-mono);
-  font-size: 12px;
-  color: var(--rs-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    font-family: var(--rs-mono);
+    font-size: 12px;
+    color: var(--rs-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.dshr-comboPickLabel { margin-top: 12px; }
+.dshr-comboPickLabel {
+    margin-top: 12px;
+}
 
-.dshr-comboModelSearch { margin-bottom: 6px; }
+.dshr-comboModelSearch {
+    margin-bottom: 6px;
+}
 
 .dshr-comboPickList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 180px;
-  overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 180px;
+    overflow-y: auto;
 }
 
 .dshr-comboPickItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--rs-text);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: background .12s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--rs-text);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s ease;
 }
 
-.dshr-comboPickItem:hover { background: var(--rs-hover); }
+.dshr-comboPickItem:hover {
+    background: var(--rs-hover);
+}
 
 .dshr-comboPickName {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--rs-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    font-family: var(--rs-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-comboPickEmpty {
-  font-size: 12px;
-  font-style: italic;
-  padding: 8px 2px;
+    font-size: 12px;
+    font-style: italic;
+    padding: 8px 2px;
 }
 
 /* 组合：添加模型按供应商分组 */
-.dshr-comboPickGroup { margin-bottom: 6px; }
+.dshr-comboPickGroup {
+    margin-bottom: 6px;
+}
 
 .dshr-comboPickGroupTitle {
-  margin: 0 0 2px;
-  padding: 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--rs-faint);
+    margin: 0 0 2px;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--rs-faint);
 }
 
 /* 组合表单：左右分栏（左=组合名/策略/已选，右=添加模型） */
 .dshr-comboFormSplit {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  align-items: start;
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
 }
 
 .dshr-comboFormLeft {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
 }
 
 .dshr-comboFormRight {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  max-height: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    max-height: 340px;
 }
 
 .dshr-comboFormRight .dshr-comboPickList {
-  flex: 1;
-  min-height: 0;
+    flex: 1;
+    min-height: 0;
 }
 
 /* 组合编辑弹窗：加宽 */
 .dshr-modal-wide {
-  width: min(760px, 100%);
+    width: min(760px, 100%);
 }
 
 /* 左右分栏之间的分割线 */
 .dshr-comboFormDivider {
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 50%;
-  width: 1px;
-  background: var(--rs-line);
+    position: absolute;
+    top: 12px;
+    bottom: 12px;
+    left: 50%;
+    width: 1px;
+    background: var(--rs-line);
 }
 
 /* ============================================================
@@ -2326,20 +2604,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
 
 /* 周期切换 + 操作条 */
 .dshr-statsBar {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
 }
 
 .dshr-periods {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--rs-line);
-  border-radius: 8px;
-  background: var(--rs-layer-2);
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--rs-line);
+    border-radius: 8px;
+    background: var(--rs-layer-2);
 }
 
 /* 周期按钮三态（按钮组：一组互斥的筛选按钮，不是导航 tab）。
@@ -2352,439 +2630,474 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
    两种 hover 用 :not() 做成互斥，谁赢跟源码顺序无关（免得以后有人挪块就翻车）。 */
 .dshr-settings .dshr-period,
 .dshr-shell .dshr-period {
-  min-width: 46px;
-  height: 26px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 6px;
-  color: var(--rs-muted);
-  background: transparent;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: color .12s ease, background .12s ease, filter .12s ease;
+    min-width: 46px;
+    height: 26px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 6px;
+    color: var(--rs-muted);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        color 0.12s ease,
+        background 0.12s ease,
+        filter 0.12s ease;
 }
 
 /* 未激活悬停：跟 .dshr-miniButton / .dshr-iconButton 一个套路（主文字色 + --rs-hover 底） */
 .dshr-settings .dshr-period:not(.dshr-period-on):hover,
 .dshr-shell .dshr-period:not(.dshr-period-on):hover {
-  color: var(--rs-text);
-  background: var(--rs-hover);
+    color: var(--rs-text);
+    background: var(--rs-hover);
 }
 
 /* 激活：强调色块 + 白字。底色用 layer-1 时跟卡片同色，根本看不出选中了哪个 */
 .dshr-settings .dshr-period-on,
 .dshr-shell .dshr-period-on {
-  color: #fff;
-  background: var(--rs-accent);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgb(0 0 0 / .12);
+    color: #fff;
+    background: var(--rs-accent);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
 
 /* 激活态被悬停：跟 .dshr-primaryButton 一样提亮，表示「它还是能点的」 */
 .dshr-settings .dshr-period-on:hover,
 .dshr-shell .dshr-period-on:hover {
-  color: #fff;
-  background: var(--rs-accent);
-  filter: brightness(1.08);
+    color: #fff;
+    background: var(--rs-accent);
+    filter: brightness(1.08);
 }
 
 .dshr-statsBarRight {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
 }
 
 .dshr-lifetime {
-  font-size: 11px;
-  white-space: nowrap;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 /* 汇总卡（照 9router OverviewCards 的自适应五宫格） */
 .dshr-statGrid {
-  display: grid;
-  flex: none;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
 }
 
 .dshr-statCard {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 14px;
-  border: 1px solid var(--rs-line);
-  border-radius: 10px;
-  background: var(--rs-layer-1);
-  box-shadow: 0 1px 2px rgb(0 0 0 / .04);
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 14px;
+    border: 1px solid var(--rs-line);
+    border-radius: 10px;
+    background: var(--rs-layer-1);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
 }
 
 .dshr-statLabel {
-  overflow: hidden;
-  color: var(--rs-faint);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .03em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
+    overflow: hidden;
+    color: var(--rs-faint);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
 
 .dshr-statValue {
-  overflow: hidden;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -.01em;
-  line-height: 1.2;
-  text-overflow: ellipsis;
+    overflow: hidden;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-overflow: ellipsis;
 }
 
 .dshr-statHint {
-  color: var(--rs-faint);
-  font-size: 11px;
+    color: var(--rs-faint);
+    font-size: 11px;
 }
 
-.dshr-statCard-primary .dshr-statValue { color: var(--rs-accent); }
-.dshr-statCard-ok .dshr-statValue { color: var(--rs-success); }
-.dshr-statCard-warn .dshr-statValue { color: var(--rs-warn); }
-.dshr-statCard-danger .dshr-statValue { color: var(--rs-danger); }
+.dshr-statCard-primary .dshr-statValue {
+    color: var(--rs-accent);
+}
+.dshr-statCard-ok .dshr-statValue {
+    color: var(--rs-success);
+}
+.dshr-statCard-warn .dshr-statValue {
+    color: var(--rs-warn);
+}
+.dshr-statCard-danger .dshr-statValue {
+    color: var(--rs-danger);
+}
 
 /* 签到卡：跟统计卡同宽同高，但里面是按钮不是数字。
    gap 沿用卡片的 3px（不覆写）—— 之前改成 6px 让这一行比别的高 6px，
    两行卡片因此不齐（92 vs 98px）。
    今日已点过 → 边框转成功色，一眼看出「今天点过了」 */
-.dshr-statCard-checkin { gap: 3px; }
+.dshr-statCard-checkin {
+    gap: 3px;
+}
 
 .dshr-statCard-done {
-  border-color: color-mix(in srgb, var(--rs-success) 45%, transparent);
+    border-color: color-mix(in srgb, var(--rs-success) 45%, transparent);
 }
 
 /* 按钮撑满卡片宽度：卡片本来就窄，居左的小按钮看着像没对齐 */
 .dshr-checkinButton {
-  display: inline-flex;
-  width: 100%;
-  /* 26px ≈ .dshr-statValue 的行高（22px × 1.2），让按钮那一行跟数字的
+    display: inline-flex;
+    width: 100%;
+    /* 26px ≈ .dshr-statValue 的行高（22px × 1.2），让按钮那一行跟数字的
      那一行一样高，卡片整体高度才跟邻卡一致 */
-  height: 26px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid var(--rs-line);
-  border-radius: 6px;
-  color: var(--rs-text);
-  background: var(--rs-layer-2);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color .12s ease, background .12s ease, border-color .12s ease;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid var(--rs-line);
+    border-radius: 6px;
+    color: var(--rs-text);
+    background: var(--rs-layer-2);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        color 0.12s ease,
+        background 0.12s ease,
+        border-color 0.12s ease;
 }
 
 .dshr-checkinButton:hover:not(:disabled) {
-  border-color: var(--rs-accent);
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 8%, transparent);
+    border-color: var(--rs-accent);
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 8%, transparent);
 }
 
-.dshr-checkinButton:disabled { opacity: .6; cursor: default; }
+.dshr-checkinButton:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
 
 /* 已点过：按钮转成成功色柔和态（仍可再点） */
 .dshr-statCard-done .dshr-checkinButton {
-  border-color: color-mix(in srgb, var(--rs-success) 40%, transparent);
-  color: var(--rs-success);
-  background: color-mix(in srgb, var(--rs-success) 8%, transparent);
+    border-color: color-mix(in srgb, var(--rs-success) 40%, transparent);
+    color: var(--rs-success);
+    background: color-mix(in srgb, var(--rs-success) 8%, transparent);
 }
 
 /* 结果/失败都压在 hint 那一行里（卡片行数必须跟邻卡一致）：
    失败时才转红，其余沿用 hint 的弱色，不成功后多出一行 */
 .dshr-statHint-err {
-  overflow: hidden;
-  color: var(--rs-danger);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    overflow: hidden;
+    color: var(--rs-danger);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* 忙碌态：按钮转成弱色，跟「已点过」的成功色区分开 */
 .dshr-checkinButton-busy {
-  color: var(--rs-faint);
-  background: var(--rs-layer-2);
-  border-color: var(--rs-line);
+    color: var(--rs-faint);
+    background: var(--rs-layer-2);
+    border-color: var(--rs-line);
 }
 
 .dshr-estimateNote {
-  margin: 0;
-  color: var(--rs-faint);
-  font-size: 11px;
-  line-height: 1.6;
+    margin: 0;
+    color: var(--rs-faint);
+    font-size: 11px;
+    line-height: 1.6;
 }
 
 .dshr-estimateNote code {
-  padding: 0 3px;
-  border-radius: 3px;
-  background: var(--rs-layer-2);
-  font-family: var(--rs-mono);
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--rs-layer-2);
+    font-family: var(--rs-mono);
 }
 
 /* 趋势折线图（纯 SVG + HTML 叠加层，不引图表库） */
 .dshr-trendWrap {
-  position: relative;
-  padding: 14px 14px 10px;
+    position: relative;
+    padding: 14px 14px 10px;
 }
 
 .dshr-trendBusy {
-  position: absolute;
-  inset: 0;
-  background: color-mix(in srgb, var(--rs-layer-1) 55%, transparent);
-  pointer-events: none;
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--rs-layer-1) 55%, transparent);
+    pointer-events: none;
 }
 
 /* 绘图区：高度跟 SVG 视口一致，叠加层用百分比定位才对得上 */
 .dshr-linePlot {
-  position: relative;
-  height: 150px;
-  cursor: crosshair;
+    position: relative;
+    height: 150px;
+    cursor: crosshair;
 }
 
 /* 键盘可达（←/→ 逐格）：聚焦环跟面板其它控件一致 */
 .dshr-linePlot:focus-visible {
-  outline: 2px solid var(--rs-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--rs-accent);
+    outline-offset: 2px;
 }
 
 /* 峰值：给读数一个量级参照；半透明底是怕压在折线上看不清 */
 .dshr-linePeak {
-  position: absolute;
-  top: 0;
-  right: 0;
-  padding: 0 4px;
-  border-radius: 3px;
-  color: var(--rs-faint);
-  background: color-mix(in srgb, var(--rs-layer-1) 72%, transparent);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    color: var(--rs-faint);
+    background: color-mix(in srgb, var(--rs-layer-1) 72%, transparent);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
 }
 
 .dshr-lineSvg {
-  position: absolute;
-  display: block;
-  width: 100%;
-  height: 100%;
-  inset: 0;
-  overflow: visible;
+    position: absolute;
+    display: block;
+    width: 100%;
+    height: 100%;
+    inset: 0;
+    overflow: visible;
 }
 
 .dshr-lineGrid {
-  stroke: var(--rs-line);
-  stroke-dasharray: 3 3;
+    stroke: var(--rs-line);
+    stroke-dasharray: 3 3;
 }
 
 .dshr-lineArea {
-  fill: color-mix(in srgb, var(--rs-accent) 14%, transparent);
-  stroke: none;
+    fill: color-mix(in srgb, var(--rs-accent) 14%, transparent);
+    stroke: none;
 }
 
 .dshr-linePath {
-  fill: none;
-  stroke: var(--rs-accent);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
+    fill: none;
+    stroke: var(--rs-accent);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
 }
 
 /* 数值点：空心小圆（SVG 会被横向拉伸，所以画在 HTML 层） */
 .dshr-linePoint {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  border: 1.5px solid var(--rs-accent);
-  border-radius: 50%;
-  background: var(--rs-layer-1);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    border: 1.5px solid var(--rs-accent);
+    border-radius: 50%;
+    background: var(--rs-layer-1);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
 }
 
 .dshr-lineGuide {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--rs-line-strong);
-  pointer-events: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--rs-line-strong);
+    pointer-events: none;
 }
 
 .dshr-lineDot {
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  border: 2px solid var(--rs-layer-1);
-  border-radius: 50%;
-  background: var(--rs-accent);
-  box-shadow: 0 0 0 1px var(--rs-accent);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border: 2px solid var(--rs-layer-1);
+    border-radius: 50%;
+    background: var(--rs-accent);
+    box-shadow: 0 0 0 1px var(--rs-accent);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
 }
 
 .dshr-lineLabels {
-  position: relative;
-  height: 14px;
-  margin-top: 5px;
+    position: relative;
+    height: 14px;
+    margin-top: 5px;
 }
 
 .dshr-lineLabel {
-  position: absolute;
-  top: 0;
-  overflow: visible;
-  color: var(--rs-faint);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  transform: translateX(-50%);
+    position: absolute;
+    top: 0;
+    overflow: visible;
+    color: var(--rs-faint);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    transform: translateX(-50%);
 }
 
 /* 选中的时段：标签跟着高亮，不用抬头对读数才知道看的是哪一段 */
 .dshr-lineLabel-on {
-  color: var(--rs-accent);
-  font-weight: 700;
+    color: var(--rs-accent);
+    font-weight: 700;
 }
 
 .dshr-trendReadout {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 18px;
-  padding-top: 6px;
-  font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 18px;
+    padding-top: 6px;
+    font-size: 11px;
 }
 
 .dshr-trendEmpty {
-  display: flex;
-  height: 150px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--rs-faint);
-  font-size: 12px;
+    display: flex;
+    height: 150px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--rs-faint);
+    font-size: 12px;
 }
 
 .dshr-trendEmptyIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  color: var(--rs-accent);
-  background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    color: var(--rs-accent);
+    background: color-mix(in srgb, var(--rs-accent) 10%, transparent);
 }
 
 /* Top 榜（供应商 / 模型并排，窄屏堆叠） */
 .dshr-rankPair {
-  display: grid;
-  flex: none;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 12px;
-  align-items: start;
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
+    align-items: start;
 }
 
 .dshr-rankList,
 .dshr-recentList {
-  display: flex;
-  flex-direction: column;
-  padding: 6px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 14px 12px;
 }
 
 .dshr-rankRow,
 .dshr-recentRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--rs-line);
-  font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--rs-line);
+    font-size: 12px;
 }
 
 .dshr-rankRow:last-child,
-.dshr-recentRow:last-child { border-bottom: none; }
+.dshr-recentRow:last-child {
+    border-bottom: none;
+}
 
 /* 表头：不参与 hover，且不画分隔线（视觉上属于卡片头） */
 .dshr-rankHead {
-  border-bottom: 1px solid var(--rs-line);
-  color: var(--rs-faint);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .03em;
-  text-transform: uppercase;
+    border-bottom: 1px solid var(--rs-line);
+    color: var(--rs-faint);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
 }
 
-.dshr-rankRow:not(.dshr-rankHead):hover { background: var(--rs-hover); }
+.dshr-rankRow:not(.dshr-rankHead):hover {
+    background: var(--rs-hover);
+}
 
 .dshr-rankName {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-rankNum {
-  flex: none;
-  min-width: 52px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+    flex: none;
+    min-width: 52px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
-.dshr-rankFail { color: var(--rs-danger); }
+.dshr-rankFail {
+    color: var(--rs-danger);
+}
 
-.dshr-tokenIn { color: var(--rs-accent); }
-.dshr-tokenOut { color: var(--rs-success); }
+.dshr-tokenIn {
+    color: var(--rs-accent);
+}
+.dshr-tokenOut {
+    color: var(--rs-success);
+}
 
 /* 最近请求列宽（比 Top 榜宽，要放得下模型名） */
 .dshr-recentTime {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-  width: 78px;
-  color: var(--rs-muted);
-  font-variant-numeric: tabular-nums;
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 5px;
+    width: 78px;
+    color: var(--rs-muted);
+    font-variant-numeric: tabular-nums;
 }
 
 .dshr-recentModel {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dshr-recentSupplier {
-  flex: none;
-  width: 92px;
-  overflow: hidden;
-  color: var(--rs-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    flex: none;
+    width: 92px;
+    overflow: hidden;
+    color: var(--rs-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.dshr-recentRow-fail .dshr-recentModel { color: var(--rs-danger); }
+.dshr-recentRow-fail .dshr-recentModel {
+    color: var(--rs-danger);
+}
 
 /* 状态点 */
 .dshr-dot {
-  display: inline-block;
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+    display: inline-block;
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
 }
 
-.dshr-dot-ok { background: var(--rs-success); }
-.dshr-dot-fail { background: var(--rs-danger); }
+.dshr-dot-ok {
+    background: var(--rs-success);
+}
+.dshr-dot-fail {
+    background: var(--rs-danger);
+}
 
 /* ============================================================
    dsh-router — 设置导航图标（换掉宿主的默认齿轮）
@@ -2796,15 +3109,17 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not([data-dsh-ssh-
    渲染路由字形：跟随宿主导航的 hover/active 配色，也保持 16px 图标节奏。
    升级路径：等契约长出 icon 字段，删掉 settings-nav-icon.ts 和这一整块。 */
 [data-dsh-router-settings-nav] > svg:first-child {
-  display: none;
+    display: none;
 }
 
 [data-dsh-router-settings-nav]::before {
-  content: '';
-  flex: none;
-  width: 16px;
-  height: 16px;
-  background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>") center / contain no-repeat;
-  mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>") center / contain no-repeat;
+    content: "";
+    flex: none;
+    width: 16px;
+    height: 16px;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>")
+        center / contain no-repeat;
+    mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>")
+        center / contain no-repeat;
 }

@@ -77,6 +77,10 @@ export interface RouterAdapterSource {
  * 图片：`image` 块被序列化成 OpenAI `content` 数组里的 `image_url` part（data URI
  * base64）。图片字节经 `resolveAttachments` 读取；读不到时回退为稳定的占位文本，
  * **绝不静默丢图**（丢图 = 模型看到一条没有图的消息却毫无提示）。
+ *
+ * 工具结果双模型兼容：0.1.5/0.1.6 里 tool result 是 user 消息里的 'tool-result' 块
+ * （旧路径）；0.1.7+ 改成了独立 role:'tool' 消息、toolCallId 挂消息级（新分支）。
+ * 两者在 wire 上统一序列化为 role:'tool'，产物一致。见主循环里的 role==='tool' 分支。
  */
 /** tool-result 里图片挂到 user 消息时用的说明文字（与官方适配器一致）。 */
 const TOOL_RESULT_IMAGE_TEXT = 'Tool result images'
@@ -137,6 +141,29 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         ...(reasoning.length > 0 ? { reasoning_content: reasoning } : {}),
       })
+      continue
+    }
+    // DSH 0.1.7+（0.1.7-alpha.x 及以后）：tool 结果是独立 role:'tool' 消息，toolCallId 挂在
+    // 消息级——dsh-llm 的 ContentBlockMap 已移除 'tool-result' 块。0.1.5/0.1.6 仍是 user
+    // 消息里的 'tool-result' 块，走下面旧路径。同一份 adapter 同时兼容 DSH 0.1.5 与 0.1.7：
+    // 0.1.7 宿主触发本分支，0.1.5 宿主走旧块路径，互不影响。
+    if ((message.role as string) === 'tool') {
+      // tool 消息必须紧跟 assistant(tool_calls)：中间插进任何 user 消息，上游都会判定
+      // tool_call 与 tool_result 失配 → codebuddy 直接 400 网关码 11148（bad_request
+      // 按核心设计不罚账号，面板上看不到异常，易误判成额度/风控）。
+      // 图片不能放进 tool 消息（实测模型会把两张不同图认成同一张），也不能插在两条 tool
+      // 之间（同样 400），所以先攒进 pending，等整串 tool 发完再补一条 user(图)。
+      const toolCallId = (message as { toolCallId?: unknown }).toolCallId
+      const parts = await contentParts(message.content, attachments, options.signal)
+      const imageParts = parts.filter((p) => p.type !== 'text')
+      const text = parts
+        .filter((p) => p.type === 'text')
+        .map((p) => (p as { text?: string }).text ?? '')
+        .join('')
+      // 空结果就发空串：不要替换成 '(no output)' 之类字面量——模型会以为工具真的打印了
+      // 那句话。上游接受 content:""（0.1.7 探测矩阵第 6 项确认）。
+      out.push({ role: 'tool', tool_call_id: String(toolCallId ?? ''), content: text })
+      pendingToolImages.push(...imageParts)
       continue
     }
     // user / tool-result

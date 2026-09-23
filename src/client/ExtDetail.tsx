@@ -38,7 +38,17 @@ export function ExtDetail({ item, onBack, onToggle }: ExtDetailProps): JSX.Eleme
         </button>
         <div className="dshr-providerTitleRow">
           <div className="dshr-providerIcon" style={{ color: 'var(--rs-faint)', background: 'var(--rs-layer-2)' }}>
-            <Icon d={I.bolt} size={22} />
+            {item.icon !== undefined
+              ? (
+                <img
+                  className="dshr-providerImg"
+                  src={item.icon}
+                  alt=""
+                  // 同上：失败就藏，露出备用图标位置（不显示碎图）
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
+              )
+              : <Icon d={I.bolt} size={22} />}
           </div>
           <div className="dshr-providerMeta">
             <h1 className="dshr-providerName">{item.name}</h1>

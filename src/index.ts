@@ -421,6 +421,10 @@ export function apply(rawContext: unknown): void {
     const { suppliers } = router.status()
     const owner = suppliers.find((s) => s.id === last.supplier)
     const acct = owner?.accounts.find((a) => a.uid === last.uid)
+    // 连接名：**优先直接查 accountNames**（面板里配的显示别名），不依赖
+    // status 列表里有没有这个号 —— 号未上报/未加载时 status 里就没有它，
+    // 只靠 acct 会回落成 uid（显示成 cb-12 而不是 k8661）。
+    const named = last.uid === undefined || last.uid === '' ? undefined : store.getAccountName(last.supplier, last.uid)
     writeJson(res, 200, {
       ok: true,
       hit: {
@@ -428,8 +432,7 @@ export function apply(rawContext: unknown): void {
         model: last.model,
         requested: last.requested,
         uid: last.uid,
-        // 别名优先，回落原始昵称，再回落 uid
-        account: acct?.nickname ?? (last.uid === '' ? undefined : last.uid),
+        account: named ?? acct?.nickname ?? (last.uid === undefined || last.uid === '' ? undefined : last.uid),
         credits: acct?.credits,
         ok: last.ok,
         ts: last.ts,

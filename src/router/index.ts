@@ -1,7 +1,7 @@
 /**
  * dsh-router 路由器本体：供应商注册表 + OpenAI 兼容 /v1/* 处理。
- * 仿 9router：组合 = 一组模型，请求 model 命中组合名时，按策略
- * （fallback 顺序尝试 / round-robin 轮转）选中一个模型路由。
+ * 仿 9router：组合 = 一组模型，请求 model 命中组合名时，作为降级链
+ * 按序尝试选中一个模型路由（无策略旋钮，见 docs/pool-sticky-block.md §10）。
  */
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -527,9 +527,7 @@ export class Router {
   private suppliers: Supplier[] = []
   private combosFp = ''
   private customCombos: Combo[] = []
-  /** round-robin 轮转游标（按组合 id 记忆）。 */
-  private rrCursors = new Map<string, number>()
-  /** 通用供应商配置（连接池顺序/策略、模型启用、别名）。 */
+  /** 通用供应商配置（连接池顺序、模型启用、别名）。 */
   private store: SupplierConfigStore
   /** 模型列表缓存（supplierId → 模型 + 拉取时间）。插件只管拉，不缓存。 */
   private modelsCache = new Map<string, { models: ModelWithEnabled[]; fetchedAt: number }>()
@@ -565,7 +563,7 @@ export class Router {
     try {
       const f = JSON.parse(readFileSync(this.combosFp, 'utf8')) as { combos?: Combo[] }
       if (Array.isArray(f.combos)) {
-        // 兼容旧格式：steps(供应商) → models(模型)；无 strategy 默认 fallback。
+        // 兼容旧格式：steps(供应商) → models(模型)；旧 strategy 字段静默忽略。
         this.customCombos = f.combos
           .filter((c) => typeof c.id === 'string' && c.id !== '')
           .map((c) => {
@@ -595,7 +593,6 @@ export class Router {
             return {
               id: c.id,
               name: typeof c.name === 'string' ? c.name : c.id,
-              strategy: c.strategy === 'round-robin' ? 'round-robin' as const : 'fallback' as const,
               models,
             }
           })
@@ -819,10 +816,6 @@ export class Router {
       typeof m === 'string' && m !== '')
   }
 
-  private validStrategy(strategy: string | undefined): strategy is 'fallback' | 'round-robin' {
-    return strategy === 'fallback' || strategy === 'round-robin'
-  }
-
   /** 组合模型统一存裸 id：剥掉 alias/ 前缀（前缀随供应商动态变）。
    *  只剥「已知 alias + /」开头的前缀——模型 id 本身可以含斜杠
    *  （如 nvidia 的 `deepseek-ai/deepseek-v4-flash-0731`），用 lastIndexOf 会把
@@ -849,22 +842,21 @@ export class Router {
       })
   }
 
-  /** 创建组合（name 唯一，非 default）。 */
-  createCombo(name: string, strategy: string, models: string[]): { ok: boolean; error?: string; combo?: Combo } {
+  /** 创建组合（name 唯一，非 default）。选模型是降级链（按序尝试），无策略。 */
+  createCombo(name: string, models: string[]): { ok: boolean; error?: string; combo?: Combo } {
     const clean = name.trim()
     if (clean === '' || clean === 'default') return { ok: false, error: '组合名无效' }
     if (!/^[A-Za-z0-9._-]+$/.test(clean)) return { ok: false, error: '组合名只能含字母、数字、-、_ 和 .' }
     if (this.customCombos.some((c) => c.name === clean)) return { ok: false, error: `组合 ${clean} 已存在` }
     if (!this.validModels(models)) return { ok: false, error: '至少需要一个模型' }
-    if (!this.validStrategy(strategy)) return { ok: false, error: '策略无效' }
-    const combo: Combo = { id: clean, name: clean, strategy, models: this.normalizeModelIds(models) }
+    const combo: Combo = { id: clean, name: clean, models: this.normalizeModelIds(models) }
     this.customCombos.push(combo)
     this.saveCombos()
     return { ok: true, combo }
   }
 
   /** 更新组合（按 id）。 */
-  updateCombo(id: string, name: string, strategy: string, models: string[]): { ok: boolean; error?: string } {
+  updateCombo(id: string, name: string, models: string[]): { ok: boolean; error?: string } {
     const target = this.customCombos.find((c) => c.id === id)
     if (!target) return { ok: false, error: '组合不存在' }
     const clean = name.trim()
@@ -872,9 +864,7 @@ export class Router {
     if (!/^[A-Za-z0-9._-]+$/.test(clean)) return { ok: false, error: '组合名只能含字母、数字、-、_ 和 .' }
     if (this.customCombos.some((c) => c.id !== id && c.name === clean)) return { ok: false, error: `组合 ${clean} 已存在` }
     if (!this.validModels(models)) return { ok: false, error: '至少需要一个模型' }
-    if (!this.validStrategy(strategy)) return { ok: false, error: '策略无效' }
     target.name = clean
-    target.strategy = strategy
     target.models = this.normalizeModelIds(models)
     this.saveCombos()
     return { ok: true }
@@ -935,13 +925,9 @@ export class Router {
 
     const combo = this.comboByName(req.model)
     if (combo) {
-      // 组合：按策略选起点，然后按组合模型顺序回退
-      const start = combo.strategy === 'round-robin'
-        ? (this.rrCursors.get(combo.id) ?? 0) % combo.models.length
-        : 0
-      if (combo.strategy === 'round-robin') this.rrCursors.set(combo.id, (this.rrCursors.get(combo.id) ?? 0) + 1)
+      // 组合 = 降级链：从第一个模型起顺序尝试，谁先服务成功就停。
       for (let i = 0; i < combo.models.length; i++) {
-        const model = combo.models[(start + i) % combo.models.length]
+        const model = combo.models[i]
         if (model === undefined) continue
         const trace: ChatTrace = { attempts: 0 }
         const served = await this.chatWithModel(req, res, model, probe, trace)
@@ -1094,7 +1080,7 @@ export class Router {
     const messages = reqMessages(req.rawBody)
     const tried = new Set<string>()
     for (;;) {
-      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, cfg.poolStrategy, req.model, messages)
+      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages)
       if (uid === undefined) return false
       tried.add(uid)
       const r = await s.chatOnce(uid, req.lv ?? 'auto', req)

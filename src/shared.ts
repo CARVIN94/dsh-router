@@ -79,14 +79,11 @@ export interface RouterHealthResponse {
   error?: string
 }
 
-/** 组合策略。 */
-export type RouterComboStrategy = 'fallback' | 'round-robin'
-
-/** 组合。models = 该组合命中的模型列表（裸模型 id，展示时动态拼前缀）。 */
+/** 组合。models = 该组合命中的模型列表（裸模型 id，展示时动态拼前缀）。
+ *  路由时作为降级链按序尝试，无策略字段。 */
 export interface RouterCombo {
   id: string
   name: string
-  strategy: RouterComboStrategy
   models: string[]
 }
 

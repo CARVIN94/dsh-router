@@ -236,30 +236,31 @@ export class AccountPool {
   }
 
   /**
-   * 按策略为「某个模型」选一个健康账号。
+   * 为「某个模型」选一个健康账号 —— **会话亲和选号，无策略旋钮**。
    *
-   * round-robin = **前缀亲和定号 + 块统计只用来判定缓存无效**：
+   * 旧的两策略（fallback 取第一个 / round-robin 轮转）都删了：前者让所有
+   * 会话挤同一个号（team/多会话必互踩），后者的"轮转"与亲和"同会话永不换号"
+   * 直接冲突。正确模型只有一条：
    *
    *  1. 算请求的前缀指纹（messages 前几条），查绑定表 → 命中且该号健康 → 用它。
-   *     这是第一优先：同一个会话的连续请求**永远落回同一个号**，前缀在该号的
-   *     缓存里只写一份。块轮询治不了跨会话驱逐（多会话大前缀在同一号互踩，
-   *     实测 3 会话 3.8% vs 单会话 82.5%），亲和才是根治。
+   *     同一个会话的连续请求**永远落回同一个号**，前缀在该号缓存里只写一份。
    *  2. 新指纹（或绑定的号不健康）→ 按游标挑一个号并**记下绑定**，之后就固定。
    *     新会话用游标分发，所以不同会话天然散到不同号上（均衡）。
-   *  3. 块统计不再驱动轮转（亲和已经保证驻留，再轮转只会把会话踢出已热前缀），
-   *     只保留 `BLOCK_MAX` 次不达标 → 降权该号（缓存无效，可恢复）。
+   *  3. 指纹算不出（拿不到 messages）→ **块轮询兜底**（§2 旧行为）。这不是
+   *     "策略"，是无会话身份时的替身。
+   *  4. 块统计不驱动轮转（亲和已保证驻留），只保留 `BLOCK_MAX` 次不达标 →
+   *     降权该号（缓存无效，可恢复）。
    *
-   * 亲和失效（拿不到 messages / 指纹算不出）时**回退到块轮询**，行为与之前一致。
-   * 设计见 docs/pool-sticky-block.md §8。
+   * 天花板：号数 < 并发会话数时必然有会话共用号 → 互踩，无法用选号手法消除
+   * （缓存空间是账号侧物理限制）。见 docs/pool-sticky-block.md §10。
    *
    * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）
    * @param poolOrder 用户在面板拖出来的顺序（核心管）
-   * @param strategy fallback 取第一个健康 / round-robin 前缀亲和
    * @param modelId 当前要路由的模型（决定查哪个 (model, uid) 冷却单元）
    * @param messages 请求体的 messages（可选；给了才能算前缀指纹）
    * @returns 选中的 uid；无健康账号返回 undefined
    */
-  pick(accounts: SupplierAccountNow[], poolOrder: string[], strategy: string, modelId: string, messages?: unknown): string | undefined {
+  pick(accounts: SupplierAccountNow[], poolOrder: string[], modelId: string, messages?: unknown): string | undefined {
     const now = Date.now()
     const byUid = new Map(accounts.map((a) => [a.uid, a]))
     // 池顺序优先，未配置的按插件自然顺序追加
@@ -269,7 +270,6 @@ export class AccountPool {
     ]
     const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
     if (healthy.length === 0) return undefined
-    if (strategy !== 'round-robin') return healthy[0]
     // 缓存无效降权：该号缓存质量样本长期不达标 → 跳过它（可到期恢复）
     const usable = healthy.filter((uid) => !this.isDemoted(uid, modelId, now))
     const pool = usable.length > 0 ? usable : healthy

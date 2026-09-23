@@ -357,7 +357,7 @@ test('每次 chat 记一行：组合名 → 供应商/模型 (账号) 结果', a
   const router = new Router('', undefined, (m) => lines.push(m))
   const ok = supplier('supA', [{ id: 'a-m' }])
   addSupplier(router, ok.s)
-  assert.equal(router.createCombo('combo1', 'fallback', ['supA,a-m']).ok, true)
+  assert.equal(router.createCombo('combo1', ['supA,a-m']).ok, true)
 
   const res = {
     writeHead: (): void => {},
@@ -384,7 +384,7 @@ test('失败的成员也要记，且带真实原因（不能笼统写 no account
   const live = supplier('live', [{ id: 'live-m' }])
   addSupplier(router, dead.s)
   addSupplier(router, live.s)
-  assert.equal(router.createCombo('c1', 'fallback', ['dead,dead-m', 'live,live-m']).ok, true)
+  assert.equal(router.createCombo('c1', ['dead,dead-m', 'live,live-m']).ok, true)
 
   const res = {
     writeHead: (): void => {},
@@ -428,7 +428,7 @@ test('流在写出第一个字节前就断 → 组合回退到下一个模型', 
   })
   addSupplier(router, dead.s)
   addSupplier(router, live.s)
-  assert.equal(router.createCombo('c1', 'fallback', ['dead,dead-m', 'live,live-m']).ok, true)
+  assert.equal(router.createCombo('c1', ['dead,dead-m', 'live,live-m']).ok, true)
 
   let out = ''
   let heads = 0
@@ -479,7 +479,7 @@ test('已写出字节后断流 → 截断并补 [DONE]，不回退也不二次�
   })
   addSupplier(router, half.s)
   addSupplier(router, live.s)
-  assert.equal(router.createCombo('c2', 'fallback', ['half,half-m', 'live,live-m']).ok, true)
+  assert.equal(router.createCombo('c2', ['half,half-m', 'live,live-m']).ok, true)
 
   let out = ''
   let heads = 0
@@ -552,7 +552,7 @@ test('首字节前就断 → 不补 [DONE]，留给组合回退', async () => {
   })
   addSupplier(router, dead.s)
   addSupplier(router, live.s)
-  assert.equal(router.createCombo('c3', 'fallback', ['dead,dead-m', 'live,live-m']).ok, true)
+  assert.equal(router.createCombo('c3', ['dead,dead-m', 'live,live-m']).ok, true)
 
   let out = ''
   const res = {
@@ -683,7 +683,7 @@ test('组合窗口：取组合内模型的最小值，单位 K → token', async
     { id: 'a-2', context_length: 1000 },  // 1M
   ]).s)
   await router.modelsOf('a') // 填缓存
-  const w = router.comboContextWindow({ id: 'x', name: 'x', strategy: 'fallback', models: ['a,a-1', 'a,a-2'] })
+  const w = router.comboContextWindow({ id: 'x', name: 'x', models: ['a,a-1', 'a,a-2'] })
   assert.equal(w, 128_000, '取最小的那个（fallback 到任意一条分支都得成立）')
 })
 
@@ -692,7 +692,7 @@ test('组合窗口：供应商还没缓存过 → undefined（不猜，绝不打
   addSupplier(router, supplier('a', [{ id: 'a-1', context_length: 128 }]).s)
   // 故意不调 modelsOf：模拟冷启动
   assert.equal(
-    router.comboContextWindow({ id: 'x', name: 'x', strategy: 'fallback', models: ['a,a-1'] }),
+    router.comboContextWindow({ id: 'x', name: 'x', models: ['a,a-1'] }),
     undefined,
     '没缓存就报 undefined —— 压缩这轮跳过，下次就有，比撒谎安全',
   )
@@ -703,7 +703,7 @@ test('组合窗口：模型都没报 context_length → undefined', async () => 
   addSupplier(router, supplier('a', [{ id: 'a-1' }]).s)
   await router.modelsOf('a')
   assert.equal(
-    router.comboContextWindow({ id: 'x', name: 'x', strategy: 'fallback', models: ['a,a-1'] }),
+    router.comboContextWindow({ id: 'x', name: 'x', models: ['a,a-1'] }),
     undefined,
     '一家都没报就别编一个数（traework/nvidia 目前就是如此）',
   )

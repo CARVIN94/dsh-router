@@ -674,7 +674,7 @@ test('请求路径：组合回退试了 3 个模型，只记 1 条（不是 3 �
   add(router, spy('s1', 'm1', { ok: false, state: 'quota', message: 'no quota' }).s)
   add(router, spy('s2', 'm2', { ok: false, state: 'quota', message: 'no quota' }).s)
   add(router, spy('s3', 'm3', { ok: true, status: 200, body: '{"usage":{"prompt_tokens":1,"completion_tokens":1}}' }).s)
-  assert.equal(router.createCombo('c1', 'fallback', ['s1,m1', 's2,m2', 's3,m3']).ok, true)
+  assert.equal(router.createCombo('c1', ['s1,m1', 's2,m2', 's3,m3']).ok, true)
   await router.chatCompletions(
     { model: 'c1', stream: false, rawBody: JSON.stringify({ model: 'c1', messages: [] }) },
     sinkRes(),

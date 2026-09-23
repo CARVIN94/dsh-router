@@ -87,7 +87,7 @@ test('组合只调目标供应商，其它供应商一次都不会被问', async
   const b = spy('supB', 'b-model')
   const c = spy('supC', 'c-model')
   add(router, a.s); add(router, b.s); add(router, c.s)
-  assert.equal(router.createCombo('my-combo', 'fallback', ['supB,b-model']).ok, true, '组合必须创建成功')
+  assert.equal(router.createCombo('my-combo', ['supB,b-model']).ok, true, '组合必须创建成功')
 
   await router.chatCompletions(reqWith('my-combo'), fakeRes())
 
@@ -140,8 +140,8 @@ test('组合存了缺供应商前缀的裸模型 id → 直接失败，不降级
   const b = spy('supB', 'b-model')
   add(router, a.s); add(router, b.s)
   // 模拟旧存储：裸 id，没有 supplierId 前缀 —— 图6 下这是配置错误，不遍历兜底
-  ;(router as unknown as { customCombos: Array<{ id: string; name: string; strategy: 'fallback'; models: string[] }> })
-    .customCombos.push({ id: 'legacy', name: 'legacy', strategy: 'fallback', models: ['b-model'] })
+  ;(router as unknown as { customCombos: Array<{ id: string; name: string; models: string[] }> })
+    .customCombos.push({ id: 'legacy', name: 'legacy', models: ['b-model'] })
 
   const errs: unknown[] = []
   const res = { ...fakeRes(), end: (x?: string): unknown => { if (x) errs.push(x); return undefined } } as unknown as ServerResponse
@@ -156,7 +156,7 @@ test('组合存了不存在的供应商 id → 调用失败，不静默落到别
   const router = new Router('')
   const a = spy('supA', 'a-model')
   add(router, a.s)
-  assert.equal(router.createCombo('broken', 'fallback', ['ghost,a-model']).ok, true, '组合必须创建成功')
+  assert.equal(router.createCombo('broken', ['ghost,a-model']).ok, true, '组合必须创建成功')
 
   const errs: unknown[] = []
   const res = { ...fakeRes(), end: (b?: string): unknown => { if (b) errs.push(b); return undefined } } as unknown as ServerResponse
@@ -274,7 +274,7 @@ test('组合：瞬时故障降级前会等一等，不是毫秒级打穿整个�
   const m1 = failingSpy('s1', 'm1', 'transport')
   const m2 = failingSpy('s2', 'm2', 'unavailable')
   add(router, m1.s); add(router, m2.s)
-  router.createCombo('combo', 'fallback', ['s1,m1', 's2,m2'])
+  router.createCombo('combo', ['s1,m1', 's2,m2'])
 
   const t0 = Date.now()
   await router.chatCompletions(reqWith('combo'), fakeRes())
@@ -291,7 +291,7 @@ test('组合：no_such_model 不是故障，降级不该等', async () => {
   const m1 = failingSpy('s1', 'm1', 'no_such_model')
   const m2 = failingSpy('s2', 'm2', 'no_such_model')
   add(router, m1.s); add(router, m2.s)
-  router.createCombo('combo', 'fallback', ['s1,m1', 's2,m2'])
+  router.createCombo('combo', ['s1,m1', 's2,m2'])
 
   const t0 = Date.now()
   await router.chatCompletions(reqWith('combo'), fakeRes())

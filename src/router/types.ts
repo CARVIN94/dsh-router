@@ -37,14 +37,10 @@ export interface ModelWithEnabled extends ModelInfo {
   custom?: boolean
 }
 
-/** 组合策略：fallback = 按顺序尝试；round-robin = 轮转。 */
-export type ComboStrategy = 'fallback' | 'round-robin'
-
-/** 组合：命名的一组模型，路由时按策略（回退/轮询）命中其中一个。 */
+/** 组合：命名的一组模型，路由时作为**降级链**按序尝试（无策略旋钮）。 */
 export interface Combo {
   id: string
   name: string
-  strategy: ComboStrategy
   models: string[]
 }
 

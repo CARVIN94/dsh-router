@@ -159,8 +159,8 @@ test('onLateFailure 挂到 env 上，且冷却作用于本供应商的池（坏�
   assert.equal(after.get('u1'), true, '上报后该号应进入冷却')
   assert.equal(after.get('u2'), false, '冷却是 (模型,号) 粒度，不能连坐同供应商其它号')
   // 且真的退出选号：只剩 u2
-  assert.equal(loaded.supplier.pool.pick(loaded.supplier.accounts(), [], 'fallback', 'm1'), 'u2')
-  assert.equal(loaded.supplier.pool.pick(loaded.supplier.accounts(), [], 'fallback', 'm2'), 'u1', '换个模型不受影响')
+  assert.equal(loaded.supplier.pool.pick(loaded.supplier.accounts(), [], 'm1'), 'u2')
+  assert.equal(loaded.supplier.pool.pick(loaded.supplier.accounts(), [], 'm2'), 'u1', '换个模型不受影响')
 })
 
 test('onLateFailure 不串供应商：各自落到自己的池', () => {

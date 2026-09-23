@@ -4,15 +4,13 @@
  * 通用能力(所有供应商共享,供应商 js 不需要实现)：
  *   - 别名 alias(前缀,模型全名 = alias/id)
  *   - 模型管理:启用/禁用 disabled、自定义 custom
- *   - 连接池:poolOrder(拖动排序)、poolStrategy(回退/轮询)
+ *   - 连接池:poolOrder(拖动排序) —— 选号本身是会话亲和,无策略旋钮
  *   - 积分缓存 credits:按 supplier/uid 缓存最后一次拿到的剩余额度
  *
  * 持久化到 data/supplier-config.json。
  */
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-
-export type PoolStrategy = 'fallback' | 'round-robin'
 
 /**
  * 积分哨兵:插件还**没拿到过**真实额度(刚重启、积分拉取失败、或压根不支持
@@ -29,7 +27,6 @@ export interface SupplierConfig {
   disabled: string[]
   custom: string[]
   poolOrder: string[]
-  poolStrategy: PoolStrategy
   /** 积分缓存:uid → 剩余额度(最后一次从插件拿到的非 -1 值)。 */
   credits: Record<string, number>
   /** 每连接显示别名:uid → 显示名(空/缺省用供应商原始昵称,纯展示不改路由键)。 */
@@ -90,7 +87,7 @@ export class SupplierConfigStore {
   get(supplierId: string): SupplierConfig {
     let cfg = this.bySupplier.get(supplierId)
     if (!cfg) {
-      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], poolStrategy: 'fallback', credits: {}, accountNames: {} }
+      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], credits: {}, accountNames: {} }
       this.bySupplier.set(supplierId, cfg)
     }
     return cfg
@@ -142,12 +139,6 @@ export class SupplierConfigStore {
 
   setPoolOrder(supplierId: string, uids: string[]): void {
     this.get(supplierId).poolOrder = [...new Set(uids)]
-    this.saveLocked()
-  }
-
-  setPoolStrategy(supplierId: string, strategy: string): void {
-    if (strategy !== 'fallback' && strategy !== 'round-robin') return
-    this.get(supplierId).poolStrategy = strategy
     this.saveLocked()
   }
 
@@ -221,7 +212,6 @@ export class SupplierConfigStore {
         disabled: Array.isArray(c.disabled) ? c.disabled.filter((m) => typeof m === 'string') : [],
         custom: Array.isArray(c.custom) ? c.custom.filter((m) => typeof m === 'string') : [],
         poolOrder: Array.isArray(c.poolOrder) ? c.poolOrder.filter((u) => typeof u === 'string') : [],
-        poolStrategy: c.poolStrategy === 'round-robin' ? 'round-robin' : 'fallback',
         credits: readCredits(c.credits),
         accountNames: readNames(c.accountNames),
       })
@@ -237,7 +227,6 @@ export class SupplierConfigStore {
         disabled: [...cfg.disabled],
         custom: [...cfg.custom],
         poolOrder: [...cfg.poolOrder],
-        poolStrategy: cfg.poolStrategy,
         credits: { ...cfg.credits },
         accountNames: { ...cfg.accountNames },
       }

@@ -1,14 +1,13 @@
 /**
  * 组合 — 布局交互贴近 9router combos 页。
  * 组合 = 命名的一组模型（完整名 alias/id），请求 model 传组合名时，
- * 按策略（回退/轮询）命中其中一个。可创建/编辑/删除。
+ * 作为降级链按序尝试命中其中一个。可创建/编辑/删除。
  */
 import { useEffect, useRef, useState } from 'react'
 import {
   ROUTER_API_BASE,
   type RouterCombo,
   type RouterComboAlias,
-  type RouterComboStrategy,
   type RouterComboSupplierGroup,
 } from '../shared.ts'
 import { Modal } from './Modal.tsx'
@@ -44,7 +43,6 @@ interface CombosTabProps {
 
 interface ComboForm {
   name: string
-  strategy: RouterComboStrategy
   models: string[]
 }
 
@@ -71,7 +69,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
   }
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<RouterCombo | null>(null)
-  const [form, setForm] = useState<ComboForm>({ name: '', strategy: 'fallback', models: [] })
+  const [form, setForm] = useState<ComboForm>({ name: '', models: [] })
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<RouterCombo | null>(null)
@@ -115,7 +113,6 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
   const openCreate = (): void => {
     setForm({
       name: '',
-      strategy: 'fallback',
       models: [],
     })
     setModelQuery('')
@@ -128,7 +125,6 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
   const openEdit = (combo: RouterCombo): void => {
     setForm({
       name: combo.name,
-      strategy: combo.strategy,
       models: [...combo.models],
     })
     setModelQuery('')
@@ -191,8 +187,8 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(isEdit
-          ? { id: editing!.id, name: form.name.trim(), strategy: form.strategy, models: form.models }
-          : { name: form.name.trim(), strategy: form.strategy, models: form.models }),
+          ? { id: editing!.id, name: form.name.trim(), models: form.models }
+          : { name: form.name.trim(), models: form.models }),
         cache: 'no-store',
       })
       const data = await response.json() as { ok: boolean; error?: string }
@@ -237,24 +233,6 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
     }
   }
 
-  const updateStrategy = async (id: string, strategy: RouterComboStrategy): Promise<void> => {
-    const combo = combos.find(c => c.id === id)
-    if (!combo) return
-    const response = await fetch(`${ROUTER_API_BASE}/combos/update`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name: combo.name, strategy, models: combo.models }),
-      cache: 'no-store',
-    })
-    const data = await response.json() as { ok: boolean; error?: string }
-    if (data.ok) {
-      onRefresh()
-      showToast(`策略已切换为${strategy === 'round-robin' ? '轮询' : '回退'}`)
-    } else {
-      showToast(data.error ?? '更新失败')
-    }
-  }
-
   return (
     <div className="dshr-tabBody">
       {/* Header */}
@@ -262,15 +240,14 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
         <div className="dshr-cardHead">
           <span className="dshr-cardIcon"><Icon d={I.layers} size={16} /></span>
           <div className="dshr-cardTitle">组合</div>
-          <span className="dshr-muted dshr-comboIntroDesc">请求传组合名,在一组模型中按策略命中</span>
+          <span className="dshr-muted dshr-comboIntroDesc">请求传组合名,在一组模型中按序降级命中</span>
           <button type="button" className="dshr-primaryButton dshr-cardAction" onClick={openCreate}>
             <Icon d={I.add} size={14} />
             创建组合
           </button>
         </div>
         <div className="dshr-comboIntroBody">
-          <span className="dshr-comboHeaderKey">回退</span> 按顺序尝试,前面失败时用下一个
-          <span className="dshr-comboHeaderKey dshr-comboHeaderKey-2">轮询</span> 在模型间轮转分配请求
+          <span className="dshr-comboHeaderKey">降级链</span> 按顺序尝试,前面失败时用下一个
         </div>
       </section>
 
@@ -294,15 +271,6 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                 <code className="dshr-comboName">{combo.name}</code>
                 <span className="dshr-muted dshr-cardMeta">{combo.models.length} 模型</span>
                 <div className="dshr-comboOps">
-                  <select
-                    className="dshr-input dshr-comboStrategySelect"
-                    value={combo.strategy}
-                    title="组合策略"
-                    onChange={(e) => void updateStrategy(combo.id, e.target.value as RouterComboStrategy)}
-                  >
-                    <option value="fallback">回退</option>
-                    <option value="round-robin">轮询</option>
-                  </select>
                   <button type="button" className="dshr-iconBtn dshr-iconBtn-sm" title="复制组合名" onClick={() => void copyName(combo.name, combo.id)}>
                     <Icon d={copied === combo.id ? I.check : I.copy} size={15} />
                   </button>
@@ -333,9 +301,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                     )}
                 </div>
                 <div className="dshr-muted dshr-reason">
-                  {combo.strategy === 'fallback'
-                    ? '按此顺序尝试模型;当前模型不可用时换下一个。'
-                    : '请求在模型间轮转分配。'}
+                  按此顺序尝试模型;当前模型不可用时换下一个。
                 </div>
               </div>
             </section>
@@ -349,7 +315,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
           <div className="dshr-modalForm">
             <div className="dshr-comboFormSplit">
               <div className="dshr-comboFormDivider" aria-hidden="true" />
-              {/* 左：组合名 + 策略 + 已选模型 */}
+              {/* 左：组合名 + 已选模型 */}
               <div className="dshr-comboFormLeft">
                 <div>
                   <p className="dshr-formLabel">组合名</p>
@@ -361,17 +327,6 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                     autoFocus
                   />
                   <p className="dshr-formHint">只能含字母、数字、-、_ 和 .</p>
-                </div>
-                <div>
-                  <p className="dshr-formLabel">策略</p>
-                  <select
-                    className="dshr-input"
-                    value={form.strategy}
-                    onChange={(e) => patchForm({ strategy: e.target.value as RouterComboStrategy })}
-                  >
-                    <option value="fallback">回退 — 按顺序尝试,失败换下一个</option>
-                    <option value="round-robin">轮询 — 在模型间轮转分配</option>
-                  </select>
                 </div>
                 <div>
                   <p className="dshr-formLabel">模型（已选 {form.models.length}）</p>

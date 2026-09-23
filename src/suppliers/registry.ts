@@ -9,7 +9,6 @@
  *   POST   /suppliers/:id/models/bulk             {enabled}
  *   POST   /suppliers/:id/alias                   {alias}
  *   GET    /suppliers/:id/pool/order              + POST {uids}
- *   GET    /suppliers/:id/pool/strategy           + POST {strategy}
  *
  * 差异化能力（供应商 js 实现，按存在性注册；未实现返回 404）：
  *   POST   /suppliers/:id/models/fetch            拉取上游模型
@@ -205,7 +204,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     },
   })
 
-  // ---- 通用: pool/order + pool/strategy ----
+  // ---- 通用: pool/order ----
   routes.push({
     kind: 'exact',
     path: `${p}/pool/order`,
@@ -220,24 +219,6 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         return
       }
       store.setPoolOrder(s.id, body.uids)
-      writeJson(res, 200, { ok: true })
-    },
-  })
-
-  routes.push({
-    kind: 'exact',
-    path: `${p}/pool/strategy`,
-    handler: async (req, res) => {
-      if (req.method === 'GET') {
-        writeJson(res, 200, { ok: true, strategy: store.get(s.id).poolStrategy })
-        return
-      }
-      const body = JSON.parse(await readBody(req)) as { strategy?: string }
-      if (body.strategy !== 'fallback' && body.strategy !== 'round-robin') {
-        writeJson(res, 400, { ok: false, error: '策略无效' })
-        return
-      }
-      store.setPoolStrategy(s.id, body.strategy)
       writeJson(res, 200, { ok: true })
     },
   })

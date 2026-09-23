@@ -106,7 +106,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
   const [modelQuery, setModelQuery] = useState('')
   const [fetchingModels, setFetchingModels] = useState(false)
   const [removeModelTarget, setRemoveModelTarget] = useState<string | null>(null)
-  const [poolStrategy, setPoolStrategy] = useState<'fallback' | 'round-robin'>('fallback')
   const [poolOrder, setPoolOrder] = useState<string[]>([])
   const [checkingIn, setCheckingIn] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -146,16 +145,9 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
 
   const loadPoolConfig = useCallback(async (): Promise<void> => {
     try {
-      const [strategyRes, orderRes] = await Promise.all([
-        fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/strategy`, { cache: 'no-store' }),
-        fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/order`, { cache: 'no-store' }),
-      ])
-      const [strategyData, orderData] = await Promise.all([strategyRes.json(), orderRes.json()]) as [
-        { ok: boolean; strategy?: 'fallback' | 'round-robin' },
-        { ok: boolean; order?: string[] },
-      ]
+      const orderRes = await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/order`, { cache: 'no-store' })
+      const orderData = await orderRes.json() as { ok: boolean; order?: string[] }
       if (mounted.current) {
-        if (strategyData.ok && strategyData.strategy) setPoolStrategy(strategyData.strategy)
         if (orderData.ok && Array.isArray(orderData.order)) setPoolOrder(orderData.order)
       }
     } catch {
@@ -535,17 +527,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
       const data = await response.json() as { ok: boolean; error?: string }
       if (data.ok) {
         setAlias(aliasDraft.trim())
-        // 同时保存连接池策略
-        try {
-          await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/pool/strategy`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ strategy: poolStrategy }),
-            cache: 'no-store',
-          })
-        } catch {
-          // 策略保存失败不阻断前缀保存
-        }
         setShowAlias(false)
       } else {
         setAliasError(data.error ?? '保存失败')
@@ -603,7 +584,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
             <h1 className="dshr-providerName">{supplier.name}</h1>
             <p className="dshr-providerCount">
               {supplierAccounts.length} 链接
-              {canPool && ` · ${poolStrategy === 'round-robin' ? '轮询' : '回退'}`}
               {canEdit && ` · 前缀 ${alias}`}
             </p>
           </div>
@@ -904,18 +884,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                 value={aliasDraft}
                 onChange={(e) => setAliasDraft(e.target.value)}
               />
-            </>
-            <>
-              <label className="dshr-fieldLabel">连接池策略</label>
-              <p className="dshr-muted">回退 = 按连接池顺序取第一个健康链接；轮询 = 按会话前缀粘住同一链接（前缀亲和，多会话不打架），拿不到会话信息时退回块轮转。</p>
-              <select
-                className="dshr-select dshr-input"
-                value={poolStrategy}
-                onChange={(e) => setPoolStrategy(e.target.value as 'fallback' | 'round-robin')}
-              >
-                <option value="fallback">回退</option>
-                <option value="round-robin">轮询</option>
-              </select>
             </>
             {aliasError !== '' && <div className="dshr-alert"><strong>出错了</strong><span>{aliasError}</span></div>}
             <div className="dshr-modalActions">

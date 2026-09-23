@@ -54,6 +54,11 @@ export interface UsageRecord {
   uid?: string
   /** 失败原因（ok=false 时）。 */
   error?: string
+  /**
+   * 宿主会话身份（有则记）。用于「最近命中」按当前会话归因 —— 徽章要显示
+   * 当前会话的命中，而不是全局最近（team 多会话下后者会张冠李戴）。
+   */
+  session?: string
 }
 
 /** 按某个维度（供应商/模型/请求名）聚合的小计。 */
@@ -387,6 +392,17 @@ export class UsageStore {
   /** 最近请求明细。 */
   recentList(limit = 20): UsageRecord[] {
     return this.recent.slice(0, limit)
+  }
+
+  /**
+   * 最近一次命中。给了 `session` 就只在该会话的记录里找（「最近命中」徽章
+   * 要显示**当前会话**的命中，team 多会话下全局最近会张冠李戴）；
+   * 不给则退回全局最近一条。
+   * @param session 宿主会话身份；undefined = 全局
+   */
+  lastHit(session?: string): UsageRecord | undefined {
+    if (session === undefined) return this.recent[0]
+    return this.recent.find((r) => r.session === session)
   }
 
   clear(): void {

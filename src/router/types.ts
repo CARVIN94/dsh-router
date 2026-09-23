@@ -52,6 +52,12 @@ export interface ChatRequest {
   model: string
   /** 推理等级（reasoning effort），供应商各自决定怎么映射到上游。缺省 = 'auto'。 */
   lv?: string
+  /**
+   * 宿主盖的会话身份（dsh-llm `GenerateOptions.sessionId`），由 adapter 转成
+   * 内部头带进来。用于把用量记录**按会话归因**（「最近命中」徽章要按当前会话
+   * 显示，而不是显示别的会话的命中）。缺省 = 非宿主调用（外部 OpenAI 客户端）。
+   */
+  session?: string
 }
 
 /**

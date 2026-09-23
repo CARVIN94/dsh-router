@@ -12,7 +12,7 @@ import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { rewriteRouterModelHint } from './model-hint-copy.ts'
-import { mountLastHitBadge } from './last-hit-badge.ts'
+import { LastHitDock } from './LastHitDock.tsx'
 import './router.css'
 
 /**
@@ -38,6 +38,22 @@ interface Ctx {
   effect: (fn: () => (() => void) | void, label?: string) => void
 }
 
+/**
+ * 挂载输入框上方的「最近命中」徽章：注册到官方 `conversation.input.dock`
+ * （kind: list, scope: session）。scope 为 session 时宿主给组件注入
+ * `sessionId`，据此按**当前会话**取命中（不是全局最近）。
+ * @returns 清理函数；宿主无 slots 时为空操作
+ */
+function mountLastHitDock(ctx: Ctx): () => void {
+  const slots = ctx.slots
+  if (slots === undefined) return () => {}
+  return slots.inject('conversation.input.dock', () => slots.register({
+    name: 'conversation.input.dock',
+    id: 'dsh-router-last-hit',
+    order: 10,
+  }, LastHitDock))
+}
+
 /** 挂载「设置 → 路由」页；拿不到 slots 时返回 undefined 表示跳过。 */
 function mountSettingsSection(ctx: Ctx): (() => void) | undefined {
   const slots = ctx.slots
@@ -57,8 +73,9 @@ function mountSettingsSection(ctx: Ctx): (() => void) | undefined {
 }
 
 export function apply(ctx: Ctx): void {
-  // 输入框旁的「最近命中」徽章：与设置面板无关（挂在 composer 上），先起。
-  ctx.effect(() => mountLastHitBadge(), 'dsh-router: last-hit badge')
+  // 输入框上方的「最近命中」徽章：走官方 conversation.input.dock（scope: session
+  // → 组件 props 注入 sessionId，按当前会话取命中）。宿主没这个座位就跳过。
+  ctx.effect(() => mountLastHitDock(ctx), 'dsh-router: last-hit dock')
   const disposeSettings = mountSettingsSection(ctx)
   if (disposeSettings === undefined) {
     // 老宿主（无 slots）：回退到侧边栏入口 + 中心栏面板

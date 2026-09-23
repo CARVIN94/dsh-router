@@ -659,6 +659,9 @@ export class RouterAdapter extends LlmAdapter {
           ...attributionHeaders(),
           'content-type': 'application/json',
           accept: 'text/event-stream',
+          // 宿主盖的会话身份转成内部头：核心据此把用量按会话归因，
+          // 供「最近命中」徽章按当前会话显示。宿主没给就不带（外部调用）。
+          ...options.sessionId === undefined ? {} : { 'x-dsh-router-session': String(options.sessionId) },
         },
         body: JSON.stringify(body),
         signal: controller.signal,

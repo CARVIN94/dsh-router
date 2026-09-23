@@ -3125,21 +3125,25 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 /* ============================================================
-   last-hit badge —— 输入框旁的「最近命中」指示器
-   （last-hit-badge.ts 认领 [class*="JObwrW_root"] 前的兄弟位）
+   last-hit —— 输入框上方的「最近命中」徽章
+   （LastHitDock.tsx 注册到官方 conversation.input.dock，scope: session）
 
-   样式对齐隔壁原生的上下文环（ContextMeter）：同 28×28 圆形按钮、
-   同 hover 底色、同 --dsw-alias-* 变量；弹卡对齐其 panel 规格
+   样式对齐原生控件：28px 高胶囊、hover 用 interactive-bg-hover、
+   图标 14px 用 label-tertiary；弹卡对齐原生 panel 规格
    （--dsw-specific-menu / --dsw-elevation-prominent / 12px 圆角 / 264px）。
+   居中展示，与下方 composer 卡片同宽域。
    ============================================================ */
 
 .dshr-lastHit {
-    position: relative;
-    display: inline-flex;
-    flex: none;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 4px calc(var(--dsh-composer-side-clearance, 16px) + 16px) 0;
+    box-sizing: border-box;
 }
 
 .dshr-lastHit-btn {
+    position: relative;
     display: inline-flex;
     height: 28px;
     flex: none;

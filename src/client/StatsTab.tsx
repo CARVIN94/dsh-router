@@ -333,7 +333,7 @@ function RecentTable({ rows }: { rows: RouterUsageRecord[] }): JSX.Element {
             <div className="dshr-recentRow dshr-rankHead">
               <span className="dshr-recentTime">时间</span>
               <span className="dshr-recentModel">模型</span>
-              <span className="dshr-recentSupplier">供应商</span>
+              <span className="dshr-recentSupplier">连接</span>
               <span className="dshr-rankNum">In / Out</span>
               <span className="dshr-rankNum">耗时</span>
             </div>

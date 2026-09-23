@@ -348,8 +348,17 @@ export function apply(rawContext: unknown): void {
     const lv = typeof peek.reasoning_effort === 'string' && peek.reasoning_effort !== ''
       ? peek.reasoning_effort
       : 'auto'
+    // 宿主会话身份（adapter 从 GenerateOptions.sessionId 转来的内部头）；外部客户端没有。
+    const sessionRaw = req.headers['x-dsh-router-session']
+    const session = typeof sessionRaw === 'string' && sessionRaw !== '' ? sessionRaw : undefined
     await router.chatCompletions(
-      { rawBody: body, stream: !!peek.stream, model: typeof peek.model === 'string' ? peek.model : '', lv },
+      {
+        rawBody: body,
+        stream: !!peek.stream,
+        model: typeof peek.model === 'string' ? peek.model : '',
+        lv,
+        ...(session === undefined ? {} : { session }),
+      },
       res,
     )
   }))
@@ -399,10 +408,12 @@ export function apply(rawContext: unknown): void {
     writeJson(res, 200, { ok: true })
   })
 
-  route(`${ROUTER_API_BASE}/last-hit`, (_req, res) => {
-    // 最近一次被服务的请求（全局粒度）：给输入框旁的小指示器用。
-    // 附上账号显示别名与积分 —— 前端只读这一个端点，不打 status（重）。
-    const last = router.usage.recentList(1)[0]
+  route(`${ROUTER_API_BASE}/last-hit`, (req, res) => {
+    // 最近一次被服务的请求：给输入框旁的小指示器用。
+    // `?session=` 给定时只在该会话内找（当前会话视角）；不给则退回全局最近。
+    // 附上连接显示别名与积分 —— 前端只读这一个端点，不打 status（重）。
+    const session = new URL(req.url ?? '/', 'http://localhost').searchParams.get('session') ?? undefined
+    const last = router.usage.lastHit(session)
     if (last === undefined) {
       writeJson(res, 200, { ok: true, hit: null })
       return

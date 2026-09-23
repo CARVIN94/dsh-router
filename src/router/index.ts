@@ -919,6 +919,7 @@ export class Router {
         ttfbMs: probe.ttfbMs,
         // 只有真被服务过才记 uid：失败请求的 uid 可能是空或上一次的残留
         ...(ok && probe.uid !== '' ? { uid: probe.uid } : {}),
+        ...(req.session === undefined ? {} : { session: req.session }),
         ...(error === undefined ? {} : { error }),
       }, usage)
     }

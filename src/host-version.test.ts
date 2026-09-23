@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { detectHostVersion, supportsLastHitDock } from './host-version.ts'
+import { detectHostVersion, isHost017Plus, supportsLastHitDock } from './host-version.ts'
 
 /** 造一个「装了指定版本 dsh」的临时 profile，返回它的 file: URL。 */
 function profileWithDsh(version: string | null): string {
@@ -38,6 +38,17 @@ test('支持位：>= 0.1.7 才为真（预发布标识忽略，按前导数字�
   assert.equal(supportsLastHitDock(profileWithDsh('0.1.5-rc.3')), false)
   assert.equal(supportsLastHitDock(profileWithDsh('0.1.6-alpha.2')), false)
   assert.equal(supportsLastHitDock(profileWithDsh('0.1.4')), false)
+})
+
+test('isHost017Plus 与徽章支持位同源（三处兼容分叉共用一个判据）', () => {
+  for (const v of ['0.1.7-alpha.2', '0.1.7', '0.2.0', '1.0.0']) {
+    assert.equal(isHost017Plus(profileWithDsh(v)), true, v)
+    assert.equal(supportsLastHitDock(profileWithDsh(v)), true, v)
+  }
+  for (const v of ['0.1.5-rc.3', '0.1.6-alpha.2', '0.1.4']) {
+    assert.equal(isHost017Plus(profileWithDsh(v)), false, v)
+    assert.equal(supportsLastHitDock(profileWithDsh(v)), false, v)
+  }
 })
 
 test('读不到版本 → 一律当不支持（不抛、宁可不显示）', () => {

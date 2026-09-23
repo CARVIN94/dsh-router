@@ -525,6 +525,48 @@ test('wire：0.1.7+ 空 tool 结果发空串（不伪造字面量）', async () 
 })
 
 /**
+ * 版本号只用于「声明 + 漂移告警」，真正的分派以**消息形状**为准：
+ * 同一份 adapter 在 host017Plus 为 true/false 下都必须把两种形状序列化正确，
+ * 否则一旦宿主版本探测失灵（读不到版本 → 默认 false）就会误序列化。
+ */
+test('wire：形状分派与版本号解耦 —— 两种形状在 host017Plus 两种取值下都正确', async () => {
+  const newShapeMsgs = [
+    { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
+    { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] },
+  ]
+  const oldShapeMsgs = [
+    { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
+    { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] }] },
+  ]
+  for (const flag of [true, false]) {
+    // 新形状：无论版本怎么说，都必须发 role:'tool' 且带 tool_call_id
+    const n = await captureBodyWithFlag({ messages: newShapeMsgs }, flag)
+    const nt = (n.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>).find((m) => m.role === 'tool')
+    assert.ok(nt, `host017Plus=${flag} 时新形状应发 role:'tool'`)
+    assert.equal(nt.tool_call_id, 'c1')
+    // 旧形状：无论版本怎么说，都必须发 role:'tool'（由 'tool-result' 块转出）
+    const o = await captureBodyWithFlag({ messages: oldShapeMsgs }, flag)
+    const ot = (o.messages as Array<{ role: string; tool_call_id?: string }>).find((m) => m.role === 'tool')
+    assert.ok(ot, `host017Plus=${flag} 时旧形状也应转出 role:'tool'`)
+    assert.equal(ot.tool_call_id, 'c1')
+  }
+})
+
+/** 同 captureBody，但可指定 host017Plus。 */
+async function captureBodyWithFlag(options: Record<string, unknown>, host017Plus: boolean): Promise<Record<string, unknown>> {
+  let captured: Record<string, unknown> = {}
+  globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
+    captured = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
+    return new Response('data: [DONE]\n\n', { status: 200 })
+  }) as typeof fetch
+  const adapter = new RouterAdapter('http://x', { comboModels: async () => [], host017Plus: () => host017Plus })
+  for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000), ...options } as never)) {
+    void _c
+  }
+  return captured
+}
+
+/**
  * 为什么要有这一条：只不发 `block-end` **并不能**拦住残缺调用。
  *
  * dsh-llm 的 BlockAssembler 对没有 block-end 的 index 会用累积的 delta

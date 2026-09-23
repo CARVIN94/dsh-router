@@ -58,6 +58,12 @@ export interface RouterAdapterSource {
    * 组合背后是异构供应商时给**最小的那个**（保守，宁可早压缩）。
    */
   comboModels: () => Promise<Array<{ id: string; name?: string; contextWindow?: number }>>
+  /**
+   * 宿主是否 >= 0.1.7（决定 tool-result 的消息形态，见 wireMessages）。
+   * 由核心按 profile 里的 dsh 版本号注入；缺省按**老版本**处理（保守：0.1.5 形态
+   * 对新宿主也无害，因为分支同时认消息形状——见下）。
+   */
+  host017Plus?: () => boolean
 }
 
 /**
@@ -96,7 +102,7 @@ const TOOL_RESULT_IMAGE_TEXT = 'Tool result images'
  */
 const STREAM_IDLE_TIMEOUT_MS = 300_000
 
-async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined): Promise<Array<Record<string, unknown>>> {
+async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined, host017Plus: boolean): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = []
   /**
    * 攒着「tool-result 里带出来的图片」，等这一串 tool 消息**发完**再合并成一条
@@ -143,11 +149,21 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
       })
       continue
     }
-    // DSH 0.1.7+（0.1.7-alpha.x 及以后）：tool 结果是独立 role:'tool' 消息，toolCallId 挂在
-    // 消息级——dsh-llm 的 ContentBlockMap 已移除 'tool-result' 块。0.1.5/0.1.6 仍是 user
-    // 消息里的 'tool-result' 块，走下面旧路径。同一份 adapter 同时兼容 DSH 0.1.5 与 0.1.7：
-    // 0.1.7 宿主触发本分支，0.1.5 宿主走旧块路径，互不影响。
-    if ((message.role as string) === 'tool') {
+    // tool 结果的消息形态按**宿主版本**分流（见 host-version.ts）：
+    //   0.1.7+（host017Plus=true）：独立 role:'tool' 消息、toolCallId 挂消息级
+    //           （dsh-llm 的 ContentBlockMap 已移除 'tool-result' 块）；
+    //   0.1.5/0.1.6（false）：user 消息里的 'tool-result' 块，走下面旧路径。
+    // 真正的分派仍以**消息实际形状**为准（下面的 `role === 'tool'`）——形状是数据
+    // 事实，比版本号更可靠，且同一份 adapter 能同时吃两版。host017Plus 用于在
+    // 形状与版本不符时**告警**（宿主契约漂移的早期信号），不改序列化结果。
+    const isToolRoleMessage = (message.role as string) === 'tool'
+    if (isToolRoleMessage !== host017Plus) {
+      console.warn('[dsh-router] tool-result 消息形态与宿主版本不符', {
+        host017Plus,
+        messageRole: message.role,
+      })
+    }
+    if (isToolRoleMessage) {
       // tool 消息必须紧跟 assistant(tool_calls)：中间插进任何 user 消息，上游都会判定
       // tool_call 与 tool_result 失配 → codebuddy 直接 400 网关码 11148（bad_request
       // 按核心设计不罚账号，面板上看不到异常，易误判成额度/风控）。
@@ -277,8 +293,8 @@ function imagePlaceholder(attachmentId: string): string {
 }
 
 /** 组装 wire 请求体。图片序列化需要读 attachments，故为异步。 */
-async function wireRequest(options: GenerateOptions, attachments: RouterAttachmentStore | undefined): Promise<Record<string, unknown>> {
-  const messages = await wireMessages(options, options.system, attachments)
+async function wireRequest(options: GenerateOptions, attachments: RouterAttachmentStore | undefined, host017Plus: boolean): Promise<Record<string, unknown>> {
+  const messages = await wireMessages(options, options.system, attachments, host017Plus)
   const body: Record<string, unknown> = {
     model: options.model,
     messages,
@@ -644,7 +660,7 @@ export class RouterAdapter extends LlmAdapter {
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const body = await wireRequest(options, this.resolveAttachments())
+    const body = await wireRequest(options, this.resolveAttachments(), this.source.host017Plus?.() ?? false)
     const controller = new AbortController()
     const onAbort = (): void => controller.abort()
     options.signal?.addEventListener('abort', onAbort, { once: true })

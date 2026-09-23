@@ -7,11 +7,13 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT license"></a>
   <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.1.5" src="https://img.shields.io/badge/DSH-0.1.5-4d6bfe?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.1.7-alpha.2 支持" src="https://img.shields.io/badge/DSH-0.1.7--alpha.2-e400dd?style=flat-square" /></a>
+  <a href="#agent-team-支持"><img alt="Agent Team" src="https://img.shields.io/badge/Agent%20Team-%E2%9C%93-10b981?style=flat-square" /></a>
 </p>
 
 <p align="center">
   <a href="#快速安装">快速安装</a> ·
   <a href="#面板设置--路由">面板</a> ·
+  <a href="#agent-team-支持">Agent Team</a> ·
   <a href="#api-端点openai-兼容3080v1">API 端点</a> ·
   <a href="docs/suppliers.md">供应商开发</a> ·
   <a href="docs/ext.md">扩展开发</a>
@@ -21,6 +23,11 @@
 在 `http://localhost:3080/v1` 上原生暴露 OpenAI 兼容端点,把请求路由到内部供应商。
 管理界面在**设置 → 路由**(官方设置页座位,不是自己开的页面)。装好即用,
 不用多开一个 9router、不用维护第二个端口、不用在网关和 DSH 之间搬配置。
+
+**原生支持 Agent Team / 多会话** —— 0.1.7 起每个 team 成员是独立会话,
+dsh-router 按**会话身份**亲和选号:同会话固定落同一个连接(前缀缓存只写一份),
+不同会话尽量铺开到不同连接;多会话共用同号时按会话隔离统计,**不会互相拖累**。
+详见 [Agent Team 支持](#agent-team-支持)。
 
 ![设置 → 路由 面板：概览（用量看板）、供应商、组合、端点与密钥](docs/screenshot.png)
 
@@ -53,6 +60,7 @@ dsh plugin --profile web add dsh-router-core
 | 凭证单库       | `auths/credentials.sqlite`,供应商凭证不透明 blob,核心统一生命周期,干净可备份。                                                                                                                                                                               |
 | 组合即模型     | 建好的组合自动带出为 DSH 模型目录里的 `router` provider 选项,设置 → 模型直接选组合名即可。                                                                                                                                                                   |
 | 用量可观测     | 面板概览看板:周期切换、汇总卡、趋势折线、Top 榜、最近请求。                                                                                                                                                                                                  |
+| Team 友好      | 按**会话身份**亲和选号:同会话固定同一连接(前缀缓存只写一份),不同会话尽量铺开到不同连接;多会话共用同号时缓存质量**按会话隔离**统计,不会互相拖累。                                                                                                            |
 
 > 面板布局、组合 fallback、连接池/账号池、API key 管理都贴近
 > [9router](https://github.com/decolua/9router),但按 DSH「一切皆插件」的方式
@@ -60,6 +68,35 @@ dsh plugin --profile web add dsh-router-core
 >
 > 供应商开发与接入规范见 [`docs/suppliers.md`](docs/suppliers.md)
 > （契约 / 加载顺序 / 模型统一策略 / 内置供应商参考实现）。
+> 选号/亲和/team 的完整设计与实测见
+> [`docs/pool-sticky-block.md`](docs/pool-sticky-block.md)。
+
+## Agent Team 支持
+
+DSH 0.1.7 的**智能体团队**把任务拆给多个成员,**每个成员是独立会话**,一轮
+team 测试就是多个会话交错发请求。dsh-router 原生适配这个场景:
+
+- **真会话身份** —— 从宿主 `GenerateOptions.sessionId` 拿到权威会话 id
+  (adapter 转成内部头),不再靠猜。有 id 就按 id 亲和,精确、零撞车;
+  外部 OpenAI 客户端拿不到 id 时,回落前缀指纹兜底。
+- **会话亲和选号** —— 同一会话的连续请求**永远落回同一个连接**,前缀在该
+  连接缓存里只写一份,缓存命中率稳定在 ~98%;新会话按游标分发,天然均衡。
+- **fresh 会话优先铺开** —— 多个成员交替到达时,优先分配到**还没被别的会话
+  占用**的连接,各成员尽量独占一个连接;连接数不够时才回绕复用。
+- **按会话隔离的缓存统计** —— 多会话共用同号时,**各会话的缓存质量分开统计**,
+  不会因为别的会话"踩"了同一个号就把这个号误判成"缓存坏了"从而集体降权
+  (消除了 team 场景下的「降权串」)。
+- **底部命中指示** —— 输入框旁的「路由」徽章按**当前会话**显示最近一次命中
+  的连接/积分;点击展开卡片,点外部或 `Esc` 收起(与原生弹层一致)。
+
+> 天花板:**连接数 < 并发成员数**时,多出来的成员必然共用连接 → 前缀缓存互相
+> 驱逐,无法用选号手法消除(上游缓存空间是账号侧物理限制)。要彻底隔离只能
+> **加连接**或**限制 team 并发成员数 ≤ 连接数**。详见
+> [`docs/pool-sticky-block.md`](docs/pool-sticky-block.md) §11。
+>
+> 版本适配:「路由」徽章只在 **DSH ≥ 0.1.7** 出现(0.1.5 的对应座位渲染位置
+> 不同);0.1.5 与 0.1.7 的兼容差异(设置注册、tool 消息形态)统一按宿主版本号
+> 判定。
 
 ## 面板(设置 → 路由)
 
@@ -133,7 +170,8 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 | 端点                            | 方法      | 说明                                                                   |
 | ------------------------------- | --------- | ---------------------------------------------------------------------- |
-| `/health`                       | GET       | 供应商列表(含来源/能力)                                                |
+| `/health`                       | GET       | 供应商列表(含来源/能力)+ 宿主版本 `hostVersion` / 徽章支持位 `lastHitDock` |
+| `/last-hit`                     | GET       | 最近一次命中 `?session=<id>`(按会话取,缺省全局);供「路由」徽章 |
 | `/status`                       | GET       | 全部账号(含供应商 id)                                                  |
 | `/models`                       | GET       | 合并模型列表(已过滤禁用)                                               |
 | `/combos`                       | GET       | 组合 fallback 链                                                       |
@@ -186,11 +224,14 @@ curl -X POST http://localhost:3080/v1/chat/completions \
             ├─ StatsTab          概览:用量看板(周期按钮组 + 汇总卡 + 折线趋势 + Top 榜 + 最近请求)
        ├─ SupplierDetail    供应商详情:链接池 + 加链接 + 可用模型
        ├─ EndpointTab       端点 URL + requireApiKey + 密钥管理
+       └─ LastHitDock       「路由」徽章(composer.dock 座位,≥0.1.7;按会话显示最近命中)
        └─ fetch /router/api/*            (同源,无 CORS)
             └─ host 半(src/index.ts)
                  ├─ /v1/models + /v1/chat/completions   (OpenAI 兼容, KeysStore 鉴权)
                  │    └─ RouterAdapter(src/llm/adapter.ts)  OpenAI SSE → DSH StreamChunk
                  │         (usage 经 toTokenUsage 转 DSH 契约,见 docs/suppliers.md)
+                 │         (带 x-dsh-router-session 头:宿主 sessionId → 会话亲和)
+                 ├─ host-version(src/host-version.ts)  按宿主版本号适配 0.1.5 / 0.1.7
                  ├─ KeysStore(src/keys.ts)              密钥库 + requireApiKey
                  └─ Router(路由器) → suppliers[]
                       ├─ OpenCodeSupplier(lib/suppliers/opencode.js) 无账号直连(Zen 免费档,需 CLI 握手)
@@ -227,6 +268,8 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 ## 前提
 
+- **DSH 版本**:`0.1.5-rc.1` 及以上;插件内部按宿主版本号自动适配 0.1.5 / 0.1.7
+  差异(设置注册方式、tool 消息形态、底部徽章);「路由」徽章需 **≥ 0.1.7**;
 - 凭证由 dsh-router 核心统一管(SQLite 库 `<dataDir>/auths/credentials.sqlite`);
 - 供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md);
 - 重启 DSH 后 `/v1/*` 即生效;面板管理账号、模型与密钥。

@@ -64,6 +64,10 @@ export interface RouterCheckinResponse {
 /** `/router/api/health` response. */
 export interface RouterHealthResponse {
   ok: boolean
+  /** 宿主 DSH 版本（读不到为空串）。 */
+  hostVersion?: string
+  /** 「最近命中」徽章是否受支持（宿主 >= 0.1.7 才有 composer.dock 正确位置）。 */
+  lastHitDock?: boolean
   suppliers?: Array<{
     id: string
     name: string

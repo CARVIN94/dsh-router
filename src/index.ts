@@ -42,6 +42,7 @@ import type { SupplierEnv, SupplierModule } from './suppliers/contract.ts'
 import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
 import { dataDirOf, profileDirOf } from './data-dir.ts'
+import { detectHostVersion, supportsLastHitDock } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
 import type { ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
 
@@ -191,6 +192,11 @@ export function apply(rawContext: unknown): void {
   const dataDir = dataDirOf(ctx.baseUrl)
   const stateFile = join(dataDir, 'state.json')
   log(`data dir: ${dataDir}`)
+  // 宿主版本探测（只为「最近命中」徽章：composer.dock 在 0.1.5 位置不对，
+  // 仅 >= 0.1.7 才让前端挂）。探测失败按不支持处理，不影响其它功能。
+  const hostVersion = detectHostVersion(ctx.baseUrl)
+  const lastHitDock = supportsLastHitDock(ctx.baseUrl)
+  log(`host version: ${hostVersion ?? '未知'} (last-hit dock: ${lastHitDock ? 'on' : 'off'})`)
   const store = new SupplierConfigStore(stateFile)
   const credentials = new CredentialStore(join(dataDir, 'auths'))
   const router = new Router(stateFile, store, log)
@@ -369,6 +375,10 @@ export function apply(rawContext: unknown): void {
     const { suppliers } = router.status()
     writeJson(res, 200, {
       ok: true,
+      // 宿主版本 + 徽章支持位：客户端据此决定是否挂「最近命中」控件
+      // （composer.dock 在 0.1.5 渲染位置不对，只有 >= 0.1.7 才挂）。
+      hostVersion: hostVersion ?? '',
+      lastHitDock: lastHitDock,
       suppliers: suppliers.map((s) => {
         const loaded = loadedSuppliers.find((l) => l.supplier.id === s.id)
         return {

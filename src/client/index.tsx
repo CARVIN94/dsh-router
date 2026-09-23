@@ -13,6 +13,7 @@ import { RouterSettingsSection } from './settings-section.tsx'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { rewriteRouterModelHint } from './model-hint-copy.ts'
 import { LastHitDock } from './LastHitDock.tsx'
+import { ROUTER_API_BASE } from '../shared.ts'
 import './router.css'
 
 /**
@@ -43,16 +44,35 @@ interface Ctx {
  * （kind: list, scope: session —— 即宿主 composer 卡片底部操作行
  * `.uV2eYG_dock` 里、原生上下文环旁边的位置）。
  * scope 为 session 时宿主给组件注入 `sessionId`，据此按**当前会话**取命中。
- * @returns 清理函数；宿主无 slots 时为空操作
+ *
+ * **仅宿主 >= 0.1.7 才挂**：composer.dock 这个座位在 0.1.5 也在，但渲染在
+ * InputBar 之后的独立块（位置不对），只有 0.1.7 才放进底部操作行。座位名相同
+ * 没法靠契约区分，故先问核心 `/router/api/health` 的 `lastHitDock` 支持位。
+ * @returns 清理函数；不支持或宿主无 slots 时为空操作
  */
-function mountLastHitDock(ctx: Ctx): () => void {
+function mountLastHitDock(ctx: Ctx, supported: boolean): () => void {
   const slots = ctx.slots
-  if (slots === undefined) return () => {}
+  if (slots === undefined || !supported) return () => {}
   return slots.inject('conversation.composer.dock', () => slots.register({
     name: 'conversation.composer.dock',
     id: 'dsh-router-last-hit',
     order: 10,
   }, LastHitDock))
+}
+
+/**
+ * 问核心是否支持「最近命中」徽章（宿主 >= 0.1.7）。
+ * 网络/解析失败一律当**不支持**——宁可不显示，也不在 0.1.5 上摆错位置。
+ */
+async function fetchLastHitDockSupport(): Promise<boolean> {
+  try {
+    const res = await fetch(`${ROUTER_API_BASE}/health`)
+    if (!res.ok) return false
+    const body = (await res.json()) as { lastHitDock?: unknown }
+    return body.lastHitDock === true
+  } catch {
+    return false
+  }
 }
 
 /** 挂载「设置 → 路由」页；拿不到 slots 时返回 undefined 表示跳过。 */
@@ -74,9 +94,13 @@ function mountSettingsSection(ctx: Ctx): (() => void) | undefined {
 }
 
 export function apply(ctx: Ctx): void {
-  // 输入框上方的「最近命中」徽章：走官方 conversation.input.dock（scope: session
-  // → 组件 props 注入 sessionId，按当前会话取命中）。宿主没这个座位就跳过。
-  ctx.effect(() => mountLastHitDock(ctx), 'dsh-router: last-hit dock')
+  // 「最近命中」徽章：走官方 conversation.composer.dock（scope: session → 组件
+  // props 注入 sessionId，按当前会话取命中）。**仅宿主 >= 0.1.7 才挂**——
+  // composer.dock 在 0.1.5 渲染位置不对，先问核心拿支持位，避免摆错位置。
+  // 查询是异步的，拿到结果（无论成败）再决定注册与否。
+  void fetchLastHitDockSupport().then((supported) => {
+    ctx.effect(() => mountLastHitDock(ctx, supported), 'dsh-router: last-hit dock')
+  })
   const disposeSettings = mountSettingsSection(ctx)
   if (disposeSettings === undefined) {
     // 老宿主（无 slots）：回退到侧边栏入口 + 中心栏面板

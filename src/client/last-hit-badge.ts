@@ -33,6 +33,12 @@ interface LastHit {
   ts: number
 }
 
+/**
+ * 路由字形（与设置导航同一枚，纯 currentColor 描边）。
+ * 与隔壁上下文环的圆钮同尺寸同底色，一眼是同一排的原生控件。
+ */
+const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="5" r="2.4"/><circle cx="19" cy="5" r="2.4"/><circle cx="12" cy="19" r="2.4"/><path d="M7.4 5h9.2"/><path d="M5 7.4v6.2c0 2.6 3 3.4 4.6 3.8"/><path d="M19 7.4v6.2c0 2.6-3 3.4-4.6 3.8"/></svg>'
+
 /** 账号展示文案：别名 → uid；积分 -1（未知）不显示数字。 */
 function accountLine(hit: LastHit): string {
   const name = hit.account !== undefined && hit.account !== '' ? hit.account : hit.uid
@@ -41,7 +47,7 @@ function accountLine(hit: LastHit): string {
   return `${name} · ${Math.round(hit.credits)} 积分`
 }
 
-/** 徽章上的主文案：模型全名（服务商/模型）。 */
+/** 模型全名（服务商/模型）。 */
 function modelLine(hit: LastHit): string {
   return hit.model === '' ? hit.supplier : hit.model
 }
@@ -58,7 +64,8 @@ export function mountLastHitBadge(): () => void {
 
   const renderBadge = (): void => {
     if (badge === null) return
-    badge.textContent = latest === null ? '—' : modelLine(latest)
+    // 圆钮只放图标（与隔壁环同形）；模型名走 title + 弹卡，避免长名撑破圆钮
+    badge.title = latest === null ? '暂无命中记录' : `${modelLine(latest)} · ${accountLine(latest)}`
     badge.classList.toggle(BADGE_CLASS + '-fail', latest !== null && !latest.ok)
   }
 
@@ -69,6 +76,10 @@ export function mountLastHitBadge(): () => void {
       return
     }
     card.replaceChildren()
+    const head = document.createElement('div')
+    head.className = BADGE_CLASS + '-head'
+    head.textContent = '本次命中'
+    card.appendChild(head)
     const rows: Array<[string, string]> = [
       ['模型', modelLine(latest)],
       ['服务商', latest.supplier],
@@ -104,11 +115,12 @@ export function mountLastHitBadge(): () => void {
 
     const wrapper = document.createElement('div')
     wrapper.className = BADGE_CLASS
-    wrapper.title = '最近一次命中（点击查看账号/积分）'
 
     const button = document.createElement('button')
     button.type = 'button'
     button.className = BADGE_CLASS + '-btn'
+    button.setAttribute('aria-label', '最近一次命中')
+    button.innerHTML = ICON
     button.addEventListener('click', (e) => {
       e.stopPropagation()
       cardOpen = !cardOpen

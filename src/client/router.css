@@ -3221,7 +3221,12 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     border-radius: 12px;
     padding: 12px;
     color: var(--dsw-alias-label-secondary);
+    /* --dsw-specific-menu 是**半透明**色，原生 panel 靠 backdrop-filter 做毛玻璃；
+       缺了它只剩半透明、看着像没背景。这两条必须成对出现。 */
     background: var(--dsw-specific-menu, var(--dsw-alias-bg-primary, #fff));
+    backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+    -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+    --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
     box-shadow: var(--dsw-elevation-prominent, 0 6px 24px rgba(0, 0, 0, 0.18));
     font-size: 12px;
     line-height: 20px;

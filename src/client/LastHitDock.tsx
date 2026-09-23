@@ -11,7 +11,7 @@
  *
  * 数据源：核心 `/router/api/last-hit?session=`（按会话取一条轻记录）。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ROUTER_API_BASE } from '../shared.ts'
 import { getLastHit, subscribeLastHit, type LastHit } from './last-hit-store.ts'
 
@@ -62,12 +62,33 @@ interface LastHitDockProps {
 export function LastHitDock({ sessionId }: LastHitDockProps): JSX.Element {
   const [hit, setHit] = useState<LastHit | null>(() => getLastHit(sessionId))
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // 诊断：确认 slot 真挂上了、以及宿主是否注入了 sessionId
     console.info('[dsh-router] last-hit dock mounted, sessionId =', sessionId)
     return subscribeLastHit(sessionId, setHit)
   }, [sessionId])
+
+  // 点外部收起：对齐宿主原生 popover 的关闭语义（primitives.Menu /
+  // useDismissOnOutsidePointer）——document 级 `pointerdown` 冒泡相位（早于
+  // click，避免"先选中后关闭"）、根节点含自身则忽略；另补 Escape 关闭。
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent): void => {
+      if (e.target instanceof Node && rootRef.current?.contains(e.target) === true) return
+      setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   // 无数据时**仍渲染占位**（不返回 null）：否则「挂载成功但暂无记录」看起来
   // 就像"整个控件不见了"，无法与"根本没挂上"区分。
@@ -81,7 +102,7 @@ export function LastHitDock({ sessionId }: LastHitDockProps): JSX.Element {
       ]
 
   return (
-    <div className="dshr-lastHit">
+    <div className="dshr-lastHit" ref={rootRef}>
       <button
         type="button"
         className={`dshr-lastHit-btn${hit !== null && !hit.ok ? ' dshr-lastHit-fail' : ''}`}

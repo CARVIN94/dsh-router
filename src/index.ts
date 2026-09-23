@@ -55,12 +55,27 @@ export const name = 'dsh-router-core'
 export const inject = ['webServer', 'llm']
 
 /**
+ * 0.1.5 兼容 —— `.volatile()` 是 schemastery 3.18.4 才有的原型方法。
+ *
+ * 这是**模块顶层导出**，loader 一 import 就执行；若直接写
+ * `Schema.object({}).volatile()`，在 0.1.5（schemastery **3.18.2**）上
+ * `.volatile` 为 undefined → 调用抛 TypeError → **整个插件加载失败**
+ * （不只是卡片，是 dsh-router 完全挂掉）。所以必须能力检测：
+ *   - 3.18.4（0.1.7）：有 volatile → 走 volatile，让卡片进设置镜像；
+ *   - 3.18.2（0.1.5）：无 volatile → 回落普通空 schema，不抛。
+ *     此时 0.1.5 本就走 installSection（下方能力检测），卡片照常显示，
+ *     多出的这个 Config 导出对 0.1.5 无副作用。
+ * 用变量缓存空 schema，避免能力检测时重复构造。
+ */
+const emptySchema = Schema.object({})
+const hasVolatile = typeof (emptySchema as { volatile?: unknown }).volatile === 'function'
+
+/**
  * 0.1.7 的设置镜像只认「插件导出的 Config + 配置树行 id」这条收录链，且空 object
  * 会被 volatileForm 过滤掉 —— 顶层 `.volatile()` 才能让 Router 卡片出现在设置-模型。
  * Router 的真配置在自己的 state.json（路由系统面板），这里故意不暴露任何字段。
- * 0.1.5 走 installSection（下方能力检测调用），对多出的 Config 导出无感。
  */
-export const Config = Schema.object({}).volatile()
+export const Config = hasVolatile ? emptySchema.volatile() : emptySchema
 
 /** Minimal shape of the webServer service face used here. */
 interface WebServerRoute {

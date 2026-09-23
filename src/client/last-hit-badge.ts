@@ -22,16 +22,14 @@ const BADGE_CLASS = 'dshr-lastHit'
 /** 刷新间隔：命中信息跟着请求走，轮询取一个不打扰的频率。 */
 const POLL_MS = 3000
 
-/** 一次命中的快照（后端 `/last-hit` 的 `hit` 字段）。 */
+/** 一次命中的快照（后端 `/last-hit` 的 `hit` 字段，只声明用到的）。 */
 interface LastHit {
   supplier: string
   model: string
-  requested: string
   uid: string
   account?: string
   credits?: number
   ok: boolean
-  ts: number
 }
 
 /**
@@ -94,9 +92,6 @@ export function mountLastHitBadge(): () => void {
       ['模型', modelShort(latest)],
       ['服务商', latest.supplier],
       ['账号', accountLine(latest)],
-      ['请求', latest.requested],
-      ['结果', latest.ok ? '成功' : '失败'],
-      ['时间', new Date(latest.ts).toLocaleTimeString()],
     ]
     for (const [k, v] of rows) {
       const row = document.createElement('div')

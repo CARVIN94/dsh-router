@@ -3095,8 +3095,10 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 
 .dshr-recentDuration {
     flex: none;
-    width: 64px;
+    width: 40px;
+    overflow: hidden;
     text-align: right;
+    text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }

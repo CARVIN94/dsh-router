@@ -84,8 +84,8 @@ export function mountLastHitBadge(): () => void {
 
   const renderBadge = (): void => {
     if (badge === null || label === null) return
-    // 按钮 = 图标 + 模型名；完整信息（含账号/积分）走 title 与弹卡
-    label.textContent = latest === null ? '—' : modelLine(latest)
+    // 按钮 = 图标 + 模型短名（无前缀）；完整信息（含账号/积分）走 title 与弹卡
+    label.textContent = latest === null ? '—' : modelShort(latest)
     badge.title = latest === null ? '暂无命中记录' : `${modelLine(latest)} · ${accountLine(latest)}`
     badge.classList.toggle(BADGE_CLASS + '-fail', latest !== null && !latest.ok)
   }

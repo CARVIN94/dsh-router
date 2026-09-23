@@ -384,6 +384,33 @@ export function apply(rawContext: unknown): void {
     writeJson(res, 200, { ok: true })
   })
 
+  route(`${ROUTER_API_BASE}/last-hit`, (_req, res) => {
+    // 最近一次被服务的请求（全局粒度）：给输入框旁的小指示器用。
+    // 附上账号显示别名与积分 —— 前端只读这一个端点，不打 status（重）。
+    const last = router.usage.recentList(1)[0]
+    if (last === undefined) {
+      writeJson(res, 200, { ok: true, hit: null })
+      return
+    }
+    const { suppliers } = router.status()
+    const owner = suppliers.find((s) => s.id === last.supplier)
+    const acct = owner?.accounts.find((a) => a.uid === last.uid)
+    writeJson(res, 200, {
+      ok: true,
+      hit: {
+        supplier: last.supplier,
+        model: last.model,
+        requested: last.requested,
+        uid: last.uid,
+        // 别名优先，回落原始昵称，再回落 uid
+        account: acct?.nickname ?? (last.uid === '' ? undefined : last.uid),
+        credits: acct?.credits,
+        ok: last.ok,
+        ts: last.ts,
+      },
+    })
+  })
+
   route(`${ROUTER_API_BASE}/models`, async (_req, res) => {
     try {
       const models = await router.listModels()

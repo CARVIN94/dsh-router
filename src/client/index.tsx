@@ -12,6 +12,7 @@ import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { rewriteRouterModelHint } from './model-hint-copy.ts'
+import { mountLastHitBadge } from './last-hit-badge.ts'
 import './router.css'
 
 /**
@@ -56,6 +57,8 @@ function mountSettingsSection(ctx: Ctx): (() => void) | undefined {
 }
 
 export function apply(ctx: Ctx): void {
+  // 输入框旁的「最近命中」徽章：与设置面板无关（挂在 composer 上），先起。
+  ctx.effect(() => mountLastHitBadge(), 'dsh-router: last-hit badge')
   const disposeSettings = mountSettingsSection(ctx)
   if (disposeSettings === undefined) {
     // 老宿主（无 slots）：回退到侧边栏入口 + 中心栏面板

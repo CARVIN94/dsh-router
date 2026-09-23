@@ -3123,3 +3123,74 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><circle%20cx='5'%20cy='5'%20r='2.4'/><circle%20cx='19'%20cy='5'%20r='2.4'/><circle%20cx='12'%20cy='19'%20r='2.4'/><path%20d='M7.4%205h9.2'/><path%20d='M5%207.4v6.2c0%202.6%203%203.4%204.6%203.8'/><path%20d='M19%207.4v6.2c0%202.6-3%203.4-4.6%203.8'/></svg>")
         center / contain no-repeat;
 }
+
+/* ============================================================
+   last-hit badge —— 输入框旁的「最近命中」指示器
+   （last-hit-badge.ts 认领 [class*="JObwrW_root"] 前的兄弟位）
+   ============================================================ */
+
+.dshr-lastHit {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.dshr-lastHit-btn {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 1px solid var(--dsw-alias-border-l3);
+    border-radius: 999px;
+    padding: 2px 10px;
+    color: var(--dsw-alias-label-secondary);
+    background: transparent;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    line-height: 18px;
+    cursor: pointer;
+}
+
+.dshr-lastHit-btn:hover {
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.dshr-lastHit-fail {
+    color: var(--dsw-alias-label-error, #e5534b);
+    border-color: var(--dsw-alias-label-error, #e5534b);
+}
+
+.dshr-lastHit-card {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    z-index: 40;
+    min-width: 200px;
+    border: 1px solid var(--dsw-alias-border-l3);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--dsw-alias-label-primary);
+    background: var(--dsw-alias-bg-primary, #fff);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    font-size: 12px;
+}
+
+.dshr-lastHit-row {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.dshr-lastHit-key {
+    flex: none;
+    color: var(--dsw-alias-label-tertiary);
+}
+
+.dshr-lastHit-val {
+    overflow: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

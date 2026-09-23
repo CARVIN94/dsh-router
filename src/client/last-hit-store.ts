@@ -48,7 +48,9 @@ function emit(e: Entry): void {
 async function refresh(key: string): Promise<void> {
   const e = entryOf(key)
   try {
-    const res = await fetch(`${DIGEST_API}?session=${encodeURIComponent(key)}`, { cache: 'no-store' })
+    // key 为空（宿主未注入 sessionId）时不带 session 参数 → 后端回退全局最近。
+    const qs = key === '' ? '' : `?session=${encodeURIComponent(key)}`
+    const res = await fetch(`${DIGEST_API}${qs}`, { cache: 'no-store' })
     const data = await res.json() as { ok: boolean; hit?: LastHit | null }
     const next = data.ok && data.hit ? data.hit : null
     e.value = next
@@ -59,22 +61,23 @@ async function refresh(key: string): Promise<void> {
 }
 
 /** 读该会话当前的最近命中（同步快照）。 */
-export function getLastHit(sessionId: string): LastHit | null {
-  return entryOf(sessionId).value
+export function getLastHit(sessionId?: string): LastHit | null {
+  return entryOf(sessionId ?? '').value
 }
 
 /**
  * 订阅该会话的最近命中。首次订阅即启动轮询，最后一个退订时停。
- * @param sessionId 宿主会话身份
+ * @param sessionId 宿主会话身份（可能为 undefined，此时键为空串 = 全局）
  * @param listener 值变化回调
  * @returns 退订函数
  */
-export function subscribeLastHit(sessionId: string, listener: (v: LastHit | null) => void): () => void {
-  const e = entryOf(sessionId)
+export function subscribeLastHit(sessionId: string | undefined, listener: (v: LastHit | null) => void): () => void {
+  const key = sessionId ?? ''
+  const e = entryOf(key)
   e.listeners.add(listener)
   if (e.timer === null) {
-    void refresh(sessionId)
-    e.timer = window.setInterval(() => void refresh(sessionId), POLL_MS)
+    void refresh(key)
+    e.timer = window.setInterval(() => void refresh(key), POLL_MS)
   }
   return () => {
     e.listeners.delete(listener)

@@ -50,7 +50,8 @@ function modelShort(hit: LastHit): string {
 
 /** 宿主注入的 props（只声明用到的）。 */
 interface LastHitDockProps {
-  sessionId: string
+  /** 宿主注入的会话身份；宿主未注入时为 undefined。 */
+  sessionId?: string
 }
 
 /**
@@ -58,36 +59,39 @@ interface LastHitDockProps {
  *
  * @param props 宿主注入的会话身份
  */
-export function LastHitDock({ sessionId }: LastHitDockProps): JSX.Element | null {
+export function LastHitDock({ sessionId }: LastHitDockProps): JSX.Element {
   const [hit, setHit] = useState<LastHit | null>(() => getLastHit(sessionId))
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    // 订阅共享轮询的结果（每个会话各自订阅，键为 sessionId）
+    // 诊断：确认 slot 真挂上了、以及宿主是否注入了 sessionId
+    console.info('[dsh-router] last-hit dock mounted, sessionId =', sessionId)
     return subscribeLastHit(sessionId, setHit)
   }, [sessionId])
 
-  if (hit === null) return null
-
-  const rows: Array<[string, string]> = [
-    ['服务商', hit.supplier],
-    ['模型', modelShort(hit)],
-    ['连接', connectionName(hit)],
-    ['积分', creditsText(hit)],
-  ]
+  // 无数据时**仍渲染占位**（不返回 null）：否则「挂载成功但暂无记录」看起来
+  // 就像"整个控件不见了"，无法与"根本没挂上"区分。
+  const rows: Array<[string, string]> = hit === null
+    ? []
+    : [
+        ['服务商', hit.supplier],
+        ['模型', modelShort(hit)],
+        ['连接', connectionName(hit)],
+        ['积分', creditsText(hit)],
+      ]
 
   return (
     <div className="dshr-lastHit">
       <button
         type="button"
-        className={`dshr-lastHit-btn${hit.ok ? '' : ' dshr-lastHit-fail'}`}
+        className={`dshr-lastHit-btn${hit !== null && !hit.ok ? ' dshr-lastHit-fail' : ''}`}
         aria-label="最近一次命中"
         aria-expanded={open}
-        title={`${hit.model === '' ? hit.supplier : hit.model} · ${connectionName(hit)}`}
+        title={hit === null ? '暂无命中记录' : `${hit.model === '' ? hit.supplier : hit.model} · ${connectionName(hit)}`}
         onClick={() => setOpen((v) => !v)}
       >
         {ICON}
-        <span className="dshr-lastHit-label">{modelShort(hit)}</span>
+        <span className="dshr-lastHit-label">{hit === null ? '暂无' : modelShort(hit)}</span>
       </button>
       {open && (
         <div className="dshr-lastHit-card">
@@ -96,17 +100,19 @@ export function LastHitDock({ sessionId }: LastHitDockProps): JSX.Element | null
               {ICON}
               <span>路由</span>
             </span>
-            <span className="dshr-lastHit-titleValue" title={hit.requested}>
-              {hit.requested === '' ? '—' : hit.requested}
+            <span className="dshr-lastHit-titleValue" title={hit?.requested}>
+              {hit === null || hit.requested === '' ? '—' : hit.requested}
             </span>
           </div>
           <div className="dshr-lastHit-titleRule" />
-          {rows.map(([k, v]) => (
-            <div key={k} className="dshr-lastHit-row">
-              <span className="dshr-lastHit-key">{k}</span>
-              <span className="dshr-lastHit-val">{v}</span>
-            </div>
-          ))}
+          {rows.length === 0
+            ? <div className="dshr-lastHit-row"><span className="dshr-lastHit-key">暂无命中记录</span></div>
+            : rows.map(([k, v]) => (
+                <div key={k} className="dshr-lastHit-row">
+                  <span className="dshr-lastHit-key">{k}</span>
+                  <span className="dshr-lastHit-val">{v}</span>
+                </div>
+              ))}
         </div>
       )}
     </div>

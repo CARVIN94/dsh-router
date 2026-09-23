@@ -223,6 +223,30 @@ test('【亲和】不同 session 天然隔离：内容雷同也分号（team 成
   assert.equal(new Set([a, b, c]).size, 3, '三个会话应散到三个号，内容雷同也不撞车')
 })
 
+test('【铺开】号充足时 fresh 会话各占一个号，不撞车', () => {
+  const p = pool()
+  const list = accs(['a', 'b', 'c', 'd'])
+  // 交替、乱序到来（team 成员先后不定）也必须各占一个
+  const s1 = p.pick(list, [], 'm1', msgs('x'), 'sid-1')!
+  const s2 = p.pick(list, [], 'm1', msgs('x'), 'sid-2')!
+  const s3 = p.pick(list, [], 'm1', msgs('x'), 'sid-3')!
+  assert.equal(new Set([s1, s2, s3]).size, 3, '三个会话应各占一个空闲号')
+})
+
+test('【铺开】号不够时才复用：成员数 > 号数，复用也不互踩（回归现状）', () => {
+  const p = pool()
+  const list = accs(['a', 'b']) // 只有 2 个号
+  const lead = p.pick(list, [], 'm1', msgs('x'), 'sid-lead')!
+  const t1 = p.pick(list, [], 'm1', msgs('x'), 'sid-t1')!
+  const t2 = p.pick(list, [], 'm1', msgs('x'), 'sid-t2')!
+  // 前两个独占 a/b；第三个号不够 → 只能复用
+  assert.equal(new Set([lead, t1]).size, 2, '号够时 lead/t1 应独占')
+  assert.ok([lead, t1].includes(t2), '第三个会话号不够时应复用已有号，而不是"消失"')
+  // 关键：复用后各方仍粘自己的号，不被对方挤走
+  assert.equal(p.pick(list, [], 'm1', msgs('x', 2), 'sid-lead'), lead)
+  assert.equal(p.pick(list, [], 'm1', msgs('x', 2), 'sid-t2'), t2)
+})
+
 test('【亲和】新会话交错到来也要散开（回归：block 干扰曾让它们全挤一个号）', () => {
   const p = pool()
   const list = accs(['a', 'b'])

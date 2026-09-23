@@ -325,20 +325,20 @@ export class AccountPool {
     }
     // 分配一个号并记住绑定。
     //
-    // 游标推进分两种情况，**不能混用**：
-    //   - 有指纹（新会话）：按全局游标 rrCursor 分发，**不看 block**。
-    //     block 是按 (supplier, model) 记的「无指纹驻留」，多会话共用同一
-    //     model 时会被上一个会话反复改写；若新会话按 block 推进，多个会话
-    //     交错到来就会反复指向同一位置 → 全挤一个号（team 实测过）。
-    //   - 无指纹：从 block 之后前进（块轮询原语义）。
+    // 有指纹（新会话）：**优先铺开到未被其它会话占用的号**——同 model 下
+    // 每个 fresh 会话尽量独占一个号（缓存空间隔离、互不驱逐），号不够时
+    // 才回绕复用（共用号无害：样本按会话语义隔离，不会误降权）。
+    // 候选顺序：先「空闲号」，用完后才是「已被占用的号」。
+    // 无指纹：沿用块轮询（从 block 之后前进，原语义不变）。
     const uid = fp !== ''
-      ? pool[this.rrCursor % pool.length]!
+      ? this.allocSession(pool, modelId, fp)
       : pool[(block === undefined ? this.rrCursor : Math.max(0, pool.indexOf(block) + 1)) % pool.length]!
     this.rrCursor = (pool.indexOf(uid) + 1) % pool.length
     this.blocks.set(this.blockKey(modelId), uid)
     if (fp !== '') {
       this.bind(modelId, fp, uid)
-      why.push(`按游标新分配 ${uid}`)
+      const free = this.freeUids(pool, modelId, fp)
+      why.push(free.length === 0 ? `号已铺满，按游标复用 ${uid}` : `铺开到空闲号 ${uid}`)
     } else {
       // 新驻留 = 新观察窗口（旧行为：块计数从 0 开始）。样本是跨驻留累计的，
       // 不清的话上一个大样本会立刻把新驻留判走。
@@ -347,6 +347,33 @@ export class AccountPool {
     }
     this.lastWhy = why.join('；')
     return uid
+  }
+
+  /**
+   * 新会话分配：优先返回**未被其它会话占用**的号（按游标推进），
+   * 空闲号用尽才回绕到已占用的号（此时按游标复用，语义等同旧行为）。
+   *
+   * 「占用」= 该 model 的绑定表里，某个 **其它** 指纹当前指向该 uid。
+   * 同一会话自己的旧绑定不算占用（它已经在上面的亲和分支处理过，走到这里
+   * 说明原绑定不可用，允许它改绑到自己的其它号或空闲号）。
+   */
+  private allocSession(pool: string[], modelId: string, fp: string): string {
+    const free = this.freeUids(pool, modelId, fp)
+    const candidates = free.length > 0 ? free : pool
+    const uid = candidates[this.rrCursor % candidates.length]!
+    return uid
+  }
+
+  /** 当前 model 下、本指纹之外没有任何其它会话绑定的号（按 pool 原顺序）。 */
+  private freeUids(pool: string[], modelId: string, fp: string): string[] {
+    const taken = new Set<string>()
+    const m = this.affinity.get(this.blockKey(modelId))
+    if (m !== undefined) {
+      for (const [k, v] of m) {
+        if (k !== fp) taken.add(v)
+      }
+    }
+    return pool.filter((uid) => !taken.has(uid))
   }
 
   /** 上一次 pick 的选号理由（诊断用：解释"为什么没粘住原号"）。 */

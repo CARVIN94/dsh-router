@@ -38,12 +38,24 @@ interface LastHit {
  */
 const ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="5" r="2.4"/><circle cx="19" cy="5" r="2.4"/><circle cx="12" cy="19" r="2.4"/><path d="M7.4 5h9.2"/><path d="M5 7.4v6.2c0 2.6 3 3.4 4.6 3.8"/><path d="M19 7.4v6.2c0 2.6-3 3.4-4.6 3.8"/></svg>'
 
-/** 账号展示文案：别名 → uid；积分 -1（未知）不显示数字。 */
-function accountLine(hit: LastHit): string {
+/** 账号名：别名 → uid → 「无账号」。 */
+function accountName(hit: LastHit): string {
   const name = hit.account !== undefined && hit.account !== '' ? hit.account : hit.uid
-  if (name === '') return '无账号'
-  if (hit.credits === undefined || hit.credits < 0) return name
-  return `${name} · ${Math.round(hit.credits)} 积分`
+  return name === '' ? '无账号' : name
+}
+
+/**
+ * 积分展示。**未知就是未知**：`-1` / 缺省一律显示「未知」，
+ * 绝不编一个 0 —— 沿用 store 那条「不用 0 冒充未知」的纪律。
+ */
+function creditsLine(hit: LastHit): string {
+  return hit.credits === undefined || hit.credits < 0 ? '未知' : `${Math.round(hit.credits)}`
+}
+
+/** 账号 · 积分（徽章 title 的一行摘要用）。 */
+function accountLine(hit: LastHit): string {
+  const credits = creditsLine(hit)
+  return credits === '未知' ? accountName(hit) : `${accountName(hit)} · ${credits} 积分`
 }
 
 /** 模型全名（服务商/模型）—— 徽章上用。 */
@@ -89,9 +101,10 @@ export function mountLastHitBadge(): () => void {
     head.textContent = '本次命中'
     card.appendChild(head)
     const rows: Array<[string, string]> = [
-      ['模型', modelShort(latest)],
       ['服务商', latest.supplier],
-      ['账号', accountLine(latest)],
+      ['模型', modelShort(latest)],
+      ['账号', accountName(latest)],
+      ['积分', creditsLine(latest)],
     ]
     for (const [k, v] of rows) {
       const row = document.createElement('div')

@@ -3149,21 +3149,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 /* ============================================================
-   last-hit —— 输入框上方的「最近命中」徽章
-   （LastHitDock.tsx 注册到官方 conversation.input.dock，scope: session）
+   last-hit —— 输入框底部 dock 里的「最近命中」徽章
+   （LastHitDock.tsx 注册到官方 conversation.composer.dock，
+    即 .uV2eYG_dock 操作行里、原生上下文环旁边；scope: session）
 
-   样式对齐原生控件：28px 高胶囊、hover 用 interactive-bg-hover、
+   与同排控件对齐：28px 高胶囊、hover 用 interactive-bg-hover、
    图标 14px 用 label-tertiary；弹卡对齐原生 panel 规格
    （--dsw-specific-menu / --dsw-elevation-prominent / 12px 圆角 / 264px）。
-   居中展示，与下方 composer 卡片同宽域。
    ============================================================ */
 
 .dshr-lastHit {
-    display: flex;
-    justify-content: center;
-    width: 100%;
-    padding: 4px calc(var(--dsh-composer-side-clearance, 16px) + 16px) 0;
-    box-sizing: border-box;
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
 }
 
 .dshr-lastHit-btn {

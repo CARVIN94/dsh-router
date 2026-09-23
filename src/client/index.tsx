@@ -39,16 +39,17 @@ interface Ctx {
 }
 
 /**
- * 挂载输入框上方的「最近命中」徽章：注册到官方 `conversation.input.dock`
- * （kind: list, scope: session）。scope 为 session 时宿主给组件注入
- * `sessionId`，据此按**当前会话**取命中（不是全局最近）。
+ * 挂载输入框底部的「最近命中」徽章：注册到官方 `conversation.composer.dock`
+ * （kind: list, scope: session —— 即宿主 composer 卡片底部操作行
+ * `.uV2eYG_dock` 里、原生上下文环旁边的位置）。
+ * scope 为 session 时宿主给组件注入 `sessionId`，据此按**当前会话**取命中。
  * @returns 清理函数；宿主无 slots 时为空操作
  */
 function mountLastHitDock(ctx: Ctx): () => void {
   const slots = ctx.slots
   if (slots === undefined) return () => {}
-  return slots.inject('conversation.input.dock', () => slots.register({
-    name: 'conversation.input.dock',
+  return slots.inject('conversation.composer.dock', () => slots.register({
+    name: 'conversation.composer.dock',
     id: 'dsh-router-last-hit',
     order: 10,
   }, LastHitDock))

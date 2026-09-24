@@ -82,6 +82,103 @@ function isTransient(state: AccountState): boolean {
 }
 
 /**
+ * **每条降级腿的首字节预算**：从进入这条腿起，多久内上游必须吐出第一个字节。
+ *
+ * 为什么必须有（2026-09-24 夜里 money 组合实测）：上游（codebuddy 系）额度用完 /
+ * 过载时，连接照常建立、HTTP 200 响应头照常回来，**body 却一个字节都不吐**。
+ * 这既不是成功也不是失败，于是
+ *   - `chatOnce` 的 120s 只守「连接+响应头」，`fetch` 一返回就撤表 → 守不到 body
+ *   - 核心写响应的路径也没有任何计时器 → 组合链卡在这一条腿上不动
+ *   - 客户端（dsh-router 自己的 adapter）有 300s 流空闲超时，但那是「整条请求」
+ *     的兜底，与降级无关
+ * 实测用户干等 200 多秒手动暂停：ttfb 84s / 122s / 151s / 244s / 246s / 250s /
+ * 254s / 255s，8 次全部 `ok: true`——**全都最终成功了**，只是晚了四分钟。同一批
+ * 账号因为「没失败」也不冷却，下一次请求继续挑它（cb-8 连吃 248s + 155s）。
+ *
+ * 60s 的来历（本机 500 条真实请求的 ttfb 分布）：p50 4.1s / p95 14.9s，
+ * 最大的**非停滞**值 47.7s，停滞簇从 84.5s 起 —— 60s 正落在两簇之间的空档，
+ * 砍得动停滞、砍不到真实慢请求。首个字节之后**不再计时**：长生成可以跑很久。
+ *
+ * 为什么按「腿」而不是按「账号」计：停滞是上游级的（同一供应商的所有号一起
+ * 挂）。按账号计的话，codebuddy 有 11 个号，一次请求能 11×60s = 11 分钟才轮到
+ * 下一个模型；按腿计，最坏 3 条腿 × 60s ≈ 3 分钟，且期间一定会走到下一个模型。
+ */
+const FIRST_BYTE_BUDGET_MS = 60_000
+
+/**
+ * 给上游流套一层**首字节截止**：截止前一个字节都没来，就把这条流判失败
+ * （error 出去，调用方看到「一个字节都没写」→ 换号/换模型）。
+ * 第一个字节到手后立刻撤表，之后多久都不管。
+ *
+ * 为什么套在核心而不是插件：首字节迟迟不来时，**只有核心**能做「还没提交响应
+ * → 换一条腿」的决定（插件在 `fetch` 拿到响应头那一刻就把流交出去了，
+ * 谁也没法再改结果）。核心也是所有供应商唯一的收口点，套一次全都受益。
+ */
+export function withFirstByteDeadline(stream: ReadableStream<Uint8Array>, ms: number): ReadableStream<Uint8Array> {
+  const reader = stream.getReader()
+  let first = true
+  /** 消费方已取消：这之后任何 ctrl.* 都会抛（流已死），必须全部跳过。 */
+  let cancelled = false
+  /**
+   * 上游 reader 只解绑一次。wrapper 替核心持有了这个 reader，所以**必须由
+   * wrapper 负责收尾**：上游正常读完 / 上游自己 error / 被取消时都解锁，
+   * 否则流永久锁着，上层想 cancel 会抛 `Invalid state: ReadableStream is locked`
+   * （disconnect-leak 那条判据守的就是这个；历史上由 aggregateSSE 的 finally 解锁，
+   * 现在读的是 wrapper，解绑责任跟着搬过来）。
+   */
+  let released = false
+  const release = (): void => {
+    if (released) return
+    released = true
+    try { reader.releaseLock() } catch { /* 有待定 read 时会抛，忽略 */ }
+  }
+  /** 取消要传到底下的上游（cancel 本身会顺带解锁）。 */
+  const cancelUpstream = (reason: unknown): Promise<void> => {
+    if (released) return Promise.resolve()
+    released = true
+    return reader.cancel(reason).then(() => {}, () => {})
+  }
+  return new ReadableStream<Uint8Array>({
+    async pull(ctrl) {
+      // 超时标志由计时器置位：置位后**不再碰 ctrl**（流已经 error 掉了，
+      // 再 close/enqueue 会抛 ERR_INVALID_STATE，把真正的失败原因盖掉）。
+      let expired = false
+      const timer = first
+        ? setTimeout(() => {
+            expired = true
+            void cancelUpstream(new Error('first byte timeout'))
+            try { ctrl.error(new Error(`no first byte within ${ms}ms`)) } catch { /* 已被取消 */ }
+          }, ms)
+        : undefined
+      try {
+        const { done, value } = await reader.read()
+        if (expired || cancelled) return
+        if (done) {
+          release()
+          ctrl.close()
+          return
+        }
+        first = false
+        ctrl.enqueue(value)
+      } catch (e) {
+        release()
+        if (!expired && !cancelled) {
+          try { ctrl.error(e) } catch { /* 已被取消 */ }
+        }
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
+      }
+    },
+    // 消费方取消必须穿过这层 wrapper 传到上游（与 normalizeSSEStream 同理，
+    // 不实现就等于每次客户端放弃都漏一条上游连接）。
+    cancel: (reason) => {
+      cancelled = true
+      return cancelUpstream(reason)
+    },
+  })
+}
+
+/**
  * 从请求体里取 `messages`（前缀亲和的指纹输入）。解析失败/字段缺失返回
  * undefined —— 亲和拿不到输入就自动回退到块轮询，不影响路由本身。
  */
@@ -355,8 +452,18 @@ function fixFrame(frame: string): string {
  *
  * 天花板：一旦写出第一个字节就绑死（HTTP 语义），中途断流只能截断，
  * 不能回退。要彻底解决得在写头前缓冲判定，代价是首字节延迟——未做。
+ *
+ * @param firstByteTimeoutMs 上游多久内必须吐出第一个字节（见 FIRST_BYTE_BUDGET_MS）。
+ *   超时按「一个字节都没写」返回 false，调用方照常换号/换模型。
  */
-async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStream: boolean, probe?: UsageProbe, startedAt = 0): Promise<boolean> {
+async function writeChatResult(
+  res: ServerResponse,
+  r: ChatOnceResult,
+  wantsStream: boolean,
+  probe?: UsageProbe,
+  startedAt = 0,
+  firstByteTimeoutMs = FIRST_BYTE_BUDGET_MS,
+): Promise<boolean> {
   if (!r.ok) return false // 失败不该走到这里（核心先判 ok 才写）
   if (!('stream' in r)) {
     if (probe !== undefined) probe.tokens = usageFromJsonBody(r.body)
@@ -364,19 +471,21 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
     res.end(r.body)
     return true
   }
+  // 唯一收口：两条路径（聚合 / 透传）读的都是这层「套了首字节截止」的流。
+  const src = withFirstByteDeadline(r.stream, firstByteTimeoutMs)
   // 客户端要 JSON 但供应商只给流（如 codebuddy 强制 stream:true）→ 聚合成
   // 一次非流式响应。核心独占响应写入权，这个协议错配必须由核心吸收，
   // 否则客户端按 JSON 解析会在 SSE 的 delta 里找不到工具名。
   if (!wantsStream) {
     let body: string
     try {
-      body = await aggregateSSE(r.stream)
+      body = await aggregateSSE(src)
     } catch {
       // 聚合失败 = 一个字节都没写，调用方可以换号重试。
       // **但底层流必须 cancel**：aggregateSSE 内部 getReader() 消费到一半抛错时，
       // reader 只是 releaseLock()，传输层毫无察觉 —— 那条上游连接会一直挂着。
       // 不 cancel 就退化成「每次聚合失败漏一条连接」（issue #6 的路径 1）。
-      await r.stream.cancel().catch(() => {})
+      await src.cancel().catch(() => {})
       return false
     }
     if (probe !== undefined) probe.tokens = usageFromJsonBody(body)
@@ -386,7 +495,7 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
   }
 
   // 流式：边透传边统计（统计在 tee 之外的旁路做，首字节延迟不受影响）
-  const tapped = probe === undefined ? undefined : tapStreamUsage(r.stream, startedAt)
+  const tapped = probe === undefined ? undefined : tapStreamUsage(src, startedAt)
   let wroteAny = false
   /** 响应已死（客户端断开/res 已销毁）：等 drain 的写入要立刻放弃，别吊死。 */
   let dead = false
@@ -449,7 +558,7 @@ async function writeChatResult(res: ServerResponse, r: ChatOnceResult, wantsStre
     abort.abort()
   }
   res.once('close', onClose)
-  const norm = normalizeSSEStream(tapped?.stream ?? r.stream)
+  const norm = normalizeSSEStream(tapped?.stream ?? src)
   try {
     // signal 让 abort 时 pipeTo 立刻收尾（而不是等 drain）；其收尾路径会
     // cancel 源流，顺着 wrapper 的 cancel 一路传到上游 fetch body。
@@ -540,13 +649,21 @@ export class Router {
   private modelsInflight = new Map<string, Promise<ModelWithEnabled[]>>()
   /** 请求日志出口（面板/宿主 logger）。 */
   private log: (msg: string) => void
+  /** 每条降级腿的首字节预算（ms）。只给测试一个入口，生产恒为 FIRST_BYTE_BUDGET_MS。 */
+  private firstByteBudgetMs: number
   /** 用量统计（概览看板）。 */
   usage: UsageStore
 
-  constructor(stateFile = '', store?: SupplierConfigStore, log?: (msg: string) => void) {
+  constructor(
+    stateFile = '',
+    store?: SupplierConfigStore,
+    log?: (msg: string) => void,
+    opts?: { firstByteBudgetMs?: number },
+  ) {
     this.combosFp = stateFile ? join(dirname(stateFile), 'combos.json') : ''
     this.store = store ?? new SupplierConfigStore(stateFile)
     this.log = log ?? ((): void => {})
+    this.firstByteBudgetMs = opts?.firstByteBudgetMs ?? FIRST_BYTE_BUDGET_MS
     this.usage = new UsageStore(stateFile)
     this.loadCombos()
   }
@@ -933,7 +1050,12 @@ export class Router {
         const model = combo.models[i]
         if (model === undefined) continue
         const trace: ChatTrace = { attempts: 0 }
-        const served = await this.chatWithModel(req, res, model, probe, trace)
+        // 每条腿**独立**一份首字节预算：上一条腿已经等满 60s 也不该让下一条腿
+        // 只剩 0ms（否则组合越多越没法用），但同一条腿内的多个号共享一份
+        // （停滞是上游级的，按号各等一份会 11×60s）。
+        const served = await this.chatWithModel(
+          req, res, model, probe, trace, Date.now() + this.firstByteBudgetMs,
+        )
         if (served) {
           settle(true)
           return
@@ -992,8 +1114,18 @@ export class Router {
    * @param outTrace 可选出参：把这次调用的追踪信息带回去（组合据此判断
    *   要不要「喘口气」再降级）。裸 id 遍历路径不填（多供应商混在一起，
    *   失败状态没有单一归属）。
+   * @param firstByteDeadlineAt 这条腿的首字节截止时刻（绝对 ms）。同一条腿内的
+   *   多个账号共享它——停滞是上游级的，按号各给一份会 11×60s 才轮到下一个模型。
+   *   缺省 = 此刻起一份全新预算（直接调用路径只有这一条腿）。
    */
-  private async chatWithModel(req: ChatRequest, res: ServerResponse, model: string, probe?: UsageProbe, outTrace?: ChatTrace): Promise<boolean> {
+  private async chatWithModel(
+    req: ChatRequest,
+    res: ServerResponse,
+    model: string,
+    probe?: UsageProbe,
+    outTrace?: ChatTrace,
+    firstByteDeadlineAt = Date.now() + this.firstByteBudgetMs,
+  ): Promise<boolean> {
     const comma = model.indexOf(',')
     const supplierId = comma > 0 ? model.slice(0, comma) : undefined
     // 组合存的是供应商 id，但插件认的是自己的模型 id
@@ -1024,7 +1156,7 @@ export class Router {
     }
     const t0 = Date.now()
     const trace: ChatTrace = { attempts: 0 }
-    const served = await this.chatWithSupplier(s, clone, res, trace, probe)
+    const served = await this.chatWithSupplier(s, clone, res, trace, probe, firstByteDeadlineAt)
     if (outTrace !== undefined) {
       outTrace.attempts = trace.attempts
       outTrace.lastError = trace.lastError
@@ -1049,8 +1181,19 @@ export class Router {
    * 还能换号重试；一旦写出第一个字节就绑死（HTTP 语义，9router 同样如此），
    * 之后出错不再换号——要彻底能回退就得在写头前缓冲判定，代价是首字节
    * 延迟，目前未做。
+   *
+   * @param firstByteDeadlineAt 这条腿的首字节截止时刻（见 chatWithModel）。
+   *   预算耗尽后不再调任何号：剩下的号大概率同样停滞（上游级故障），
+   *   挨个等下去只会把 60s 乘以号数，组合永远轮不到下一个模型。
    */
-  private async chatWithSupplier(s: Supplier, req: ChatRequest, res: ServerResponse, trace?: ChatTrace, probe?: UsageProbe): Promise<boolean> {
+  private async chatWithSupplier(
+    s: Supplier,
+    req: ChatRequest,
+    res: ServerResponse,
+    trace?: ChatTrace,
+    probe?: UsageProbe,
+    firstByteDeadlineAt = Date.now() + this.firstByteBudgetMs,
+  ): Promise<boolean> {
     const pool = s.pool
     const cfg = this.store.get(s.id)
     // 无账号供应商：直接调一次（uid 传空，插件忽略）
@@ -1074,7 +1217,9 @@ export class Router {
         probe.model = `${s.getAlias()}/${stripAlias(req.model, s.getAlias())}`
         probe.uid = ''
       }
-      return await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
+      return await writeChatResult(
+        res, r, req.stream, probe, probe?.startedAt ?? 0, firstByteDeadlineAt - Date.now(),
+      )
     }
     // 试过的号不再选：某些失败状态既不冷却也不计数（如模型不属于本供应商），
     // 不排除试过的就会原地打转——死循环等于整个服务挂住。
@@ -1086,6 +1231,16 @@ export class Router {
     for (;;) {
       const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages, req.session)
       if (uid === undefined) return false
+      // 腿的首字节预算已经耗尽：不再调下一个号。停滞是上游级的，剩下那些号
+      // 挨个等下去 = 60s × 号数，组合永远轮不到下一个模型（2026-09-24 实测）。
+      const left = firstByteDeadlineAt - Date.now()
+      if (left <= 0) {
+        if (trace !== undefined) {
+          trace.lastState = 'transport'
+          trace.lastError = 'first-byte budget exhausted'
+        }
+        return false
+      }
       pickWhy = pool.lastWhy
       tried.add(uid)
       const r = await s.chatOnce(uid, req.lv ?? 'auto', req)
@@ -1124,13 +1279,13 @@ export class Router {
         probe.model = `${s.getAlias()}/${stripAlias(req.model, s.getAlias())}`
         probe.uid = uid
       }
-      const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0)
+      const committed = await writeChatResult(res, r, req.stream, probe, probe?.startedAt ?? 0, firstByteDeadlineAt - Date.now())
       if (committed) {
         // 块轮询反馈：只有成功请求才计入（失败没产生缓存，计入会污染命中率）
         pool.noteCache(uid, req.model, probe?.tokens?.cachedTokens ?? 0, req.session)
         return true
       }
-      // 一个字节都没写（上游刚连上就断）→ 这个号不算数，换下一个重试
+      // 一个字节都没写（上游刚连上就断 / 首字节超时）→ 这个号不算数，换下一个重试
       pool.noteFailure(uid, req.model, 'transport', 'stream failed before first byte')
       if (trace !== undefined) {
         trace.attempts += 1

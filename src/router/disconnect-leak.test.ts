@@ -158,28 +158,24 @@ test('客户端断开：上游流 cancel 链要穿过 tapStreamUsage / normalize
   assert.equal(leak.cancelled(), true, '取消必须穿过两层 wrapper 到达上游')
 })
 
-test('聚合失败：reader 必须被解绑（否则连接还活着时上层无法 cancel）', async () => {
+test('聚合失败：上游流必须被回收（解锁，不能永久锁死）', async () => {
   // 这一条测的**不是**「cancel 回调有没有触发」——那测不出东西：
   // 实测结论（两个都验过）：
   //   - 流 error 后调 cancel()，只会以同一错误 reject，**不触发** cancel 回调
   //     （`pull()` 抛错会把流置为 errored；上游拆连接则流直接 error）
   //   - 这两种情况下 undici **已经自己关了连接**，不需要我们 cancel
-  // 所以聚合失败路径真正要保证的是 **reader 被解绑**：流锁着的话，上层
+  // 所以聚合失败路径真正要保证的是 **上游流不再被锁着**：锁着的话上层
   // （writeChatResult 的失败路径 / 未来的取消逻辑）想 cancel 都会抛
   // `Invalid state: ReadableStream is locked`，连接就永久漏了。
-  let releaseLocked = false
+  //
+  // 注意拓扑：核心现在隔着「首字节截止」wrapper（withFirstByteDeadline）读上游，
+  // 所以判据只能是**最终状态**（locked=false），不能再断言核心直接 releaseLock
+  // 上游的 reader —— 中间隔了一层，核心只会解锁 wrapper 那个 reader。
   const enc = new TextEncoder()
   const failing = new ReadableStream<Uint8Array>({
     start(c) { c.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"a"}}]}\n\n')) },
     pull() { throw new Error('aggregate read failed') },
   })
-  const origGetReader = failing.getReader.bind(failing)
-  ;(failing as unknown as { getReader: () => unknown }).getReader = () => {
-    const r = origGetReader()
-    const origRelease = r.releaseLock.bind(r)
-    r.releaseLock = () => { releaseLocked = true; origRelease() }
-    return r
-  }
 
   const router = new Router('')
   router.add(supplierWith(failing) as never)
@@ -195,8 +191,7 @@ test('聚合失败：reader 必须被解绑（否则连接还活着时上层无�
   )
   await new Promise((r) => setTimeout(r, 150))
 
-  assert.equal(releaseLocked, true, '聚合失败后必须 releaseLock，否则流锁死、上层无法回收')
-  assert.equal(failing.locked, false, '流必须处于未锁定状态（可被 cancel / 已被回收）')
+  assert.equal(failing.locked, false, '上游流必须处于未锁定状态（可被 cancel / 已被回收）')
 })
 
 test('fixFrame：把后续 delta 里重发成 null 的 id/name 剥掉（否则外部 OpenAI 客户端会丢工具名）', async () => {

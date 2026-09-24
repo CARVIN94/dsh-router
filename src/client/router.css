@@ -2392,7 +2392,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 260px;
+    max-height: 380px;
     overflow-y: auto;
 }
 
@@ -2502,7 +2502,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: 180px;
+    max-height: 300px;
     overflow-y: auto;
 }
 
@@ -2575,7 +2575,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     flex-direction: column;
     gap: 6px;
     min-width: 0;
-    max-height: 340px;
+    max-height: 460px;
 }
 
 .dshr-comboFormRight .dshr-comboPickList {
@@ -2583,9 +2583,14 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     min-height: 0;
 }
 
-/* 组合编辑弹窗：加宽 */
+/* 组合编辑弹窗：加宽加高（body 更高，内部列表同步放大） */
 .dshr-modal-wide {
     width: min(760px, 100%);
+    max-height: min(90vh, 820px);
+}
+
+.dshr-modal-wide .dshr-modalBody {
+    min-height: 560px;
 }
 
 /* 左右分栏之间的分割线 */

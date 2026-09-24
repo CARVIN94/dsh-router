@@ -5,7 +5,11 @@
  * 且构建不报错——症状离原因极远，必须机器拦。
  */
 import { readFileSync } from 'node:fs'
-const p = '/Users/carvin/Desktop/dsh-plugins/dsh-router/src/client/router.css'
+import { fileURLToPath } from 'node:url'
+// 路径按脚本自身位置解析。曾经写死主检出的绝对路径，于是**在 worktree 里构建
+// 时检查的是主检出那份文件** —— 在领地（worktree）里改错文件也照样绿，闸门
+// 形同虚设：本次加样式时就撞上了（报 3301 行 = 主检出那份的 3300 + 1）。
+const p = fileURLToPath(new URL('../src/client/router.css', import.meta.url))
 const s = readFileSync(p, 'utf8')
 let depth = 0, line = 1, bad = null, stack = []
 for (const ch of s) {

@@ -1,5 +1,8 @@
 # Dependencies
-node_modules/
+# 不带尾斜杠：worktree 里常把 node_modules 做成指向主检出的**符号链接**，
+# 而 `node_modules/` 只匹配目录，符号链接会被当成文件 tracked 进去
+# （提交一条指向绝对路径的链接，换台机器就是死链）。
+node_modules
 
 # 本地缓存（~/.npm 被 root 拥有的文件污染、装不上时改用本地目录）
 .npm-cache/

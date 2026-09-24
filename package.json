@@ -35,7 +35,8 @@
         "react-dom",
         "cordis",
         "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-locale"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-primitives"
       ],
       "platform": "web"
     }
@@ -70,6 +71,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-client-locale": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-llm": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
@@ -85,6 +87,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
       "optional": true
     }
   },

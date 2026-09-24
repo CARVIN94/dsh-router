@@ -3298,3 +3298,125 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* ============================================================
+   dsh-router — 官方插件页「路由组件」一节
+   ------------------------------------------------------------
+   尺寸与配色照抄宿主 plugin-manager 的 detailSection/rows/row
+   （14px 500 小标题、40px 圆角图标行、12px 行距），让这一节看起来
+   就是原生列表的一部分。
+
+   注意：--rs-* 变量只定义在 .dshr-settings / .dshr-shell 上，而这一节
+   渲染在**插件页**里（两者的 DOM 祖先不同），所以这里直接用宿主的
+   --dsw-alias-* 原始变量，不走中间层。
+   ============================================================ */
+
+.dshr-comp {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    min-width: 0;
+}
+
+.dshr-compError {
+    margin: 0;
+    color: var(--dsw-alias-state-error-primary);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dshr-compGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.dshr-compHead {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.dshr-compTitle {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+}
+
+.dshr-compCount {
+    color: var(--dsw-alias-label-secondary);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dshr-compHint {
+    margin: -4px 0 0;
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dshr-compRows {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dshr-compRow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+    padding: 12px 2px;
+}
+
+.dshr-compRow:last-child {
+    border-bottom: 0;
+}
+
+.dshr-compRowIcon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 0.5px solid var(--dsw-alias-border-l3);
+    border-radius: 10px;
+    color: var(--dsw-alias-label-tertiary);
+    overflow: hidden;
+}
+
+.dshr-compRowIcon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.dshr-compRowMain {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dshr-compRowName {
+    color: var(--dsw-alias-label-primary);
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 20px;
+    overflow-wrap: anywhere;
+}
+
+.dshr-compRowState {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 11.5px;
+    line-height: 16px;
+    overflow-wrap: anywhere;
+}

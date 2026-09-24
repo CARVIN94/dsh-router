@@ -47,7 +47,22 @@ export default defineConfig({
       fileName: () => CLIENT_FILE,
     },
     rollupOptions: {
-      external: ['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', 'cordis'],
+      // react/react-dom/cordis 之外，`@deepseek-ai/dsh-client-ui-primitives` 也必须
+      // external：它是 web 冻结模块表（`staticModules` seed）里的**平台种子词**，
+      // 运行期由 `__ModuleLoader__` 的 require 直接给，不进本 bundle。
+      //
+      // 不 external 的后果不是「打不进去」而是更隐蔽的：它是 peerDependency 且没装在
+      // 插件的 node_modules 里，vite 会按 optional peer 依赖打一个**空桩**，构建报
+      // `"Switch" is not exported by "__vite-optional-peer-dep:..."` —— 报错信息指向
+      // 导出缺失，真因是解析方式不对。
+      external: [
+        'react',
+        'react/jsx-runtime',
+        'react-dom',
+        'react-dom/client',
+        'cordis',
+        '@deepseek-ai/dsh-client-ui-primitives',
+      ],
       output: {
         entryFileNames: CLIENT_FILE,
         banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(CLIENT_ID)}, factory: (require) => {`,

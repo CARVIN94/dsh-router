@@ -3609,3 +3609,19 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     line-height: 18px;
     overflow-wrap: anywhere;
 }
+
+/* 宿主 Button 原语的 primary 想把字色设成 --dsw-alias-label-primary-foreground，
+   但上面那条兜底 `.dshr-settings button { color: inherit; font: inherit }`
+   特异性 (1,1) **高于**原语的 `.primary` (1,0) —— 赢的是它。于是按钮变成
+   「#0f1115 的底 + 继承来的 #0f1115 的字」，黑底黑字、按钮看着是空的。
+
+   按本文件既有的抬特异性办法修（见文件里 .dshr-tab-on / .dshr-period 那几处注释：
+   凡是受这条兜底影响的规则，都必须带挂载容器抬到 (2,0) 以上）。这里带 `.dshr-comp`
+   得到 (2,1)，不依赖源码顺序，以后有人挪块也不会翻车。
+
+   修的是**把原语的意图还回去**，不是自己另挑一个颜色：字色仍由原语那个 token 决定。 */
+.dshr-comp .dshr-compActions button {
+    color: var(--dsw-alias-label-primary-foreground);
+    font-size: 14px;
+    line-height: 22px;
+}

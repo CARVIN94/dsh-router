@@ -28,10 +28,10 @@ const panels = new Map<string, FC>()
  * 时的常见情形）；返回清理函数。
  *
  * @param extId - 扩展 id（`router.ext` 表里的键）
- * @param panel - 详情面板组件。收到 `{ view }`：`summary` 是宿主要的一行摘要
- *   （插件页那一行缺说明时的兜底），`page` 才是详情页。
+ * @param panel - 详情面板组件。**不收 props**：面板的渲染点只有详情页一处
+ *   （`ExtDetail`），没有第二种调用形状。
  */
-export function registerExtPanel(extId: string, panel: FC<{ view?: 'summary' | 'page' }>): () => void {
+export function registerExtPanel(extId: string, panel: FC): () => void {
   panels.set(extId, panel)
   return () => {
     if (panels.get(extId) === panel) panels.delete(extId)
@@ -44,6 +44,6 @@ export function hasExtPanel(extId: string): boolean {
 }
 
 /** 取某个扩展的详情面板；没登记返回 undefined（调用方据此走通用只读页）。 */
-export function extPanel(extId: string): FC<{ view?: 'summary' | 'page' }> | undefined {
+export function extPanel(extId: string): FC | undefined {
   return panels.get(extId)
 }

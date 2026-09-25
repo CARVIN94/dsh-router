@@ -1,19 +1,12 @@
 /**
  * 连接自检面板 —— 扩展「连接自检」(`dsh-router-ext-test` / 扩展 id `test`) 的详情内容。
  *
- * **同一份组件被两处详情页共用**，都按扩展 id 索引（见 `ext-panels.ts`）：
- *   - 设置 → 路由 → 扩展：点开扩展卡片（`ExtDetail` 查注册表拿到本组件）；
- *   - 设置 → 插件 → dsh-router-core：「包含的组件」里那一行的详情页
- *     （宿主槽位 `plugins.row.config`，key 是 `<包名>#<行 id>`，与扩展 id 不是同一个
- *     字符串，所以那一处由 `index.tsx` 用一个薄适配器转接，不登记第二份面板）。
+ * **入口只有一处**：设置 → 路由 → 扩展 → 点开「连接自检」那张卡片（`ExtDetail` 查
+ * `ext-panels.ts` 的注册表拿到本组件）。
  *
- * 做什么：选供应商 → 选模型 → 选连接 → 跑一次**真实**访问测试，并显示成功 / 失败原因。
- * 测试走的是核心已有的 `POST /suppliers/:id/models/test`，与面板「供应商」详情里的
- * 「测试」按钮**同一条路径**（真实的账号遍历 + chatOnce），区别只在于这里可以把
- * 连接（uid）钉死 —— 诊断单个链接到底通不通时，池内自动换号会把问题掩盖掉。
- *
- * 三选一没有默认值：任何一项没选就明确显示为什么，而不是默默替用户挑一个 ——
- * 一个「随便选了第一个号」的测试结果是没有诊断价值的。
+ * 刻意**不给插件页那一行也挂一个详情页**：那一行的宿主行开关已经能开/关它，再点进去
+ * 看同一块面板就是同一个东西有两个入口 —— 与「内置扩展不在自绘节里重复列」同理。
+ * 插件页那一行只负责开关。
  */
 import { useEffect, useState } from 'react'
 import { ROUTER_API_BASE, type RouterAccount, type RouterHealthResponse } from '../shared.ts'
@@ -59,7 +52,7 @@ function Picker(props: {
   )
 }
 
-export function ExtTestPanel({ view }: { view?: 'summary' | 'page' }): JSX.Element {
+export function ExtTestPanel(): JSX.Element {
   const [suppliers, setSuppliers] = useState<NonNullable<RouterHealthResponse['suppliers']>>([])
   const [accounts, setAccounts] = useState<RouterAccount[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -116,9 +109,6 @@ export function ExtTestPanel({ view }: { view?: 'summary' | 'page' }): JSX.Eleme
   const links = accounts.filter((a) => a.supplier === supplierId)
   const runnable = supplierId !== '' && modelId !== ''
 
-  // `summary` 是宿主要的一段短文本（插件页那一行缺说明时的兜底）。判断放在所有
-  // hooks **之后** —— 提前 return 会让 hook 数量随 view 变，React 直接报错。
-  if (view === 'summary') return <span>连接自检：选供应商、模型与连接跑一次真实访问测试</span>
 
   const run = async (): Promise<void> => {
     if (!runnable || busy) return

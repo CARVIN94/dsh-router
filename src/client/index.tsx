@@ -10,7 +10,7 @@
  */
 import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
-import { RouterComponentsSection, BUNDLE_NAME } from './RouterComponentsSection.tsx'
+import { RouterComponentsSection } from './RouterComponentsSection.tsx'
 import { ExtTestPanel } from './ExtTestPanel.tsx'
 import { registerExtPanel } from './ext-panels.ts'
 import { EXT_TEST_ID } from '../ext-test/plugin.ts'
@@ -117,37 +117,16 @@ function mountComponentsSection(ctx: Ctx): (() => void) | undefined {
 }
 
 /**
- * 「连接自检」那一行的**行 id** —— 必须与 `cordis.patch.yml` 里声明的逐字相同
- * （宿主的槽位 key 是 `<包名>#<行 id>`，对不上就静默不显示）。
- * 扩展 id（`EXT_TEST_ID`）是另一回事：它管的是扩展在 `router.ext` 表里的键。
- */
-const EXT_TEST_ROW_ID = 'dsh-router-ext-test'
-
-/**
- * 「连接自检」那一行的详情页 —— 走官方 `plugins.row.config` 座位。
+ * 给「连接自检」扩展登记它的详情面板。
  *
- * key 是宿主约定的 `<bundle 包名>#<行 id>`：注册了这一格，宿主就会在那一行旁边
- * 给出一个配置控件，点开就是本组件。行 id 必须与 cordis.patch.yml 里声明的
- * **逐字相同**（这里是 `dsh-router-ext-test`），对不上就静默不显示。
- *
- * 面板自己不做任何判断，跑的是核心的 `POST /suppliers/:id/models/test` —— 与面板
- * 「供应商」详情里的「测试」按钮同一条路径。
+ * 面板的**唯一入口**是设置 → 路由 → 扩展 → 点开那张卡片（`ExtDetail` 查注册表拿到
+ * 本组件）。**刻意不给插件页那一行再挂一个详情页**：那一行的宿主行开关已经能开/关
+ * 它了，再点进去看同一块面板就是同一个东西有两个入口 —— 与「内置扩展不在自绘节里
+ * 重复列」是同一条理由。
  */
-function mountExtTestPanel(ctx: Ctx): (() => void) | undefined {
-  const slots = ctx.slots
-  if (slots === undefined) return undefined
-  // 面板按**扩展 id** 登记一次：设置 → 路由 → 扩展的详情页（ExtDetail）查这张表
-  // 直接拿到它；下面这个行详情页的座位只做「把宿主的 view 转发过去」的转接，
-  // 不再登记第二份面板（两份会各自演化，迟早不一致）。
-  const disposePanel = registerExtPanel(EXT_TEST_ID, ExtTestPanel)
-  ctx.effect(() => disposePanel, 'dsh-router: ext test panel registry')
-  return slots.inject('plugins.row.config', () => slots.register({
-    name: 'plugins.row.config',
-    // key 是宿主约定的 `<包名>#<行 id>`，行 id 必须与 cordis.patch.yml 逐字相同，
-    // 对不上就**静默不显示**（不报错的那种）。
-    key: `${BUNDLE_NAME}#${EXT_TEST_ROW_ID}`,
-    id: 'dsh-router-ext-test-panel',
-  }, ExtTestPanel))
+function registerExtTestPanel(ctx: Ctx): void {
+  const dispose = registerExtPanel(EXT_TEST_ID, ExtTestPanel)
+  ctx.effect(() => dispose, 'dsh-router: ext test panel registry')
 }
 
 export function apply(ctx: Ctx): void {
@@ -170,10 +149,7 @@ export function apply(ctx: Ctx): void {
   if (disposeComponents !== undefined) {
     ctx.effect(() => disposeComponents, 'dsh-router: plugin page components')
   }
-  const disposeExtTest = mountExtTestPanel(ctx)
-  if (disposeExtTest !== undefined) {
-    ctx.effect(() => disposeExtTest, 'dsh-router: ext test row panel')
-  }
+  registerExtTestPanel(ctx)
   // 换掉宿主的默认齿轮（契约没有 icon 字段，只能注册后认领自己的行）
   ctx.effect(() => registerSettingsNavIcon(SECTION_LABEL), 'dsh-router: settings nav icon')
   // 设置-模型 里 Router 卡片的那句死路提示 → 正确说法（同样只能认领后就地改写）

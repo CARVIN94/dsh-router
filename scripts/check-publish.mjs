@@ -239,30 +239,6 @@ for (const rel of TEXT_SHIPPED) {
   if (text.includes('\uFFFD')) problems.push(`${rel} 含替换字符 U+FFFD（有中文被转码破坏）`)
 }
 
-// ---- 客户端行详情页的槽位 key 必须对得上 patch 里的行 id ----
-//
-// 宿主的 `plugins.row.config` key 是 `<bundle 包名>#<行 id>`。对不上时**不报任何
-// 错**，只是那一行旁边不出现配置控件（点不进去），症状与「面板没写」完全一样。
-//
-// 两种引用写法都要认：字面量 `` `#dsh-router-xxx` ``，以及
-// `const XXX_ROW_ID = 'dsh-router-xxx'` 这种具名常量（只匹配字面量的话，这条闸门
-// 在真实源码上会**一次都不触发**——一个永远绿的闸门比没有闸门更坏）。
-const clientEntry = readFileSync(join(root, 'src', 'client', 'index.tsx'), 'utf8')
-const rowIds = new Set(
-  [...patchText.matchAll(/^\s+-\s+id:\s*(\S+)\s*$/gm)].map((m) => m[1]),
-)
-const referencedRows = new Set([
-  // const X_ROW_ID = 'dsh-router-xxx'
-  ...[...clientEntry.matchAll(/const\s+\w*ROW_ID\w*\s*=\s*'([^']+)'/g)].map((m) => m[1]),
-  // `#dsh-router-xxx`（模板字符串里直接写死的行 id，后面跟 `}` 或反引号收尾）
-  ...[...clientEntry.matchAll(/#([A-Za-z0-9._-]+)[}`]/g)].map((m) => m[1]),
-])
-for (const id of referencedRows) {
-  if (!rowIds.has(id)) {
-    problems.push(`src/client/index.tsx 引用了行 '${id}'，但 cordis.patch.yml 里没有这个行 id（宿主会静默不显示配置控件）`)
-  }
-}
-
 // ---- exports 里声明的每个文件都必须真的产出 ----
 //
 // 为什么要有：`exports` 是**手写**的，而产物是构建出来的，两边没有任何工具保证同步。

@@ -70,7 +70,7 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
       </div>
 
       {/* 扩展自带的面板（注册表里没有就落回下面这两块通用内容） */}
-      {Custom !== undefined ? <Custom view="page" /> : (
+      {Custom !== undefined ? <Custom /> : (
         <>
       {/* 扩展说明 */}
       {item.description !== undefined && item.description !== '' && (

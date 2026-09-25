@@ -14,7 +14,7 @@ import type { RouterExtResponse, RouterHealthResponse } from '../shared.ts'
 /** `/health` 里的一条供应商摘要（就地取型，不另抄一份形状）。 */
 export type RouterSupplierSummary = NonNullable<RouterHealthResponse['suppliers']>[number]
 
-/** 一行组件（三组共用同一种形状，渲染时才分叉）。 */
+/** 一行组件（两组共用同一种形状，渲染时才分叉）。 */
 export interface RouterComponentRow {
   /** 组内唯一键：`supplier:<id>` / `ext:<id>`。 */
   key: string

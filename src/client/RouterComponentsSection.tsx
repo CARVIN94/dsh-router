@@ -167,7 +167,7 @@ export function RouterComponentsSection({ subject }: { subject?: Subject }): JSX
   const groups = GROUPS
     .map(({ key, title, hint }) => ({ title, hint, rows: components[key] }))
     .filter((g) => g.rows.length > 0)
-  // 加载中或三组全空都不渲染：宿主那一节是「有内容才有一节标题」的形状。
+  // 加载中或两组全空都不渲染：宿主那一节是「有内容才有一节标题」的形状。
   if (!loaded || isEmptyComponents(components)) return null
 
   return (

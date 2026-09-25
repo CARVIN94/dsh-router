@@ -1,8 +1,11 @@
 /**
- * 连接自检面板 —— 「包含的组件」里 `dsh-router-ext-test` 那一行的详情页。
+ * 连接自检面板 —— 扩展「连接自检」(`dsh-router-ext-test` / 扩展 id `test`) 的详情内容。
  *
- * 挂在官方槽位 `plugins.row.config`（key = `<bundle 包名>#<行 id>`）上，所以它是
- * **这一行自己的详情页**，不是另开一个面板：宿主的行会多出一个配置控件，点开就是这里。
+ * **同一份组件被两处详情页共用**，都按扩展 id 索引（见 `ext-panels.ts`）：
+ *   - 设置 → 路由 → 扩展：点开扩展卡片（`ExtDetail` 查注册表拿到本组件）；
+ *   - 设置 → 插件 → dsh-router-core：「包含的组件」里那一行的详情页
+ *     （宿主槽位 `plugins.row.config`，key 是 `<包名>#<行 id>`，与扩展 id 不是同一个
+ *     字符串，所以那一处由 `index.tsx` 用一个薄适配器转接，不登记第二份面板）。
  *
  * 做什么：选供应商 → 选模型 → 选连接 → 跑一次**真实**访问测试，并显示成功 / 失败原因。
  * 测试走的是核心已有的 `POST /suppliers/:id/models/test`，与面板「供应商」详情里的
@@ -56,7 +59,7 @@ function Picker(props: {
   )
 }
 
-export function ExtTestPanel(): JSX.Element {
+export function ExtTestPanel({ view }: { view?: 'summary' | 'page' }): JSX.Element {
   const [suppliers, setSuppliers] = useState<NonNullable<RouterHealthResponse['suppliers']>>([])
   const [accounts, setAccounts] = useState<RouterAccount[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -112,6 +115,10 @@ export function ExtTestPanel(): JSX.Element {
 
   const links = accounts.filter((a) => a.supplier === supplierId)
   const runnable = supplierId !== '' && modelId !== ''
+
+  // `summary` 是宿主要的一段短文本（插件页那一行缺说明时的兜底）。判断放在所有
+  // hooks **之后** —— 提前 return 会让 hook 数量随 view 变，React 直接报错。
+  if (view === 'summary') return <span>连接自检：选供应商、模型与连接跑一次真实访问测试</span>
 
   const run = async (): Promise<void> => {
     if (!runnable || busy) return

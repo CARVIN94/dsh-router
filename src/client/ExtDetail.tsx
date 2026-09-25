@@ -12,6 +12,7 @@
  * 按需加独立面板，此处不内置任何具体扩展的专属视图。
  */
 import type { RouterExtItem } from '../shared.ts'
+import { extPanel } from './ext-panels.ts'
 
 function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -32,6 +33,10 @@ interface ExtDetailProps {
 }
 
 export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
+  // 扩展**自带**详情面板时用它（连接自检就是这么做的：选供应商/模型/连接 + 跑测试）。
+  // 没有就退回下面这张通用只读页 —— 保留返回链接与标题，导航形状与有没有自定义
+  // 面板无关，用户点进去的预期是稳定的。
+  const Custom = extPanel(item.id)
   return (
     <div className="dshr-tabBody">
       {/* Header（同供应商详情：返回链接 + 图标 + 名称/副行） */}
@@ -64,6 +69,9 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
         </div>
       </div>
 
+      {/* 扩展自带的面板（注册表里没有就落回下面这两块通用内容） */}
+      {Custom !== undefined ? <Custom view="page" /> : (
+        <>
       {/* 扩展说明 */}
       {item.description !== undefined && item.description !== '' && (
         <section className="dshr-card">
@@ -77,6 +85,8 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
           <strong>未就绪</strong>
           <span>{item.detail !== undefined && item.detail !== '' ? item.detail : '当前不可用'}</span>
         </div>
+      )}
+        </>
       )}
     </div>
   )

@@ -24,11 +24,11 @@
 - insert:
     - id: dsh-router
       name: 'dsh-router-core'
-    - id: dsh-router-supplier-opencode
+    - id: dsh-router-opencode
       name: 'dsh-router-core/suppliers/opencode'
-    - id: dsh-router-supplier-openrouter
+    - id: dsh-router-openrouter
       name: 'dsh-router-core/suppliers/openrouter'
-    - id: dsh-router-supplier-nvidia
+    - id: dsh-router-nvidia
       name: 'dsh-router-core/suppliers/nvidia'
     # 连接自检扩展。**默认关闭**：行关闭时 loader 根本不 import 它，扩展就不在
     # `router.ext` 表里 —— 所以「打开才出现这张卡片」是天然的，不需要额外状态位。

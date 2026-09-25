@@ -26,16 +26,20 @@ export interface RouterComponentRow {
   ready?: boolean
   /**
    * 能否就地开关。**只有 ext 能**：扩展开关由核心持久化（`<dataDir>/ext.json`），
-   * 走 `PATCH /router/api/ext`。供应商不是行也不是 bundle，在这一页没有可写的
-   * 开关 —— 内置/本地那组只能只读，外部那组的启停在它们自己的插件页。
+   * 走 `PATCH /router/api/ext`。外部供应商插件的启停在它们自己的插件页 —— 在这里
+   * 再画一个开关，等于给同一件事开第二个口子。
    */
   togglable: boolean
 }
 
-/** 三个来源组。 */
+/**
+ * 这一节要列的两组。
+ *
+ * **为什么没有「内置与本地供应商」组**：内置供应商是 dsh-router-core 自己 patch
+ * 里的**行**（`cordis.patch.yml` insert 了三个子路径模块），已经在宿主的原生
+ * 「包含的组件」里，带着宿主管的开关。在这里再列一遍就是同一个东西显示两处。
+ */
 export interface RouterComponents {
-  /** 随核心分发 + 投进 profile 目录的供应商（不是独立安装的 bundle）。 */
-  local: RouterComponentRow[]
   /** 独立安装的供应商插件（各是独立 bundle，启停在它们自己的插件页）。 */
   external: RouterComponentRow[]
   /** 扩展插件（`router.ext`，开关归核心）。 */
@@ -43,9 +47,9 @@ export interface RouterComponents {
 }
 
 /** 空组：加载前与加载失败都用它，保证形状恒定。 */
-export const EMPTY_COMPONENTS: RouterComponents = { local: [], external: [], ext: [] }
+export const EMPTY_COMPONENTS: RouterComponents = { external: [], ext: [] }
 
-/** 一条供应商摘要 → 只读行。 */
+/** 一条外部供应商摘要 → 只读行。 */
 function supplierRow(s: RouterSupplierSummary): RouterComponentRow {
   return {
     key: `supplier:${s.id}`,
@@ -56,20 +60,18 @@ function supplierRow(s: RouterSupplierSummary): RouterComponentRow {
 }
 
 /**
- * 把两个端点的答复分成三组。
+ * 把两个端点的答复分成两组。
  *
- * `source` 判据取反而非取正：`external` 是唯一「用户另装的 bundle」，其余
- * （builtin / user / 将来新增的取值 / 字段缺失）都是核心自己加载的供应商。
- * 这样判据是全函数 —— 缺 `source` 的供应商会落到本地组，而不是被静默丢掉，
- * 也不会被误报成独立插件。
+ * 供应商这边只收 `source === 'external'`（独立安装的供应商插件）。`builtin`
+ * 的那三个已经作为**原生行**在宿主的「包含的组件」里显示了（core 自己 patch
+ * insert 的子路径模块），`user` 的是用户目录里投放的 js —— 两者都不该在这里
+ * 出现第二次。`source` 缺失按「不是 external」处理：不显示总比把内置的错标成
+ * 独立插件强。
  */
 export function groupRouterComponents(health: RouterHealthResponse, ext: RouterExtResponse): RouterComponents {
-  const local: RouterComponentRow[] = []
-  const external: RouterComponentRow[] = []
-  for (const s of health.suppliers ?? []) {
-    if (s.source === 'external') external.push(supplierRow(s))
-    else local.push(supplierRow(s))
-  }
+  const external = (health.suppliers ?? [])
+    .filter((s) => s.source === 'external')
+    .map(supplierRow)
   const extRows = (ext.enhancers ?? []).map((e): RouterComponentRow => ({
     key: `ext:${e.id}`,
     name: e.name,
@@ -81,10 +83,10 @@ export function groupRouterComponents(health: RouterHealthResponse, ext: RouterE
     ...(e.icon === undefined ? {} : { icon: e.icon }),
     ...(e.detail === undefined ? {} : { detail: e.detail }),
   }))
-  return { local, external, ext: extRows }
+  return { external, ext: extRows }
 }
 
-/** 这三组加起来一个都没有 → 这一节不渲染（不留空标题）。 */
+/** 两组加起来一个都没有 → 这一节不渲染（不留空标题）。 */
 export function isEmptyComponents(components: RouterComponents): boolean {
-  return components.local.length === 0 && components.external.length === 0 && components.ext.length === 0
+  return components.external.length === 0 && components.ext.length === 0
 }

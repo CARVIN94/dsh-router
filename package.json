@@ -18,6 +18,24 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./suppliers/opencode": {
+      "types": "./lib/types/suppliers/opencode/index.d.ts",
+      "default": "./lib/suppliers/opencode/index.js"
+    },
+    "./suppliers/opencode/package.json": "./lib/suppliers/opencode/package.json",
+    "./suppliers/opencode/locale/*.json": "./lib/suppliers/opencode/locale/*.json",
+    "./suppliers/openrouter": {
+      "types": "./lib/types/suppliers/openrouter/index.d.ts",
+      "default": "./lib/suppliers/openrouter/index.js"
+    },
+    "./suppliers/openrouter/package.json": "./lib/suppliers/openrouter/package.json",
+    "./suppliers/openrouter/locale/*.json": "./lib/suppliers/openrouter/locale/*.json",
+    "./suppliers/nvidia": {
+      "types": "./lib/types/suppliers/nvidia/index.d.ts",
+      "default": "./lib/suppliers/nvidia/index.js"
+    },
+    "./suppliers/nvidia/package.json": "./lib/suppliers/nvidia/package.json",
+    "./suppliers/nvidia/locale/*.json": "./lib/suppliers/nvidia/locale/*.json",
     "./client": "./lib/client.js",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
@@ -45,7 +63,9 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client-registry.js",
-    "lib/suppliers/*.js",
+    "lib/suppliers/*/index.js",
+    "lib/suppliers/*/package.json",
+    "lib/suppliers/*/locale/*.json",
     "lib/types/**/*.d.ts",
     "src",
     "cordis.patch.yml",
@@ -54,7 +74,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "node scripts/check-css.mjs && node scripts/check-publish.mjs && rm -rf lib && tsc -p tsconfig.build.json && tsdown && npm run build:client && node scripts/check-publish.mjs",
+    "build": "node scripts/check-css.mjs && node scripts/check-publish.mjs --source && rm -rf lib && tsc -p tsconfig.build.json && tsdown && node scripts/copy-supplier-rows.mjs && npm run build:client && node scripts/check-publish.mjs",
     "build:client": "DSH_CLIENT_ID=dsh-router-core DSH_CLIENT_FILE=client.js vite build -c client/vite.config.ts && DSH_CLIENT_ID=dsh-external/dsh-router DSH_CLIENT_FILE=client-registry.js vite build -c client/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",

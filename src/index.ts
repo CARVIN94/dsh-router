@@ -36,9 +36,9 @@ import { ROUTER_API_BASE, type RouterPeriod } from './shared.ts'
 import { Router } from './router/index.ts'
 import { RouterAdapter, type RouterAttachmentStore } from './llm/adapter.ts'
 import { KeysStore } from './keys.ts'
-import { loadSuppliers, wrapModule, type LoadedSupplier } from './suppliers/loader.ts'
+import { loadSuppliers, supplierWins, wrapModule, type LoadedSupplier } from './suppliers/loader.ts'
 import { supplierRoutes } from './suppliers/registry.ts'
-import type { SupplierEnv, SupplierModule } from './suppliers/contract.ts'
+import type { SupplierEnv, SupplierModule, SupplierRegistry } from './suppliers/contract.ts'
 import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
 import { dataDirOf, profileDirOf } from './data-dir.ts'
@@ -217,7 +217,7 @@ export function apply(rawContext: unknown): void {
     disposers.push(ctx.webServer.register({ kind: 'exact', path, handler }))
   }
 
-  // ---- 供应商注册表：内置 + 用户自定义 js + 外部插件供应商 ----
+  // ---- 供应商注册表：行（内置）+ 用户目录 js + 外部插件供应商 ----
   const loadedSuppliers: LoadedSupplier[] = []
   /** 每个供应商的 webServer 路由注销函数（注销时单独清理）。 */
   const supplierDisposers = new Map<string, Array<() => void>>()
@@ -261,23 +261,38 @@ export function apply(rawContext: unknown): void {
 
   // 内置 + 用户 + 外部插件供应商（异步加载，完成后注册路由 + 加入路由器）
   const registerLoaded = (loaded: LoadedSupplier): void => {
+    // 同 id 已有供应商：只有「级别更高」的那个能顶掉它（用户目录 js > 内置行 >
+    // 外部插件）。级别不高不低就直接丢，别把先到的那份卸了又装回来。
+    const existing = loadedSuppliers.find((l) => l.supplier.id === loaded.supplier.id)
+    if (existing !== undefined) {
+      if (!supplierWins(loaded.source, existing.source)) {
+        log(`supplier ${loaded.supplier.id} (${loaded.source}) skipped: ${existing.source} already registered`)
+        return
+      }
+      log(`supplier ${loaded.supplier.id}: ${existing.source} replaced by ${loaded.source}`)
+      unregisterSupplier(loaded.supplier.id)
+    }
     loadedSuppliers.push(loaded)
     router.add(loaded.supplier)
     registerSupplierRoutes(loaded)
   }
   /** 当前由 router.suppliers service 加载的供应商 id（外部插件卸载时全部注销）。 */
   let externalSupplierIds: string[] = []
-  const loadExternal = (suppliers: Record<string, (env: SupplierEnv) => SupplierModule>): void => {
+  const loadExternal = (suppliers: SupplierRegistry): void => {
     for (const [sid, factory] of Object.entries(suppliers)) {
       if (externalSupplierIds.includes(sid)) continue // 已加载（internal/service + inject 可能重复触发）
       try {
         const module = factory({ dataDir, log, store, credentials })
-        const loaded = wrapModule(module, { dataDir, log, store, credentials }, `service router.suppliers.${sid}`)
+        // 工厂上的 source 标签决定 `/health` 怎么报它：内置行标 'builtin'，独立
+        // 安装的供应商插件不标（= external）。面板按这个值分「内置 / 插件」两组，
+        // 标错就把随核心分发的供应商混进插件组了。
+        const kind = factory.source === 'builtin' ? 'builtin' : 'external'
+        const loaded = wrapModule(module, { dataDir, log, store, credentials }, `service router.suppliers.${sid}`, kind)
         registerLoaded(loaded)
         externalSupplierIds.push(loaded.supplier.id)
-        log(`external supplier loaded: ${sid}`)
+        log(`${kind} supplier loaded: ${sid}`)
       } catch (err) {
-        ctx.logger.warn(`[dsh-router] external supplier ${sid} load failed: ${(err as Error).message}`)
+        ctx.logger.warn(`[dsh-router] supplier ${sid} load failed: ${(err as Error).message}`)
       }
     }
   }
@@ -305,7 +320,6 @@ export function apply(rawContext: unknown): void {
       // 用户供应商目录也在 profile 里：跟着 baseUrl 走，别硬编码 `web`。
       const userDir = join(profileDirOf(ctx.baseUrl), 'suppliers')
       const { suppliers, errors } = await loadSuppliers({
-        builtinDir: join(import.meta.dirname, 'suppliers'), // 内置 js（opencode 等）
         userDir,
         dataDir,
         store,

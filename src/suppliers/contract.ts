@@ -9,6 +9,7 @@
  * 用户自定义供应商 js 放到 `~/.dsh/profiles/web/suppliers/*.js`，重启后自动加载。
  * 内置供应商与用户 js 同构（差异化能力驱动）。
  */
+import type { Context } from '@deepseek-ai/cordis'
 import type { ChatRequest, ModelInfo, SupplierAccount } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { CredentialStore } from '../credential-store.ts'
@@ -40,8 +41,16 @@ export interface SupplierEnv {
   onLateFailure?: (uid: string, model: string, state: AccountState, message: string) => void
 }
 
-/** 通用供应商工厂：一个 js 模块 export 它（或 default export 它），loader 调用得到实例。 */
-export type SupplierFactory = (env: SupplierEnv) => SupplierModule
+/**
+ * 通用供应商工厂：一个 js 模块 export 它（或 default export 它），loader 调用得到实例。
+ *
+ * `source` 是**可选标签**，声明这个供应商是从哪儿来的。核心用它把 `/health` 的
+ * `source` 报准（面板按它分「内置 / 插件」两组，面板和插件页都看这个值）。
+ * 不声明 = `external`（独立安装的供应商插件的现状，一个字段都不用改）。
+ */
+export type SupplierFactory = ((env: SupplierEnv) => SupplierModule) & {
+  source?: 'builtin'
+}
 
 /**
  * 账户此刻的状态 —— 插件**解读**上游信号后的语义状态。
@@ -170,3 +179,46 @@ export interface SupplierModule {
 
 /** 供应商账号（复用 router 类型，供 loader 包装）。 */
 export type { SupplierAccount }
+
+/**
+ * `router.suppliers` 共享聚合表的取值：一个供应商工厂。
+ *
+ * 核心 provide 空表；**谁都可以往里 append** —— 内置供应商（core 自己的插件行）
+ * 与独立安装的供应商插件走的是同一条通道、同一套契约，核心那边不区分内外，
+ * 只看工厂上的 `source` 标签。
+ */
+export type SupplierRegistry = Record<string, SupplierFactory>
+
+/**
+ * 读当前 `router.suppliers` 表（同一 live 对象，可追加）——供应商行用它登记自己。
+ *
+ * 读法与 `ext/contract.ts` 的 `currentExts` 同一套（cordis 的 ctx 是 Proxy，
+ * 未声明的服务直接 get 会抛，所以走 `get()` 兜底）。
+ */
+export function currentSuppliers(ctx: unknown): SupplierRegistry | undefined {
+  const c = ctx as {
+    get?: (key: string) => unknown
+    router?: { suppliers?: SupplierRegistry }
+  }
+  return (c.get?.('router.suppliers') ?? c.router?.suppliers) as SupplierRegistry | undefined
+}
+
+/**
+ * 把一个供应商工厂登记进 `router.suppliers`，并通知核心去装载它。
+ *
+ * 为什么自己 emit `internal/service`：核心靠这个事件发现「表里多了供应商」
+ * （同 `router.ext` 的做法）。**幂等** —— 同一个 id 已经在表里就直接返回，
+ * 不会把别人的登记顶掉（内置行与用户目录 js 同名时由核心按优先级裁决，
+ * 这里不越权覆盖）。
+ */
+export function registerSupplierRow(ctx: Context, id: string, factory: SupplierFactory): void {
+  ctx.inject(['router.suppliers'], (sctx) => {
+    const table = currentSuppliers(sctx)
+    if (table === undefined) return
+    if (table[id] !== undefined) return
+    table[id] = factory
+    // 核心只 provide 空表、**不监听表的变更**（表里放的是工厂，实例化要它的
+    // env），所以新增条目必须自己喊一声，否则核心只在启动时扫过一遍。
+    ctx.emit('internal/service', 'router.suppliers', table)
+  })
+}

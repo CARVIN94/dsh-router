@@ -15,15 +15,15 @@ import type { RouterExtResponse, RouterHealthResponse } from '../shared.ts'
 const health = (suppliers: NonNullable<RouterHealthResponse['suppliers']>): RouterHealthResponse => ({ ok: true, suppliers })
 const noExt: RouterExtResponse = { ok: true, enhancers: [] }
 
-test('三个内置供应商都落在本地组，且只读', () => {
+test('内置供应商一个都不进这一节（它们是原生「包含的组件」里的行）', () => {
   const out = groupRouterComponents(health([
     { id: 'opencode', name: 'OpenCode', source: 'builtin' },
     { id: 'openrouter', name: 'OpenRouter', source: 'builtin' },
     { id: 'nvidia', name: 'NVIDIA NIM', source: 'builtin' },
   ]), noExt)
-  assert.deepEqual(out.local.map((r) => r.key), ['supplier:opencode', 'supplier:openrouter', 'supplier:nvidia'])
+  // 重复显示两处 = 用户看到同一个东西两次，且有一处没有开关。
   assert.deepEqual(out.external, [])
-  assert.equal(out.local.every((r) => r.togglable === false), true)
+  assert.deepEqual(out.ext, [])
 })
 
 test('外部供应商插件进 external 组（各是独立 bundle，启停在它自己页面）', () => {
@@ -31,23 +31,18 @@ test('外部供应商插件进 external 组（各是独立 bundle，启停在它
     { id: 'codebuddy', name: 'CodeBuddy', source: 'external' },
     { id: 'traework', name: 'TRAE SOLO', source: 'external' },
   ]), noExt)
-  assert.deepEqual(out.local, [])
   assert.deepEqual(out.external.map((r) => r.key), ['supplier:codebuddy', 'supplier:traework'])
   assert.equal(out.external.every((r) => r.togglable === false), true)
 })
 
-test('缺 source 的供应商落到本地组，不静默丢、不误报成独立插件', () => {
+test('缺 source 的供应商不显示，也不被误报成独立插件', () => {
   const out = groupRouterComponents(health([{ id: 'mystery', name: 'Mystery' }]), noExt)
-  assert.deepEqual(out.local.map((r) => r.key), ['supplier:mystery'])
   assert.deepEqual(out.external, [])
 })
 
-test('user 目录投放的供应商与内置同组（都不是独立安装的 bundle）', () => {
-  const out = groupRouterComponents(health([
-    { id: 'opencode', name: 'OpenCode', source: 'builtin' },
-    { id: 'mine', name: 'My Supplier', source: 'user' },
-  ]), noExt)
-  assert.deepEqual(out.local.map((r) => r.key), ['supplier:opencode', 'supplier:mine'])
+test('user 目录投放的供应商也不进这一节（它的对应物是行的覆盖或外部插件）', () => {
+  const out = groupRouterComponents(health([{ id: 'mine', name: 'My Supplier', source: 'user' }]), noExt)
+  assert.deepEqual(out.external, [])
 })
 
 test('扩展插件进 ext 组且唯一可开关；状态按「宁可关着」读', () => {
@@ -65,14 +60,14 @@ test('扩展插件进 ext 组且唯一可开关；状态按「宁可关着」读
 })
 
 test('图标与说明只在该有的时候带上（不塞 undefined 键）', () => {
-  const out = groupRouterComponents(health([{ id: 'nvidia', name: 'NVIDIA NIM', icon: 'data:image/png;base64,x', source: 'builtin' }]), {
+  const out = groupRouterComponents(health([{ id: 'loomy', name: 'Loomy', icon: 'data:image/png;base64,x', source: 'external' }]), {
     ok: true,
     enhancers: [{ id: 'rtk', name: 'RTK', detail: '本机未装 rtk' }],
   })
-  const localRow = out.local.at(0)
+  const supplier = out.external.at(0)
   const extRow = out.ext.at(0)
-  assert.ok(localRow !== undefined && extRow !== undefined)
-  assert.equal('icon' in localRow, true)
+  assert.ok(supplier !== undefined && extRow !== undefined)
+  assert.equal('icon' in supplier, true)
   assert.equal('detail' in extRow, true)
   assert.equal('icon' in extRow, false)
 })

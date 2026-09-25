@@ -10,6 +10,23 @@
 # `require.resolve(name + '/package.json')` 定位 client bundle。包名已改
 # dsh-router-core，这里不同步就从 npm 装完两边都加载不到（`id` 只是配置树
 # 里的句柄，可以随便取）。
+#
+# 下面除了核心自己，还 insert 了三个**内置供应商行**（子路径模块）。
+# 为什么是行而不是「核心扫一个目录」：宿主的插件页「包含的组件」只认本 bundle
+# 自己 patch 里声明的行，所以「装完有哪些内置供应商、怎么单独关掉一个」这件事，
+# 做成行才有宿主管的开关（HMR、重载、profile patch 全是现成的）。关掉一行 =
+# loader 不 import 它 = 供应商没注册 = 路由不会落到它，不是假开关。
+#
+# 子路径的 `name` 同样逐字重要：它要能在 package.json 的 `exports` 里解析到。
+# 行的显示名/说明走**各自的** `package.json` + `locale/*.json`（子路径资源，
+# 见 package.json exports）——所以每个供应商带自己的名字，不是三行都叫
+# dsh-router-core。
 - insert:
     - id: dsh-router
       name: 'dsh-router-core'
+    - id: dsh-router-supplier-opencode
+      name: 'dsh-router-core/suppliers/opencode'
+    - id: dsh-router-supplier-openrouter
+      name: 'dsh-router-core/suppliers/openrouter'
+    - id: dsh-router-supplier-nvidia
+      name: 'dsh-router-core/suppliers/nvidia'

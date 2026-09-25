@@ -328,11 +328,19 @@ export function dispose() {}
 
 ## 加载顺序
 
-1. 内置:`<plugin>/lib/suppliers/*.js`(随插件分发)
-2. 用户:`~/.dsh/profiles/web/suppliers/*.js`(**覆盖**内置同 id)
-3. 外部插件:其他 DSH 插件通过 cordis service `router.suppliers`
-   (值为 `{ [supplierId]: (env) => SupplierModule }`)暴露供应商,dsh-router
-   `ctx.inject(['router.suppliers'])` 延迟加载(service 可用即注册)。
+两个来源，同 id 时**用户目录的 js 压过内置行**（`supplierWins`：user > builtin > external）：
+
+1. **cordis service `router.suppliers`**（值为 `{ [supplierId]: (env) => SupplierModule }`），
+   dsh-router `ctx.inject(['router.suppliers'])` 延迟加载（service 可用即注册）。两条子路径都走它：
+   - **内置三个 = dsh-router-core 自己 patch 里的行**：`cordis.patch.yml` insert
+     `dsh-router-core/suppliers/<x>` 三个子路径模块，每行一个 cordis 壳（`src/suppliers/<x>/index.ts`）
+     负责把工厂登记进表。于是它们在官方插件页 dsh-router-core 详情页的「包含的组件」里
+     **各占一行、带着宿主管的开关**。行的显示名/说明走**子路径自己的** `row.json` +
+     `locale/*.json`（构建期拷成 `lib/suppliers/<x>/{package.json,locale/}`），所以三行各有各的名字。
+     早先内置是「扫 `<plugin>/lib/suppliers/*.js`」，那条路径已删：扫目录拿不到行的身份，
+     单独关一个内置供应商也没有宿主的开关可用。
+   - 外部 DSH 插件（独立安装的供应商包）经同一个 service 注册。
+2. **用户目录** `~/.dsh/profiles/<profile>/suppliers/*.js`（只认 `*.js`；同 id 多个文件按文件名序后者覆盖前者）。
    cordis 的 `provide` 每个 service name 只允许一个插件提供,多个供应商插件采用
    **共享表模式**:先 provide 的插件持有聚合表对象,
    其余插件 **`inject` 后把工厂追加进同一对象**并广播一次

@@ -54,7 +54,7 @@ dsh plugin --profile web add dsh-router-core
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 零额外进程     | 就是 DSH 插件,随 `dsh web` 启停,天然同源(`/router/api/*` 无 CORS、面板嵌在设置里)。                                                                                                                                                                          |
 | 扩展即插即拔   | 扩展插件(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk))经 `router.ext` 注册,在 bash 执行前改写命令(如加 `rtk` 前缀压缩输出)。开关在官方插件页(设置 → 插件 → dsh-router-core),带自检;面板「扩展」页只列已启用的、只读。 |
-| 供应商即插即拔 | 内置供应商随插件分发;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`。                                                                                                                                       |
+| 供应商即插即拔 | 内置供应商是插件页「包含的组件」里的三行,可单独开关;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`(同名 js 覆盖内置)。                                                                                                                                       |
 | 模型不内置     | 供应商只实现差异化能力,模型拉取与缓存由核心统一管,不写死、不过时。                                                                                                                                                                                           |
 | 策略只写一次   | 组合回退、账号池(选号/冷却/禁用)、响应写入、凭证存储、积分持久化、模型管理都由核心提供。供应商 js 只对**单个账号**调一次上游并报告成败,不自己遍历账号、不维护冷却表、不落盘积分——否则每个插件都会长出一份互相不一致的实现,而核心也就无从判断「该不该换号」。 |
 | 凭证单库       | `auths/credentials.sqlite`,供应商凭证不透明 blob,核心统一生命周期,干净可备份。                                                                                                                                                                               |
@@ -242,22 +242,27 @@ curl -X POST http://localhost:3080/v1/chat/completions \
                  ├─ host-version(src/host-version.ts)  按宿主版本号适配 0.1.5 / 0.1.7
                  ├─ KeysStore(src/keys.ts)              密钥库 + requireApiKey
                  └─ Router(路由器) → suppliers[]
-                      ├─ OpenCodeSupplier(lib/suppliers/opencode.js) 无账号直连(Zen 免费档,需 CLI 握手)
-                      ├─ OpenRouterSupplier(lib/suppliers/openrouter.js) API key 账号
-                      └─ NvidiaSupplier(lib/suppliers/nvidia.js)       API key 账号
+                      ├─ OpenCodeSupplier(lib/suppliers/opencode/index.js) 无账号直连(Zen 免费档,需 CLI 握手)
+                      ├─ OpenRouterSupplier(lib/suppliers/openrouter/index.js) API key 账号
+                      ├─ NvidiaSupplier(lib/suppliers/nvidia/index.js)       API key 账号
                       └─ 外部插件供应商(经 router.suppliers service 注册)
+                         ↑ 内置三个是 core 自己 patch 里的**行**(子路径模块),与外部插件同一条通道
 ```
 
 - **供应商抽象**:可插拔 js 模块只提供**差异化能力**(`status/listModels/getAlias/chatOnce`
   - 可选登录/签到/加 key);**策略与通用能力**(组合回退、账号池选号/冷却/禁用、
     连接池排序、模型启用/自定义、别名、凭证、响应写入)由核心统一管。
     `chatOnce(uid, req)` 一次只服务一个账号,返回成功/失败 + 语义状态,换号由核心决定。
-- **供应商加载**(三来源,见 [`docs/suppliers.md`](docs/suppliers.md)):
-  1. 内置:`lib/suppliers/*.js`(随插件分发,如 opencode)
-  2. 用户:`~/.dsh/profiles/web/suppliers/*.js`
-  3. 外部插件:其他 DSH 插件通过 cordis service `router.suppliers`
-     (值为 `{ [supplierId]: (env) => SupplierModule }`)暴露供应商,
-     dsh-router `ctx.inject(['router.suppliers'])` 延迟加载。
+- **供应商加载**(两来源,见 [`docs/suppliers.md`](docs/suppliers.md)):
+  1. **经 cordis service `router.suppliers`**(值为
+     `{ [supplierId]: (env) => SupplierModule }`),dsh-router
+     `ctx.inject(['router.suppliers'])` 延迟加载。两条子路径都走它:
+     - **内置三个 = core 自己 patch 里的行**(`cordis.patch.yml` insert
+       `dsh-router-core/suppliers/<x>`),所以在官方插件页 dsh-router-core 详情页的
+       **「包含的组件」里各占一行、带着宿主管的开关** —— 关掉一行 = loader 不 import
+       它 = 供应商没注册 = 路由不会落到它;
+     - 外部 DSH 插件(独立安装的供应商包)经同一个 service 注册。
+  2. **用户目录**:`~/.dsh/profiles/<profile>/suppliers/*.js`,**压过**同名内置行。
 - **模型统一策略**:插件不内置、不缓存模型;`listModels` 每次从上游拉取,
   缓存由核心按 60s TTL 统一管(`/suppliers/:id/models`),`/v1/models` 保持实时。
 - **凭证存储**:SQLite 单库 `{authDir}/credentials.sqlite`(表 `credentials(supplier, uid, data)`,

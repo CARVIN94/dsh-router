@@ -7,13 +7,16 @@
  * 必须保持独立安装。官方给的位置就是本节用的 `plugins.detail.section` 槽位
  * （渲染在原生行列表**之后**，自带 chrome）。
  *
+ * **内置的三个供应商不在这一节**：它们是 dsh-router-core 自己 patch 里的行
+ * （`cordis.patch.yml` insert 的子路径模块），已经在宿主的原生「包含的组件」里，
+ * 带着宿主管的开关。在这里再列一遍就是同一个东西显示两处。
+ *
  * 数据全部来自核心**已经在提供**的两个端点，不新增任何 API：
- *   - `GET /router/api/health` → `suppliers[]`（带 `source` 分内置/外部）
+ *   - `GET /router/api/health` → `suppliers[]`（只取 `source === 'external'`）
  *   - `GET /router/api/ext` → `enhancers[]`（核心已把开关与就绪状态合并好）
  *
  * 交互按各组真实能力给，不假装能开关：只有 ext 走 `PATCH /router/api/ext`
- * （核心持久化到 `<dataDir>/ext.json`）；供应商在这一页没有可写的开关 —— 内置/
- * 本地那组是随核心分发的一部分，外部那组的启停在它们自己的插件页。
+ * （核心持久化到 `<dataDir>/ext.json`）；外部供应商插件的启停在它们自己的插件页。
  */
 import { useEffect, useRef, useState } from 'react'
 import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -29,9 +32,8 @@ import {
 /** 只在自己的 bundle 页渲染。 */
 const BUNDLE_NAME = 'dsh-router-core'
 
-/** 三组的标题与组级说明（顺序即渲染顺序）。 */
+/** 两组的标题与组级说明（顺序即渲染顺序）。 */
 const GROUPS: ReadonlyArray<{ key: keyof RouterComponents; title: string; hint: string }> = [
-  { key: 'local', title: '内置与本地供应商', hint: '' },
   { key: 'external', title: '外部供应商插件', hint: '各是独立安装的插件，启停在它自己的插件页' },
   { key: 'ext', title: '扩展', hint: '开关由路由核心保存' },
 ]

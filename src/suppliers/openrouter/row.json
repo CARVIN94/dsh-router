@@ -1,0 +1,5 @@
+{
+  "name": "dsh-router-core-supplier-openrouter",
+  "type": "module",
+  "description": "OpenRouter 聚合通道，API key 制（随 dsh-router 核心分发）"
+}

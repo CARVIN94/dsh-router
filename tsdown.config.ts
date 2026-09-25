@@ -25,12 +25,14 @@ export default [
   {
     entry: {
       index: 'src/index.ts',
-      // opencode：Zen 免费档（无账号，但需模拟真 CLI 握手 + 上游只支持流式）
-      'suppliers/opencode': 'src/suppliers/opencode/plugin.ts',
-      // openrouter：参考 9Router 实现的 apikey 免费供应商（OPENROUTER_API_KEY）
-      'suppliers/openrouter': 'src/suppliers/openrouter/plugin.ts',
-      // nvidia：参考 9Router 实现的 apikey 供应商（NVIDIA NIM）
-      'suppliers/nvidia': 'src/suppliers/nvidia/plugin.ts',
+      // 内置供应商的**行**（cordis 壳）：产物落在 lib/suppliers/<x>/index.js，
+      // 配合 package.json exports 的 `./suppliers/<x>` 子路径被 loader import。
+      // 供应商实现（plugin.ts）被这一层内联进来，所以每个子路径只有这一个 js。
+      // 之前这里是 `suppliers/<x>` → plugin.ts，由核心**扫目录**加载（loadSuppliers）；
+      // 改成行之后那条扫描路径已删除，见 loader.ts。
+      'suppliers/opencode/index': 'src/suppliers/opencode/index.ts',
+      'suppliers/openrouter/index': 'src/suppliers/openrouter/index.ts',
+      'suppliers/nvidia/index': 'src/suppliers/nvidia/index.ts',
     },
     outDir: 'lib',
     format: ['esm'],

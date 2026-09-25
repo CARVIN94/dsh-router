@@ -1,0 +1,5 @@
+{
+  "name": "dsh-router-core-supplier-nvidia",
+  "type": "module",
+  "description": "NVIDIA 官方推理通道，API key 制（随 dsh-router 核心分发）"
+}

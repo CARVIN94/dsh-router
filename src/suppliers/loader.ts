@@ -1,10 +1,16 @@
 /**
- * 供应商 loader —— 扫描 suppliers 目录下的 *.js，动态 import，按契约包装成
+ * 供应商 loader —— 扫描 **用户目录**下的 *.js，动态 import，按契约包装成
  * 内部 Supplier，并暴露"能力检测"(capabilities)供通用路由/前端按能力渲染。
  *
- * 加载来源（两处，profile 优先）：
- *   1. 内置：<plugin>/lib/suppliers/*.js（随插件分发）
- *   2. 用户：~/.dsh/profiles/web/suppliers/*.js（用户自定义）
+ * 加载来源（两处）：
+ *   1. 用户：`~/.dsh/profiles/<profile>/suppliers/*.js`（自定义供应商）
+ *   2. 内置：**插件页「包含的组件」里的行** —— core 自己的 cordis.patch.yml
+ *      insert 了三个子路径模块，经 `router.suppliers` 表进来，与独立安装的
+ *      供应商插件同一条通道，核心不区分内外，只看工厂上的 `source` 标签。
+ *
+ * 内置曾经也是「扫 `<plugin>/lib/suppliers/*.js`」（本文件早先的 builtinDir）。
+ * 改成行之后那条路径已删：扫目录拿不到行的身份（插件页的开关/显示名/说明），
+ * 而且关一个内置供应商要手改配置才生效 —— 行才有宿主管的开关。
  */
 import { readdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
@@ -196,10 +202,23 @@ function scanDir(dir: string): string[] {
   }
 }
 
+/**
+ * 同 id 冲突时的优先级：**用户目录 js > 内置行 > 外部插件供应商**。
+ *
+ * 为什么用户目录最高：用户放一个同 id 的 js 就是想替换它，这是「扫目录时代」
+ * 就有的语义（见本文件早先的 `loadSuppliers`：内置被用户版覆盖），内置改成行
+ * 之后不能悄悄反过来。
+ *
+ * 纯函数 + 有测试：这条规则错了不会抛异常，只会让用户的覆盖悄悄失效。
+ */
+const SUPPLIER_RANK: Record<LoadedSupplier['source'], number> = { user: 2, builtin: 1, external: 0 }
+
+export function supplierWins(incoming: LoadedSupplier['source'], existing: LoadedSupplier['source']): boolean {
+  return SUPPLIER_RANK[incoming] > SUPPLIER_RANK[existing]
+}
+
 export interface LoadSuppliersOptions {
-  /** 内置供应商目录（<plugin>/lib/suppliers）。 */
-  builtinDir: string
-  /** 用户供应商目录（~/.dsh/profiles/web/suppliers）。 */
+  /** 用户供应商目录（~/.dsh/profiles/<profile>/suppliers）。 */
   userDir: string
   /** 数据目录。 */
   dataDir: string
@@ -210,7 +229,10 @@ export interface LoadSuppliersOptions {
   log: (msg: string) => void
 }
 
-/** 加载全部供应商（内置 + 用户，用户覆盖内置同 id）。 */
+/**
+ * 加载用户目录下的供应商。同一个 id 出现多个文件时**后者覆盖前者**（按文件名序），
+ * 与内置共存的裁决交给核心（`registerLoaded` 的优先级：用户目录 js > 行）。
+ */
 export async function loadSuppliers(opts: LoadSuppliersOptions): Promise<{
   suppliers: LoadedSupplier[]
   errors: SupplierLoadError[]
@@ -219,18 +241,11 @@ export async function loadSuppliers(opts: LoadSuppliersOptions): Promise<{
   const byId = new Map<string, LoadedSupplier>()
   const errors: SupplierLoadError[] = []
 
-  const files = [
-    ...scanDir(opts.builtinDir).map((f) => ({ f, builtin: true })),
-    ...scanDir(opts.userDir).map((f) => ({ f, builtin: false })),
-  ]
-  for (const { f, builtin } of files) {
+  for (const f of scanDir(opts.userDir).sort()) {
     try {
-      const loaded = await loadOne(f, env, builtin ? 'builtin' : 'user')
-      // 用户目录覆盖内置
-      const existing = byId.get(loaded.supplier.id)
-      if (existing && builtin) continue // 内置已被用户版覆盖
+      const loaded = await loadOne(f, env, 'user')
       byId.set(loaded.supplier.id, loaded)
-      opts.log(`supplier ${loaded.supplier.id} loaded (${builtin ? 'builtin' : 'user'}) from ${basename(f)}`)
+      opts.log(`supplier ${loaded.supplier.id} loaded (user) from ${basename(f)}`)
     } catch (err) {
       errors.push({ id: basename(f, '.js'), file: f, error: (err as Error).message })
       opts.log(`supplier load failed ${basename(f)}: ${(err as Error).message}`)

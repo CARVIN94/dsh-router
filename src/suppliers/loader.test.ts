@@ -9,10 +9,10 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { wrapModule } from './loader.ts'
+import { loadSuppliers, supplierWins, wrapModule } from './loader.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
 import type { CredentialStore } from '../credential-store.ts'
 import type { SupplierEnv, SupplierModule, SupplierAccountNow, ChatOnceResult } from './contract.ts'
@@ -180,4 +180,38 @@ test('onLateFailure 空 uid（无账号供应商）→ 不记，不炸', () => {
   const loaded = wrapModule(latePlugin('supA', []), e, 'test')
   assert.doesNotThrow(() => e.onLateFailure?.('', 'm1', 'quota', 'boom'))
   assert.deepEqual(loaded.supplier.status().accounts.map((a) => a.cooling), [false, false])
+})
+
+// ---- 同 id 冲突的优先级：用户目录 js > 内置行 > 外部插件供应商 ----
+// 规则错了不抛异常，只会让用户的覆盖悄悄失效，所以必须有闸门。
+
+test('优先级：用户目录的 js 压过内置行（内置改行之后不能反过来）', () => {
+  assert.equal(supplierWins('user', 'builtin'), true)
+  assert.equal(supplierWins('user', 'external'), true)
+})
+
+test('优先级：内置行压过外部插件供应商，同级不顶替', () => {
+  assert.equal(supplierWins('builtin', 'external'), true)
+  assert.equal(supplierWins('builtin', 'builtin'), false)
+  assert.equal(supplierWins('external', 'builtin'), false)
+  assert.equal(supplierWins('external', 'external'), false)
+  assert.equal(supplierWins('user', 'user'), false)
+})
+
+test('用户目录只加载 *.js，且同 id 后者覆盖前者（按文件名序）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sup-dir-'))
+  writeFileSync(join(dir, 'a-first.js'), 'export const id = "dup"\nexport const name = "First"\nexport const accounts = () => []\n')
+  writeFileSync(join(dir, 'b-second.js'), 'export const id = "dup"\nexport const name = "Second"\nexport const accounts = () => []\n')
+  writeFileSync(join(dir, 'notes.txt'), '不是 js，不该被加载')
+  const { suppliers, errors } = await loadSuppliers({
+    userDir: dir,
+    dataDir: dir,
+    store: new SupplierConfigStore(join(dir, 'cfg.json')),
+    credentials: {} as CredentialStore,
+    log: () => {},
+  })
+  assert.deepEqual(errors, [])
+  assert.deepEqual(suppliers.map((s) => s.supplier.id), ['dup'])
+  assert.equal(suppliers[0]?.supplier.name, 'Second')
+  assert.equal(suppliers[0]?.source, 'user')
 })

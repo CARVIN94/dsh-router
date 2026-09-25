@@ -42,7 +42,7 @@ export const BUNDLE_NAME = 'dsh-router-core'
 /** 两组的标题与组级说明（顺序即渲染顺序）。 */
 const GROUPS: ReadonlyArray<{ key: keyof RouterComponents; title: string; hint: string }> = [
   { key: 'external', title: '供应商', hint: '关掉的供应商不参与路由，请求不会落到它' },
-  { key: 'ext', title: '扩展', hint: '开关由路由核心保存' },
+  { key: 'ext', title: '扩展', hint: '独立安装的扩展插件；内置扩展在上面的「包含的组件」里' },
 ]
 
 /** 宿主 slot 注入的 owner props（本地声明，不 import 宿主的 slot-contract 类型）。 */

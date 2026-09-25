@@ -27,6 +27,8 @@ export function createTestExt(): RouterExt {
     id: EXT_TEST_ID,
     name: '连接自检',
     description: '选供应商、模型与连接，跑一次真实访问测试，看连接是否可用或报什么错',
+    // 随核心分发 -> 插件页的原生「包含的组件」里有它一行，自绘节里不再重复列。
+    source: 'builtin' as const,
     getState: () => ({ ready: true }),
   }
 }

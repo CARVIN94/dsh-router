@@ -239,6 +239,13 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 **默认关闭**(`disabled: true`)。行关闭时 loader 根本不 import 这个模块,扩展就不在
 `router.ext` 表里 —— 所以「在插件页打开才出现这张卡片」是天然的,不需要额外状态位。
 
+### 内置扩展不出现在自绘节里
+
+`连接自检` 随核心分发，所以它在插件页原生「包含的组件」里**已经占一行**、自带宿主
+管的开关。插件页那个自绘的「路由组件」节因此**只列独立安装的扩展**（RTK 等）——
+与内置供应商的处理完全一样：已经有原生行的东西，再在下面列一遍就是同一个东西显示
+两处。靠 `RouterExt.source` 区分（内置的标 `builtin`，独立安装的不标 = `plugin`）。
+
 ### 扩展自带详情面板
 
 `router.ext` 契约里只有 `id / name / description / icon / getState`,**没有「自带详情

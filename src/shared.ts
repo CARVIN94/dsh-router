@@ -157,6 +157,13 @@ export interface RouterExtItem {
   ready?: boolean
   /** 一句话状态说明（如「本机未装 rtk」）。 */
   detail?: string
+  /**
+   * 来源：随核心分发的内置扩展标 `builtin`，独立安装的不标（= plugin）。
+   *
+   * 插件页那个自绘的「路由组件」节据此**只列独立安装的**：内置的已经在原生
+   * 「包含的组件」里占一行了，两处都列就是同一个东西显示两遍（与内置供应商同理）。
+   */
+  source?: 'builtin'
 }
 
 /** `/router/api/ext` response（扩展插件列表 + 开关）。 */

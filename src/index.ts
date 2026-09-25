@@ -626,6 +626,8 @@ export function apply(rawContext: unknown): void {
           ...(e.icon !== undefined ? { icon: e.icon } : {}),
           enabled: extStore.isEnabled(e.id),
           ready: st?.ready === true,
+          // 随核心分发的扩展带这个标记（插件页自绘节据此不重复列它：它已经有原生行）
+          ...(raw.source === 'builtin' ? { source: 'builtin' as const } : {}),
           ...(st?.detail !== undefined ? { detail: st.detail } : {}),
         }
       })

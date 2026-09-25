@@ -81,7 +81,10 @@ export function groupRouterComponents(health: RouterHealthResponse, ext: RouterE
   const external = (health.suppliers ?? [])
     .filter((s) => s.source === 'external')
     .map(supplierRow)
-  const extRows = (ext.enhancers ?? []).map((e): RouterComponentRow => ({
+  // 只列**独立安装**的扩展（`source !== 'builtin'`）。随核心分发的内置扩展已经在
+  // 宿主原生的「包含的组件」里占一行、自带宿主管的开关，在这里再列一遍就是同一个
+  // 东西显示两处 —— 与内置供应商的处理完全一样。
+  const extRows = (ext.enhancers ?? []).filter((e) => e.source !== 'builtin').map((e): RouterComponentRow => ({
     key: `ext:${e.id}`,
     name: e.name,
     // 缺字段一律按「关 / 未就绪」读：没拿到的事实不当真，宁可显示成关着

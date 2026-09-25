@@ -55,6 +55,15 @@ export interface RouterExt {
   readonly description?: string
   /** 卡片/详情图标的 logo URL（可选；缺省用默认图标）。 */
   readonly icon?: string
+  /**
+   * 这个扩展是**随核心分发**（`builtin`）还是**独立安装的插件**（不标 = plugin）。
+   *
+   * 为什么需要这个标记：随核心分发的扩展同时是插件页原生「包含的组件」里的**一行**
+   * （自带宿主管的开关），独立安装的扩展是各自 bundle 的行。插件页那个自绘的
+   * 「路由组件」节只该列后者 —— 与内置供应商的处理完全一样：已经有原生行的东西，
+   * 再在下面列一遍就是同一个东西显示两处。
+   */
+  readonly source?: 'builtin'
   /** 当前运行时状态（ready + 不就绪时的说明）。 */
   getState(): ExtState
   /** 卸载清理（表删除时由 dsh-router 调用，可选）。 */

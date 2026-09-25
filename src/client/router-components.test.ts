@@ -100,3 +100,15 @@ test('供应商行没有 ready（那是扩展的运行时事实）—— 缺失�
   assert.equal('ready' in row, false, '供应商不报就绪，别塞一个 undefined 键进去')
   assert.equal(row.togglable, true)
 })
+
+test('内置扩展不进这一节（它已经是原生「包含的组件」里的一行）', () => {
+  const out = groupRouterComponents({ ok: true }, {
+    ok: true,
+    enhancers: [
+      { id: 'test', name: '连接自检', source: 'builtin' },
+      { id: 'rtk', name: 'RTK' },
+    ],
+  })
+  // 重复显示两处 = 用户看到同一个东西两次，且有一处没有开关。
+  assert.deepEqual(out.ext.map((r) => r.key), ['ext:rtk'])
+})

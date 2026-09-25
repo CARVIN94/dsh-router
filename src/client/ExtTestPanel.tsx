@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react'
 import { ROUTER_API_BASE, type RouterAccount, type RouterHealthResponse } from '../shared.ts'
+import { modelChoice, type ModelRow } from './model-choice.ts'
 
 /** 一次测试的结果。`ok` 为 false 时 `error` 是核心给的真实原因（上游响应 / chatOnce message）。 */
 interface TestResult {
@@ -55,7 +56,7 @@ function Picker(props: {
 export function ExtTestPanel(): JSX.Element {
   const [suppliers, setSuppliers] = useState<NonNullable<RouterHealthResponse['suppliers']>>([])
   const [accounts, setAccounts] = useState<RouterAccount[]>([])
-  const [models, setModels] = useState<string[]>([])
+  const [models, setModels] = useState<{ ids: string[]; empty?: 'none' | 'all-disabled' }>({ ids: [] })
   const [supplierId, setSupplierId] = useState('')
   const [modelId, setModelId] = useState('')
   const [uid, setUid] = useState('')
@@ -92,15 +93,16 @@ export function ExtTestPanel(): JSX.Element {
     setModelId('')
     setUid('')
     setResult(null)
-    if (supplierId === '') { setModels([]); return }
+    if (supplierId === '') { setModels({ ids: [] }); return }
     let live = true
     void (async () => {
       try {
         const data = await fetch(`${ROUTER_API_BASE}/suppliers/${encodeURIComponent(supplierId)}/models`, { cache: 'no-store' })
-          .then((r) => r.json() as Promise<{ ok: boolean; models?: Array<{ id: string }> }>)
-        if (live) setModels((data.ok ? (data.models ?? []) : []).map((m) => m.id))
+          .then((r) => r.json() as Promise<{ ok: boolean; models?: ModelRow[] }>)
+        // 端点给的是**全部**模型（含用户停用的），这里只取可用的 —— 见 model-choice.ts
+        if (live) setModels(data.ok ? modelChoice(data.models ?? []) : { ids: [] })
       } catch {
-        if (live) setModels([])
+        if (live) setModels({ ids: [] })
       }
     })()
     return () => { live = false }
@@ -135,8 +137,10 @@ export function ExtTestPanel(): JSX.Element {
   return (
     <div className="dshr-tabBody dshr-extTest">
       <p className="dshr-muted">
-        选一个供应商、模型和连接，跑一次真实访问测试。留空「连接」表示由账号池任选一个可用号
-        （与供应商详情里的「测试」按钮同义）；指定连接则**只测它**，失败不会换号。
+        选一个供应商、模型和连接，跑一次真实访问测试。模型只列**可用**的
+        （在供应商详情里被停用的不列 —— 测一个自己关掉的模型没有诊断价值）。
+        留空「连接」表示由账号池任选一个可用号（与供应商详情里的「测试」按钮同义）；
+        指定连接则**只测它**，失败不会换号。
       </p>
 
       <div className="dshr-extTestGrid">
@@ -150,8 +154,12 @@ export function ExtTestPanel(): JSX.Element {
         <Picker
           label="模型"
           value={modelId}
-          options={models.map((m) => ({ value: m, label: m }))}
-          emptyHint={supplierId === '' ? '先选供应商' : (models.length === 0 ? '该供应商没有模型（可先在供应商详情里拉取）' : '请选择')}
+          options={models.ids.map((id) => ({ value: id, label: id }))}
+          emptyHint={supplierId === ''
+            ? '先选供应商'
+            : models.empty === 'all-disabled'
+              ? '该供应商的模型都被停用了（在供应商详情里开启）'
+              : models.empty === 'none' ? '该供应商没有模型（可先在供应商详情里拉取）' : '请选择'}
           disabled={supplierId === ''}
           onChange={(v) => { setModelId(v); setResult(null) }}
         />

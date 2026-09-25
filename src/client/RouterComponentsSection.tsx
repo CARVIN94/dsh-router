@@ -103,8 +103,13 @@ function Row({ row, busy, onToggle }: {
       {row.togglable && (
         <Switch
           checked={row.enabled === true}
-          disabled={busy}
+          // 自检未通过的扩展不给开（核心 PATCH 也会 409 拒，这里先不让点）。
+          // 约定写在 docs/ext.md：不可用时开关禁用，而不是点了再报错。
+          disabled={busy || (!row.enabled && row.ready !== true)}
           label={`${row.name} 开关`}
+          title={!row.enabled && row.ready !== true
+            ? (row.detail ?? '当前不可用,无法开启')
+            : row.enabled === true ? `关闭 ${row.name}` : `开启 ${row.name}`}
           onChange={(next) => { onToggle(row, next) }}
         />
       )}

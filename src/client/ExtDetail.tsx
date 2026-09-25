@@ -1,9 +1,15 @@
 /**
  * 扩展详情页 —— 从设置 → 路由 → 扩展 的卡片点进来。
  *
- * 布局同供应商详情：返回链接 + 图标 + 名称/副行，头部右侧是启用开关；下面跟扩展说明
- * 卡与未就绪横幅。有 `api`() 支持的自定义扩展可在未来按需加独立面板，此处不内置任何
- * 具体扩展的专属视图。
+ * **只读：开关不在这一层。** 启停的唯一入口是官方插件页（设置 → 插件 →
+ * dsh-router-core 详情页的「路由组件」一节），那里直接调核心的
+ * `PATCH /router/api/ext`，自检与持久化都由核心裁决。同一件事只留一个开关，
+ * 否则两处状态各说各话。
+ *
+ * 列表页只列**已启用**的扩展（关闭的连卡片都不出现），所以这里也不必再显示
+ * 「已启用/未启用」——那行字只能是常量。布局同供应商详情：返回链接 + 图标 +
+ * 名称/副行，下面跟扩展说明卡与未就绪横幅。有 `api()` 支持的自定义扩展可在未来
+ * 按需加独立面板，此处不内置任何具体扩展的专属视图。
  */
 import type { RouterExtItem } from '../shared.ts'
 
@@ -23,11 +29,9 @@ const I = {
 interface ExtDetailProps {
   item: RouterExtItem
   onBack: () => void
-  /** 开关切换（由列表页持有状态与 PATCH；这里只做触发）。 */
-  onToggle: (item: RouterExtItem, value: boolean) => void
 }
 
-export function ExtDetail({ item, onBack, onToggle }: ExtDetailProps): JSX.Element {
+export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
   return (
     <div className="dshr-tabBody">
       {/* Header（同供应商详情：返回链接 + 图标 + 名称/副行） */}
@@ -54,24 +58,9 @@ export function ExtDetail({ item, onBack, onToggle }: ExtDetailProps): JSX.Eleme
             <h1 className="dshr-providerName">{item.name}</h1>
             <p className="dshr-providerCount">
               <span className="dshr-mono">{item.id}</span>
-              {item.enabled ? ' · 已启用' : ' · 未启用'}
               {item.ready === false ? ' · 未就绪' : ''}
             </p>
           </div>
-          {/* 开关放在标题行右侧（同供应商详情的编辑按钮位） */}
-          <button
-            type="button"
-            className={`dshr-toggle dshr-extDetailToggle ${item.enabled ? 'dshr-toggle-on' : ''}`}
-            role="switch"
-            aria-checked={!!item.enabled}
-            disabled={item.ready === false && !item.enabled}
-            onClick={() => void onToggle(item, !item.enabled)}
-            title={item.ready === false && !item.enabled
-              ? '当前不可用,无法开启'
-              : item.enabled ? `关闭 ${item.name}` : `开启 ${item.name}`}
-          >
-            <span className="dshr-toggleKnob" />
-          </button>
         </div>
       </div>
 

@@ -1025,11 +1025,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     font-size: 11px;
 }
 
-/* 扩展详情头部右侧的开关（顶到标题行右边，同供应商详情的编辑按钮位） */
-.dshr-extDetailToggle {
-    margin-left: auto;
-}
-
 /* 扩展卡片内容区：文字左对齐，左侧留白与标题行的图标位对齐 */
 .dshr-extBody {
     padding: 10px 14px 12px 48px;

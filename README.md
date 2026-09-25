@@ -205,6 +205,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `/suppliers/:id/enabled`        | PATCH     | 供应商开关 `{enabled}` —— 关掉不参与路由(见下)                           |
 | `/suppliers/:id/models`         | GET       | 模型 + 启用状态                                                        |
 | `/suppliers/:id/models/toggle`  | POST      | `{id, enabled}`                                                        |
+| `/suppliers/:id/models/test`     | POST      | `{id, uid?}` 测模型可用性;`uid` = 只测这个连接(不回退),省略则池内任选      |
 
 ## 供应商开关
 
@@ -228,6 +229,24 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 开关 UI 在 **设置 → 插件 → dsh-router-core 详情页**下面的「路由组件」一节
 (「供应商」组 + 「扩展」组)。判据在 `supplier-visibility.ts`(面板侧)与
 `router-components.ts`(插件页侧),两处都有单测钉住。
+
+## 连接自检(内置扩展 `dsh-router-ext-test`)
+
+随核心分发的**内置扩展**,和三个内置供应商走同一套管道:它是 `cordis.patch.yml` 里的
+一个**行**(子路径模块 `dsh-router-core/ext-test`),因此在设置 → 插件 → dsh-router-core
+详情页的原生「包含的组件」里占一行,开关由宿主管。
+
+**默认关闭**(`disabled: true`)。行关闭时 loader 根本不 import 这个模块,扩展就不在
+`router.ext` 表里 —— 所以「在插件页打开才出现这张卡片」是天然的,不需要额外状态位。
+
+它和 rtk 那类扩展的差别:本扩展**不挂任何监听、不改写任何命令**,唯一作用是提供一块
+自检面板 —— 选**供应商 / 模型 / 连接**,跑一次真实访问测试,看连接是否可用或报什么错。
+面板挂在那一行的详情页上(官方 `plugins.row.config` 座位,key = `dsh-router-core#dsh-router-ext-test`)。
+
+测试走核心已有的 `POST /suppliers/:id/models/test`,与面板「供应商」详情里的「测试」
+按钮**同一条真实路径**(账号遍历 + chatOnce),区别只在可以**钉死连接**:留空则由账号池
+任选可用号(与那个按钮同义),指定连接则只测它、**失败不回退到别的号** —— 否则
+「测这个连接」测出来的是另一个号的结果,诊断就成了假话。
 
 ## 扩展插件(`router.ext`)
 

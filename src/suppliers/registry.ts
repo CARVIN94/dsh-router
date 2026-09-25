@@ -13,7 +13,7 @@
  *
  * 差异化能力（供应商 js 实现，按存在性注册；未实现返回 404）：
  *   POST   /suppliers/:id/models/fetch            拉取上游模型
- *   POST   /suppliers/:id/models/test             {id}
+ *   POST   /suppliers/:id/models/test             {id, uid?}（uid = 只测这个连接）
  *   POST   /suppliers/:id/login                   生成登录链接
  *   POST   /suppliers/:id/login/callback          {callbackUrl}
  *   POST   /suppliers/:id/links/remove            {uid}
@@ -264,8 +264,10 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     kind: 'exact',
     path: `${p}/models/test`,
     handler: async (req, res) => {
-      const body = JSON.parse(await readBody(req)) as { id?: string }
-      const result = await router.testModel(s.id, body.id ?? '')
+      const body = JSON.parse(await readBody(req)) as { id?: string; uid?: string }
+      // uid 缺省/空串 = 走账号池（与面板「测试」按钮同一条路径）；给了就只测它。
+      const onlyUid = typeof body.uid === 'string' && body.uid !== '' ? body.uid : undefined
+      const result = await router.testModel(s.id, body.id ?? '', onlyUid)
       writeJson(res, result.ok ? 200 : 400, result)
     },
   })

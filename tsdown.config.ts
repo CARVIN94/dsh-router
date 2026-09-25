@@ -33,6 +33,8 @@ export default [
       'suppliers/opencode/index': 'src/suppliers/opencode/index.ts',
       'suppliers/openrouter/index': 'src/suppliers/openrouter/index.ts',
       'suppliers/nvidia/index': 'src/suppliers/nvidia/index.ts',
+      // 连接自检扩展的行：与内置供应商同一套管道（子路径模块 + 自己的 row.json/locale）。
+      'ext-test/index': 'src/ext-test/index.ts',
     },
     outDir: 'lib',
     format: ['esm'],

@@ -76,31 +76,56 @@ if (nameLines.length === 0) {
   problems.push(`cordis.patch.yml 的首个 name '${nameLines[0]}' ≠ package.json 的 name '${pkg.name}'（loader 拿它 import 模块，必须逐字相同）`)
 }
 
-// ---- 内置供应商行：patch ↔ 源码目录 ↔ exports ↔ files ↔ 产物 ----
-const supplierDirs = readdirSync(join(root, 'src', 'suppliers'), { withFileTypes: true })
-  .filter((d) => d.isDirectory() && existsSync(join(root, 'src', 'suppliers', d.name, 'index.ts')))
-  .map((d) => d.name)
-  .sort()
-if (supplierDirs.length === 0) problems.push('src/suppliers 下没有任何供应商行（index.ts）')
-
-const patchSuppliers = nameLines.slice(1).map((n) => n.replace(`${pkg.name}/suppliers/`, ''))
+// ---- 行（子路径模块）：patch ↔ 源码目录 ↔ exports ↔ files ↔ 产物 ----
+//
+// 「行」= 插件页原生「包含的组件」里的一行，模块说明符是本包子路径
+// （`dsh-router-core/suppliers/nvidia`、`dsh-router-core/ext-test`）。它们在
+// **同一个 bundle 的 patch 里**，所以本包的发布管道必须为每一行都配齐：
+// 源码 `src/<sub>/index.ts` + `row.json` + `locale/`、exports 三件套、files 白名单、
+// 构建产物。少一环都是静默降级（行在页面上但标题/加载坏了），所以这里逐项核对。
+//
+// 为什么以 patch 为准、再反向找「有 row.json 却没声明」的目录：行的定义就是
+// 「patch 里声明的子路径」。若只按目录扫（早先只扫 src/suppliers），新增
+// `src/ext-test` 这种**不在 suppliers 下**的行会绕过全部闸门 —— 这正是本文件
+// 存在的理由，不能再留这个洞。
+const rowSubpaths = []
 for (const name of nameLines.slice(1)) {
-  if (!name.startsWith(`${pkg.name}/suppliers/`)) {
-    problems.push(`供应商行的 name '${name}' 不在 ${pkg.name}/suppliers/ 下（那不是供应商行，插件页会把它当核心行显示）`)
+  if (name === pkg.name || !name.startsWith(`${pkg.name}/`)) {
+    problems.push(`行的 name '${name}' 既不是核心行也不是本包的子路径（插件页会把它当核心行显示）`)
+    continue
+  }
+  rowSubpaths.push(name.slice(`${pkg.name}/`.length))
+}
+if (rowSubpaths.length === 0) problems.push('cordis.patch.yml 里一个子路径行都没有')
+
+/** 一个「像行的目录」= 底下有 row.json（那是行独有的清单文件）。 */
+function rowJsonDirs(dir) {
+  if (!existsSync(dir)) return []
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, 'row.json')))
+    .map((d) => join(dir, d.name))
+    .map((p) => relative(root, p)) // 相对仓库根；别手算 root.length（root 带尾斜杠）
+    .sort()
+}
+// 反向：源码里有 row.json 却没有在 patch 声明的行 = 装了也不会生效
+for (const base of ['src', join('src', 'suppliers')]) {
+  for (const rel of rowJsonDirs(join(root, base))) {
+    const sub = rel.replace(/^src\//, '')
+    if (!rowSubpaths.includes(sub)) problems.push(`src/${sub}/row.json 存在但 cordis.patch.yml 没声明这一行（装了也不会生效）`)
   }
 }
-for (const dir of supplierDirs) {
-  if (!patchSuppliers.includes(dir)) problems.push(`src/suppliers/${dir}/index.ts 没有在 cordis.patch.yml 里声明成行（装了也不会生效）`)
-}
-for (const dir of patchSuppliers) {
-  if (!supplierDirs.includes(dir)) problems.push(`cordis.patch.yml 声明了供应商行 '${dir}'，但 src/suppliers/${dir}/index.ts 不存在`)
-}
-for (const dir of supplierDirs) {
+
+for (const sub of rowSubpaths) {
+  const srcDir = join(root, 'src', sub)
+  if (!existsSync(join(srcDir, 'index.ts'))) {
+    problems.push(`cordis.patch.yml 声明了行 '${sub}'，但 src/${sub}/index.ts 不存在`)
+    continue
+  }
   // exports 三件套：模块本身 + 它自己的 package.json + locale（插件页读显示信息）
   for (const [key, want] of [
-    [`./suppliers/${dir}`, `./lib/suppliers/${dir}/index.js`],
-    [`./suppliers/${dir}/package.json`, `./lib/suppliers/${dir}/package.json`],
-    [`./suppliers/${dir}/locale/*.json`, `./lib/suppliers/${dir}/locale/*.json`],
+    [`./${sub}`, `./lib/${sub}/index.js`],
+    [`./${sub}/package.json`, `./lib/${sub}/package.json`],
+    [`./${sub}/locale/*.json`, `./lib/${sub}/locale/*.json`],
   ]) {
     const target = pkg.exports?.[key]
     if (target === undefined) problems.push(`package.json exports 缺 '${key}'（行会静默退化成模块说明符）`)
@@ -108,34 +133,36 @@ for (const dir of supplierDirs) {
       problems.push(`package.json exports['${key}'] 指向 ${JSON.stringify(target)}，应为 '${want}'`)
     }
   }
-  // 行的 package.json 会被宿主按**包作用域**读（它是 lib/suppliers/<dir>/ 下唯一的
+  // 行的 package.json 会被宿主按**包作用域**读（它是 lib/<sub>/ 下唯一的
   // package.json，接管该目录），所以有两处硬要求，踩了都是「行加载不了 / 标题读不出」：
   //   1. `name` 必须是合法 npm 包名 —— 写 `dsh-router-core/suppliers/<x>` 这种带斜杠
   //      又没有 scope 的话，Node 直接 ERR_INVALID_PACKAGE_CONFIG（实测）。
   //   2. 必须声明 `"type": "module"` —— 否则该目录下的 index.js 被当成 CJS。
   // 顺带查编码：这份清单是手写的中文 JSON，一旦存成非 UTF-8，Node 读包作用域时
   // JSON.parse 失败，报的还是同一个错（症状离原因极远）。
-  const rowJsonPath = join(root, 'src', 'suppliers', dir, 'row.json')
-  if (existsSync(rowJsonPath)) {
+  const rowJsonPath = join(srcDir, 'row.json')
+  if (!existsSync(rowJsonPath)) {
+    problems.push(`src/${sub} 缺 row.json（行的显示名/说明靠它）`)
+  } else {
     let row = null
     try { row = JSON.parse(readFileSync(rowJsonPath, 'utf8')) }
-    catch (error) { problems.push(`src/suppliers/${dir}/row.json 不是合法 JSON（多半是编码坏了）：${error.message}`) }
+    catch (error) { problems.push(`src/${sub}/row.json 不是合法 JSON（多半是编码坏了）：${error.message}`) }
     if (row !== null) {
       const name = typeof row.name === 'string' ? row.name : ''
       const valid = /^(?:@[a-z0-9-*~][a-z0-9-*._~]*\/[a-z0-9-~][a-z0-9-._~]*|[a-z0-9-~][a-z0-9-._~]*)$/.test(name)
-      if (!valid) problems.push(`src/suppliers/${dir}/row.json 的 name '${name}' 不是合法 npm 包名（带斜杠必须有 @scope 前缀）—— Node 读包作用域时会 ERR_INVALID_PACKAGE_CONFIG`)
-      if (row.type !== 'module') problems.push(`src/suppliers/${dir}/row.json 缺 "type": "module"（该目录的 index.js 会被当成 CJS）`)
+      if (!valid) problems.push(`src/${sub}/row.json 的 name '${name}' 不是合法 npm 包名（带斜杠必须有 @scope 前缀）—— Node 读包作用域时会 ERR_INVALID_PACKAGE_CONFIG`)
+      if (row.type !== 'module') problems.push(`src/${sub}/row.json 缺 "type": "module"（该目录的 index.js 会被当成 CJS）`)
     }
   }
 
-  // 自描述资源（构建期拷进 lib/suppliers/<dir>/）
+  // 自描述资源（构建期拷进 lib/<sub>/）
   // 源码侧叫 row.json（子目录里放 package.json 会让 rolldown 解析不了入口），
   // 产物侧才叫 package.json（宿主按它读名字/说明）。
   for (const [srcRel, libRel] of [['row.json', 'package.json'], ['locale/en.json', 'locale/en.json'], ['locale/zh.json', 'locale/zh.json']]) {
-    if (!existsSync(join(root, 'src', 'suppliers', dir, srcRel))) {
-      problems.push(`src/suppliers/${dir} 缺 ${srcRel}（插件页的标题/说明靠它，缺了退化成模块说明符）`)
+    if (!existsSync(join(srcDir, srcRel))) {
+      problems.push(`src/${sub} 缺 ${srcRel}（插件页的标题/说明靠它，缺了退化成模块说明符）`)
     }
-    if (!covers(`lib/suppliers/${dir}/${libRel}`)) problems.push(`files 白名单漏了 lib/suppliers/${dir}/${libRel}`)
+    if (!covers(`lib/${sub}/${libRel}`)) problems.push(`files 白名单漏了 lib/${sub}/${libRel}`)
   }
 }
 
@@ -172,10 +199,10 @@ for (const rel of required) if (!covers(rel)) problems.push(`files 白名单漏�
 
 // 产物：每个行的 js + 自描述资源都必须真在 lib 里（构建期拷贝漏了就是静默降级）
 if (!SOURCE_ONLY) {
-  for (const dir of supplierDirs) {
+  for (const sub of rowSubpaths) {
     for (const rel of ['index.js', 'package.json', 'locale/en.json', 'locale/zh.json']) {
-      if (!existsSync(join(root, 'lib', 'suppliers', dir, rel))) {
-        problems.push(`lib/suppliers/${dir}/${rel} 不存在（构建期拷贝漏了？行会静默退化成模块说明符）`)
+      if (!existsSync(join(root, 'lib', sub, rel))) {
+        problems.push(`lib/${sub}/${rel} 不存在（构建期拷贝漏了？行会静默退化成模块说明符）`)
       }
     }
   }
@@ -192,11 +219,11 @@ const TEXT_SHIPPED = [
   'README.md',
   ...readdirSync(join(root, 'docs')).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`),
 ]
-for (const dir of supplierDirs) {
-  TEXT_SHIPPED.push(`src/suppliers/${dir}/row.json`)
-  const localeDir = join(root, 'src', 'suppliers', dir, 'locale')
+for (const sub of rowSubpaths) {
+  TEXT_SHIPPED.push(`src/${sub}/row.json`)
+  const localeDir = join(root, 'src', sub, 'locale')
   if (existsSync(localeDir)) {
-    for (const f of readdirSync(localeDir)) TEXT_SHIPPED.push(`src/suppliers/${dir}/locale/${f}`)
+    for (const f of readdirSync(localeDir)) TEXT_SHIPPED.push(`src/${sub}/locale/${f}`)
   }
 }
 for (const rel of TEXT_SHIPPED) {
@@ -238,7 +265,7 @@ if (!SOURCE_ONLY && existsSync(join(root, 'lib'))) {
 // ERR_MODULE_NOT_FOUND，症状是「行在页面上、但供应商一个都没注册」。
 // 这里逐个核对：行引用的每个相对文件都要真实存在，且被 files 白名单覆盖。
 if (!SOURCE_ONLY && existsSync(join(root, 'lib'))) {
-  const rowJs = supplierDirs.map((dir) => join(root, 'lib', 'suppliers', dir, 'index.js')).filter((f) => existsSync(f))
+  const rowJs = rowSubpaths.map((sub) => join(root, 'lib', sub, 'index.js')).filter((f) => existsSync(f))
   const referenced = new Set()
   for (const file of rowJs) {
     const text = readFileSync(file, 'utf8')
@@ -271,13 +298,13 @@ if (process.argv.includes('--pack')) {
   const files = (JSON.parse(out)[0]?.files ?? []).map((f) => f.path)
   const want = ['lib/index.js', 'lib/client.js', 'lib/client-registry.js', 'cordis.patch.yml']
   for (const rel of want) if (!files.includes(rel)) problems.push(`npm pack 产物里缺 ${rel}`)
-  for (const dir of supplierDirs) {
+  for (const sub of rowSubpaths) {
     for (const rel of ['index.js', 'package.json', 'locale/en.json', 'locale/zh.json']) {
-      const want = `lib/suppliers/${dir}/${rel}`
-      if (!files.includes(want)) problems.push(`npm pack 产物里缺 ${want}（供应商行少了它就是静默降级）`)
+      const want = `lib/${sub}/${rel}`
+      if (!files.includes(want)) problems.push(`npm pack 产物里缺 ${want}（行少了它就是静默降级）`)
     }
   }
-  console.log(`✓ npm pack 含 ${supplierDirs.length} 个供应商行`)
+  console.log(`✓ npm pack 含 ${rowSubpaths.length} 个行`)
 }
 
 if (problems.length > 0) {

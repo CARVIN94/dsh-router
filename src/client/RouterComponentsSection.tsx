@@ -30,8 +30,14 @@ import {
   type RouterComponents,
 } from './router-components.ts'
 
-/** 只在自己的 bundle 页渲染。 */
-const BUNDLE_NAME = 'dsh-router-core'
+/**
+ * 本 bundle 的包名 —— 宿主用它标识「哪个插件的详情页」。
+ *
+ * 导出是因为**行详情页的槽位 key 要用它拼**（`<包名>#<行 id>`，见 index.tsx）：
+ * 宿主约定的字符串，两处各写一份字面量就可能对不上，而对不上的表现是「配置控件
+ * 静默不出现」—— 不报错的那种。
+ */
+export const BUNDLE_NAME = 'dsh-router-core'
 
 /** 两组的标题与组级说明（顺序即渲染顺序）。 */
 const GROUPS: ReadonlyArray<{ key: keyof RouterComponents; title: string; hint: string }> = [

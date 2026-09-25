@@ -10,7 +10,8 @@
  */
 import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
-import { RouterComponentsSection } from './RouterComponentsSection.tsx'
+import { RouterComponentsSection, BUNDLE_NAME } from './RouterComponentsSection.tsx'
+import { ExtTestPanel } from './ExtTestPanel.tsx'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { rewriteRouterModelHint } from './model-hint-copy.ts'
 import { LastHitDock } from './LastHitDock.tsx'
@@ -113,6 +114,26 @@ function mountComponentsSection(ctx: Ctx): (() => void) | undefined {
   }, RouterComponentsSection))
 }
 
+/**
+ * 「连接自检」那一行的详情页 —— 走官方 `plugins.row.config` 座位。
+ *
+ * key 是宿主约定的 `<bundle 包名>#<行 id>`：注册了这一格，宿主就会在那一行旁边
+ * 给出一个配置控件，点开就是本组件。行 id 必须与 cordis.patch.yml 里声明的
+ * **逐字相同**（这里是 `dsh-router-ext-test`），对不上就静默不显示。
+ *
+ * 面板自己不做任何判断，跑的是核心的 `POST /suppliers/:id/models/test` —— 与面板
+ * 「供应商」详情里的「测试」按钮同一条路径。
+ */
+function mountExtTestPanel(ctx: Ctx): (() => void) | undefined {
+  const slots = ctx.slots
+  if (slots === undefined) return undefined
+  return slots.inject('plugins.row.config', () => slots.register({
+    name: 'plugins.row.config',
+    key: `${BUNDLE_NAME}#dsh-router-ext-test`,
+    id: 'dsh-router-ext-test-panel',
+  }, ExtTestPanel))
+}
+
 export function apply(ctx: Ctx): void {
   // 「最近命中」徽章：走官方 conversation.composer.dock（scope: session → 组件
   // props 注入 sessionId，按当前会话取命中）。**仅宿主 >= 0.1.7 才挂**——
@@ -132,6 +153,10 @@ export function apply(ctx: Ctx): void {
   const disposeComponents = mountComponentsSection(ctx)
   if (disposeComponents !== undefined) {
     ctx.effect(() => disposeComponents, 'dsh-router: plugin page components')
+  }
+  const disposeExtTest = mountExtTestPanel(ctx)
+  if (disposeExtTest !== undefined) {
+    ctx.effect(() => disposeExtTest, 'dsh-router: ext test row panel')
   }
   // 换掉宿主的默认齿轮（契约没有 icon 字段，只能注册后认领自己的行）
   ctx.effect(() => registerSettingsNavIcon(SECTION_LABEL), 'dsh-router: settings nav icon')

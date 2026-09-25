@@ -3423,3 +3423,55 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     line-height: 16px;
     overflow-wrap: anywhere;
 }
+
+/* ============================================================
+   dsh-router — 连接自检面板（插件页里那一行的详情）
+   ------------------------------------------------------------
+   这一页渲染在**宿主的插件页**里，DOM 祖先既不是 .dshr-settings 也不是
+   .dshr-shell，所以 `router.css` 顶部那套 `--rs-*` 主题变量在这里**不存在**
+   （未定义的 var() 会让整条声明失效：边框/文字色退成继承值）。与「路由组件」
+   那一节同样的处境，两边各按各的办法处理。
+
+   这里在根节点上把面板要用到的那几个变量**就地映射**一次，于是可以继续复用
+   .dshr-select / .dshr-fieldLabel / .dshr-alert / .dshr-warnBox / .dshr-muted ——
+   不必把它们的样式抄一遍（抄一遍就会有两份，改一处忘另一处）。
+   ============================================================ */
+
+.dshr-extTest {
+    --rs-text: var(--dsw-alias-label-primary);
+    --rs-muted: var(--dsw-alias-label-secondary);
+    --rs-faint: var(--dsw-alias-label-tertiary);
+    --rs-line: var(--dsw-alias-border-l1);
+    --rs-line-strong: var(--dsw-alias-border-l2);
+    --rs-accent: var(--dsw-alias-state-business-primary);
+    --rs-danger: var(--dsw-alias-state-error-primary);
+    --rs-warn: var(--dsw-alias-state-warning-primary, #9a6a18);
+    color: var(--rs-text);
+    font: 13px/1.55 var(--ds-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+}
+
+/* 三个下拉并排：窄了换行（插件页详情区宽度随窗口变，写死三列会在窄窗口挤成一团）。 */
+.dshr-extTestGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    align-items: end;
+}
+
+/* 主按钮。`.dshr-primaryButton` 的规则挂在 .dshr-settings / .dshr-shell 下，
+   在这一页不生效，所以这里给一个只依赖本面板根节点的版本。 */
+.dshr-extTest .dshr-primaryButton {
+    border: none;
+    border-radius: 8px;
+    padding: 7px 16px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--dsw-alias-label-inverse, #fff);
+    background: var(--rs-accent);
+    cursor: pointer;
+}
+
+.dshr-extTest .dshr-primaryButton:disabled {
+    opacity: 0.45;
+    cursor: default;
+}

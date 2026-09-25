@@ -1219,6 +1219,10 @@ export class Router {
    *   预算耗尽后不再调任何号：剩下的号大概率同样停滞（上游级故障），
    *   挨个等下去只会把 60s 乘以号数，组合永远轮不到下一个模型。
    */
+  /**
+   * @param onlyUid - 只试这一个连接，**不做账号池回退**。给「指定连接自检」用
+   *   （诊断单个链接到底通不通）；正常请求与普通模型测试都不传，走账号池。
+   */
   private async chatWithSupplier(
     s: Supplier,
     req: ChatRequest,
@@ -1226,6 +1230,7 @@ export class Router {
     trace?: ChatTrace,
     probe?: UsageProbe,
     firstByteDeadlineAt = Date.now() + this.firstByteBudgetMs,
+    onlyUid?: string,
   ): Promise<boolean> {
     const pool = s.pool
     const cfg = this.store.get(s.id)
@@ -1262,8 +1267,22 @@ export class Router {
     const tried = new Set<string>()
     let pickWhy = ''
     for (;;) {
-      const uid = pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages, req.session)
-      if (uid === undefined) return false
+      // 指定连接：只试它。选不中就直接失败并说明原因（连接已不存在/不在池里），
+      // **不回退到别的号** —— 否则「测这个连接」测出来的是另一个号的结果，
+      // 诊断就变成了假话。
+      const uid = onlyUid !== undefined
+        ? (s.accounts().some((a) => a.uid === onlyUid) && !tried.has(onlyUid) ? onlyUid : undefined)
+        : pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages, req.session)
+      if (uid === undefined) {
+        if (onlyUid !== undefined && trace !== undefined) {
+          // 不给 AccountState 加「连接不存在」这个值：那是给**账号的失败**分类用的
+          // （决定要不要冷却），而链接不存在不是任何账号的错，混进去会让所有分类逻辑
+          // 都要认识它。具体原因放 lastError 就够。
+          trace.lastState = 'unknown'
+          trace.lastError = `连接 ${JSON.stringify(onlyUid)} 不存在（可能已被删除）`
+        }
+        return false
+      }
       // 腿的首字节预算已经耗尽：不再调下一个号。停滞是上游级的，剩下那些号
       // 挨个等下去 = 60s × 号数，组合永远轮不到下一个模型（2026-09-24 实测）。
       const left = firstByteDeadlineAt - Date.now()
@@ -1328,10 +1347,16 @@ export class Router {
     }
   }
 
-  /** 测试某供应商的某模型是否可用。
-   *  走真实的账号遍历 + chatOnce 路径：账号池回退/冷却由核心实现，自动生效；
-   *  响应丢弃到 sink，限定单一供应商（不跨供应商回退）。 */
-  async testModel(supplierId: string, model: string): Promise<{ ok: boolean; error?: string }> {
+  /**
+   * 测试某供应商的某模型是否可用。
+   *
+   * 走真实的账号遍历 + chatOnce 路径：账号池回退/冷却由核心实现，自动生效；
+   * 响应丢弃到 sink，限定单一供应商（不跨供应商回退）。
+   *
+   * @param onlyUid - 限定只测这一个连接（诊断单个链接），**不做账号池回退**。
+   *   不传 = 与面板「测试」按钮完全同一条路径（池内任选可用号，失败自动换号）。
+   */
+  async testModel(supplierId: string, model: string, onlyUid?: string): Promise<{ ok: boolean; error?: string }> {
     const s = this.active.find((x) => x.id === supplierId)
     if (s === undefined) return { ok: false, error: `unknown supplier ${JSON.stringify(supplierId)}` }
     const sink = sinkRes()
@@ -1343,7 +1368,7 @@ export class Router {
     let served = false
     const trace: ChatTrace = { attempts: 0 }
     try {
-      served = await this.chatWithSupplier(s, req, sink, trace)
+      served = await this.chatWithSupplier(s, req, sink, trace, undefined, Date.now() + this.firstByteBudgetMs, onlyUid)
     } catch (err) {
       return { ok: false, error: (err as Error).message }
     }

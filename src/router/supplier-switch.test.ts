@@ -163,3 +163,58 @@ test('没记录过的供应商默认开着（升级不把全灭变成全开）',
   add(router, spy('supA', 'a-model').s)
   assert.equal(router.isEnabled('supA'), true)
 })
+
+// ---- 指定连接自检（连接自检扩展用它） ----
+// 面板「供应商」详情里的「测试」按钮走账号池（任选可用号、失败自动换号）；
+// 连接自检可以**钉死一个连接**，用来诊断单个链接到底通不通。关键性质：
+// 指定了连接就**不回退**到别的号，否则「测这个连接」测出来的是另一个号的结果。
+
+test('指定连接：只试这一个连接', async () => {
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  a.s.accounts = () => [
+    { uid: 'u1', credits: 0, state: 'ok' },
+    { uid: 'u2', credits: 0, state: 'ok' },
+  ]
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  add(router, a.s)
+
+  const r = await router.testModel('supA', 'a-model', 'u1')
+  assert.equal(r.ok, true)
+  assert.equal(a.calls, 1, '只该试一次')
+})
+
+test('指定连接失败时不回退到别的号（否则诊断结论是假的）', async () => {
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  a.s.accounts = () => [
+    { uid: 'u1', credits: 0, state: 'ok' },
+    { uid: 'u2', credits: 0, state: 'ok' },
+  ]
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  // 自己记账：spy 的 calls 计数封在原 chatOnce 里，换掉实现就得自己数。
+  const seen: string[] = []
+  a.s.chatOnce = async (uid) => {
+    seen.push(uid)
+    return { ok: false, state: 'transport', message: `link ${uid} down` }
+  }
+  add(router, a.s)
+
+  const r = await router.testModel('supA', 'a-model', 'u1')
+  assert.equal(r.ok, false)
+  assert.deepEqual(seen, ['u1'], '失败也不该换号重试')
+  assert.match(r.error ?? '', /u1/, '错误信息要点名是哪个连接挂了')
+})
+
+test('指定不存在的连接：明确报「连接不存在」，而不是静默测了别的号', async () => {
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  a.s.accounts = () => [{ uid: 'u1', credits: 0, state: 'ok' }]
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  add(router, a.s)
+
+  const r = await router.testModel('supA', 'a-model', 'gone')
+  assert.equal(r.ok, false)
+  assert.equal(a.calls, 0, '一个号都不该被试')
+  assert.match(r.error ?? '', /不存在/)
+})

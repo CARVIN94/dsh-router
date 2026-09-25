@@ -107,8 +107,11 @@ team 测试就是多个会话交错发请求。dsh-router 原生适配这个场�
 - 原生的**「包含的组件」**列 **core 自己 + 三个内置供应商**(每行宿主管的开关:
   关一行 = loader 不 import 它 = 供应商没注册)。这三个是 core 自己 patch 里的
   行,所以进得了原生列表。
-- 原生列表**下面**还有一节自绘的「路由组件」,列 **外部供应商插件**与**扩展**
-  (扩展带开关,走核心的 `PATCH /router/api/ext`)。
+- 原生列表**下面**还有一节自绘的「路由组件」,列 **供应商**与**扩展**,
+  **两组都带开关**。供应商的开关写 `supplier-config.json`
+  (`PATCH /router/api/suppliers/:id/enabled`),扩展的写 `ext.json`
+  (`PATCH /router/api/ext`) —— 都是核心持久化的用户开关,且**真的停止路由**:
+  关掉的供应商不在核心的活跃集合里,请求不会落到它、模型列表与组合里也不再出现它。
 
 **内置那一组不在自绘节里**:同一份东西列两遍只会让人不知道该在哪开关。反过来说,
 外部供应商与扩展进不了原生列表 —— 官方那个列表只认**本 bundle 自己 patch 里声明
@@ -184,7 +187,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 | 端点                            | 方法      | 说明                                                                   |
 | ------------------------------- | --------- | ---------------------------------------------------------------------- |
-| `/health`                       | GET       | 供应商列表(含来源/能力)+ 宿主版本 `hostVersion` / 徽章支持位 `lastHitDock` |
+| `/health`                       | GET       | 供应商列表(含来源/能力/开关 `enabled`)+ 宿主版本 `hostVersion` / 徽章支持位 `lastHitDock` |
 | `/last-hit`                     | GET       | 最近一次命中 `?session=<id>`(按会话取,缺省全局);供「路由」徽章 |
 | `/status`                       | GET       | 全部账号(含供应商 id)                                                  |
 | `/models`                       | GET       | 合并模型列表(已过滤禁用)                                               |
@@ -199,8 +202,31 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 | `/stats/clear`                  | POST      | 清空全部用量统计                                                       |
 | `/suppliers/:id/login`          | POST      | 生成登录链接                                                           |
 | `/suppliers/:id/login/callback` | POST      | `{callbackUrl}` → 加账号                                               |
+| `/suppliers/:id/enabled`        | PATCH     | 供应商开关 `{enabled}` —— 关掉不参与路由(见下)                           |
 | `/suppliers/:id/models`         | GET       | 模型 + 启用状态                                                        |
 | `/suppliers/:id/models/toggle`  | POST      | `{id, enabled}`                                                        |
+
+## 供应商开关
+
+每个供应商有**一个开关**,决定它是否参与路由(默认开)。落盘在
+`supplier-config.json` 的 `enabled`(与扩展开关的 `ext.json` 同一层:都是用户对
+核心面板的操作,归核心持久化)。
+
+关掉之后**真的不参与路由**,不是只把卡片藏起来 —— 核心的活跃集合(`Router` 的
+`active`)里就没有它了:
+
+- 请求不会落到它(组合腿与 `alias/model` 直调两个入口都拦);
+- 它的模型前缀不再出现在对外模型全名里,模型列表与组合里也不再出现它
+  (避免留下「前缀存在但必然 503」的死前缀);
+- 它**仍留在** `/health` 与面板「供应商」页里,标着「已关闭,不参与路由」——
+  消失了就再没有可点的开关把它开回来。
+
+面板「扩展」页的形状不同:关掉的扩展**不出现**卡片。两种形状是刻意的:扩展关掉后
+仍可从插件页重新打开(它有 ready 自检,没就绪的扩展列表里也没意义),而供应商要保留
+入口让人看见自己装过什么。
+
+开关 UI 在 **设置 → 插件 → dsh-router-core 详情页**下面的「路由组件」一节
+(「供应商」组 + 「扩展」组)。
 
 ## 扩展插件(`router.ext`)
 

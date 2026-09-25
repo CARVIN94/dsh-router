@@ -408,6 +408,8 @@ export function apply(rawContext: unknown): void {
           apiKeyHint: loaded?.supplier.apiKeyHint,
           capabilities: loaded ? [...loaded.capabilities] : [],
           source: loaded?.source ?? 'external',
+          // 开关状态：关掉的供应商**仍在列表里**（关掉后要能再开），只是不参与路由。
+          enabled: s.enabled,
         }
       }),
     })

@@ -16,7 +16,8 @@
  *   - `GET /router/api/ext` → `enhancers[]`（核心已把开关与就绪状态合并好）
  *
  * 交互按各组真实能力给，不假装能开关：只有 ext 走 `PATCH /router/api/ext`
- * （核心持久化到 `<dataDir>/ext.json`）；外部供应商插件的启停在它们自己的插件页。
+ * （核心持久化到 `<dataDir>/ext.json`）；供应商走 `PATCH /suppliers/:id/enabled`
+ * （落到 `supplier-config.json`），关掉后核心的活跃集合里就没有它，请求不会落到它。
  */
 import { useEffect, useRef, useState } from 'react'
 import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -34,7 +35,7 @@ const BUNDLE_NAME = 'dsh-router-core'
 
 /** 两组的标题与组级说明（顺序即渲染顺序）。 */
 const GROUPS: ReadonlyArray<{ key: keyof RouterComponents; title: string; hint: string }> = [
-  { key: 'external', title: '外部供应商插件', hint: '各是独立安装的插件，启停在它自己的插件页' },
+  { key: 'external', title: '供应商', hint: '关掉的供应商不参与路由，请求不会落到它' },
   { key: 'ext', title: '扩展', hint: '开关由路由核心保存' },
 ]
 
@@ -71,6 +72,27 @@ async function writeExt(id: string, enabled: boolean): Promise<RouterExtResponse
   }
 }
 
+/**
+ * 写供应商开关（核心的通用端点，`supplierRoutes` 生成）。
+ *
+ * 关掉是真的不参与路由 —— 核心的活跃集合里就没有它了，请求不会落到它，而它自己
+ * 仍留在列表里（关掉后还能再开）。答复只回 `{ok, id, enabled}`，所以成功后就重读
+ * `/health`，不在这儿猜状态。
+ */
+async function writeSupplier(id: string, enabled: boolean): Promise<{ ok?: boolean; error?: string } | undefined> {
+  try {
+    const response = await fetch(`${ROUTER_API_BASE}/suppliers/${encodeURIComponent(id)}/enabled`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+      cache: 'no-store',
+    })
+    return await response.json() as { ok?: boolean; error?: string }
+  } catch {
+    return undefined
+  }
+}
+
 function RowIcon({ row }: { row: RouterComponentRow }): JSX.Element {
   if (row.icon === undefined) {
     return <span className="dshr-compRowIcon" aria-hidden="true">◇</span>
@@ -80,6 +102,11 @@ function RowIcon({ row }: { row: RouterComponentRow }): JSX.Element {
       <img src={row.icon} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
     </span>
   )
+}
+
+/** 这一行是不是扩展（键前缀 `ext:`）—— 扩展有 `ready` 自检，供应商没有。 */
+function isExt(row: RouterComponentRow): boolean {
+  return row.key.startsWith('ext:')
 }
 
 /**
@@ -105,11 +132,12 @@ function Row({ row, busy, onToggle }: {
       {row.togglable && (
         <Switch
           checked={row.enabled === true}
-          // 自检未通过的扩展不给开（核心 PATCH 也会 409 拒，这里先不让点）。
-          // 约定写在 docs/ext.md：不可用时开关禁用，而不是点了再报错。
-          disabled={busy || (!row.enabled && row.ready !== true)}
+          // 「自检未通过不给开」只对**扩展**成立（`ready` 是扩展器报的运行时事实，
+          // 约定写在 docs/ext.md）。供应商没有 `ready` 这个字段，若不按行类型区分，
+          // 它的开关会永远处于 disabled —— 一个点不开的开关比没有还糟。
+          disabled={busy || (!row.enabled && isExt(row) && row.ready !== true)}
           label={`${row.name} 开关`}
-          title={!row.enabled && row.ready !== true
+          title={!row.enabled && isExt(row) && row.ready !== true
             ? (row.detail ?? '当前不可用,无法开启')
             : row.enabled === true ? `关闭 ${row.name}` : `开启 ${row.name}`}
           onChange={(next) => { onToggle(row, next) }}
@@ -149,18 +177,36 @@ export function RouterComponentsSection({ subject }: { subject?: Subject }): JSX
   if (!mine) return null
 
   const toggle = async (row: RouterComponentRow, next: boolean): Promise<void> => {
-    const id = row.key.slice('ext:'.length)
+    // 行键形如 `ext:rtk` / `supplier:codebuddy`；两种组走**不同的端点**。
+    // （这里原先硬编码了 'ext:' 前缀 —— 供应商行的 id 会被切成 'supplier:codebuddy'
+    // 整串发给扩展端点，供应商的开关根本落不下去。）
+    const id = row.key.slice(row.key.indexOf(':') + 1)
     setBusy(id)
     setError('')
-    const data = await writeExt(id, next)
+    if (isExt(row)) {
+      const data = await writeExt(id, next)
+      if (!live.current) return
+      setBusy('')
+      if (data?.ok === true) {
+        // 扩展端点的 PATCH 会回发合并后的整张表，直接用它，省一次往返。
+        const health = await readJson<RouterHealthResponse>('/health')
+        setComponents(groupRouterComponents(health ?? { ok: true }, data))
+        return
+      }
+      // 核心拒了（未就绪 / 不存在）或网络失败：回读真值，不留乐观假象。
+      setError(data?.error ?? '切换扩展失败')
+      await load()
+      return
+    }
+    const data = await writeSupplier(id, next)
     if (!live.current) return
     setBusy('')
     if (data?.ok === true) {
-      setComponents(groupRouterComponents({ ok: true }, data))
+      // 供应商端点只回 `{ok,id,enabled}`，状态以 `/health` 为准重读一次。
+      await load()
       return
     }
-    // 核心拒了（未就绪 / 不存在）或网络失败：回读真值，不留乐观假象。
-    setError(data?.error ?? '切换扩展失败')
+    setError(data?.error ?? '切换供应商失败')
     await load()
   }
 
@@ -182,7 +228,7 @@ export function RouterComponentsSection({ subject }: { subject?: Subject }): JSX
           {group.hint !== '' && <p className="dshr-compHint">{group.hint}</p>}
           <ul className="dshr-compRows">
             {group.rows.map((row) => (
-              <Row key={row.key} row={row} busy={busy === row.key.slice('ext:'.length)} onToggle={toggle} />
+              <Row key={row.key} row={row} busy={busy === row.key.slice(row.key.indexOf(':') + 1)} onToggle={toggle} />
             ))}
           </ul>
         </div>

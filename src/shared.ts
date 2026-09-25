@@ -79,6 +79,11 @@ export interface RouterHealthResponse {
     capabilities?: string[]
     /** 来源：内置 / 用户目录 / 外部插件。 */
     source?: 'builtin' | 'user' | 'external'
+    /**
+     * 供应商开关（是否参与路由）。**关掉的仍出现在这个列表里** —— 否则关掉之后
+     * 就没有可指的对象、再也开不回来。缺省按开启读（老版本核心没有这个字段）。
+     */
+    enabled?: boolean
   }>
   error?: string
 }

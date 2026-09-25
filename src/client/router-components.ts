@@ -25,9 +25,10 @@ export interface RouterComponentRow {
   enabled?: boolean
   ready?: boolean
   /**
-   * 能否就地开关。**只有 ext 能**：扩展开关由核心持久化（`<dataDir>/ext.json`），
-   * 走 `PATCH /router/api/ext`。外部供应商插件的启停在它们自己的插件页 —— 在这里
-   * 再画一个开关，等于给同一件事开第二个口子。
+   * 能否就地开关。**两组都能**：扩展走 `PATCH /router/api/ext`（核心持久化到
+   * `<dataDir>/ext.json`），供应商走 `PATCH /router/api/suppliers/:id/enabled`
+   * （落到 `supplier-config.json`）。两组都是核心持久化的用户开关，核心都据此
+   * 真的停止路由 —— 不是一个只把卡片藏起来的假开关。
    */
   togglable: boolean
 }
@@ -54,7 +55,11 @@ function supplierRow(s: RouterSupplierSummary): RouterComponentRow {
   return {
     key: `supplier:${s.id}`,
     name: s.name,
-    togglable: false,
+    // 缺 `enabled` 按开着读（老核心没这个字段）。关掉的供应商**仍列出来** ——
+    // 面板「扩展」页的形状是「关掉就不出现」，但供应商关掉后如果也消失，这里就
+    // 少了一个可点的开关、再也开不回来。两组刻意不同。
+    enabled: s.enabled !== false,
+    togglable: true,
     ...(s.icon === undefined ? {} : { icon: s.icon }),
   }
 }
@@ -64,9 +69,13 @@ function supplierRow(s: RouterSupplierSummary): RouterComponentRow {
  *
  * 供应商这边只收 `source === 'external'`（独立安装的供应商插件）。`builtin`
  * 的那三个已经作为**原生行**在宿主的「包含的组件」里显示了（core 自己 patch
- * insert 的子路径模块），`user` 的是用户目录里投放的 js —— 两者都不该在这里
- * 出现第二次。`source` 缺失按「不是 external」处理：不显示总比把内置的错标成
- * 独立插件强。
+ * insert 的子路径模块，开关是宿主管的那个行开关），`user` 的是用户目录里投放的
+ * js —— 两者都不该在这里出现第二次。`source` 缺失按「不是 external」处理：
+ * 不显示总比把内置的错标成独立插件强。
+ *
+ * 两组都在这一页开关，指向核心的同两个端点（`PATCH /suppliers/:id/enabled` 与
+ * `PATCH /ext`），所以「在哪开关」是一致的：**设置 → 插件 → dsh-router-core**。
+ * 供应商的开关关掉是真的不参与路由（见 Router 的活跃集合），不是只隐藏卡片。
  */
 export function groupRouterComponents(health: RouterHealthResponse, ext: RouterExtResponse): RouterComponents {
   const external = (health.suppliers ?? [])

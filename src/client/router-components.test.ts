@@ -26,13 +26,13 @@ test('内置供应商一个都不进这一节（它们是原生「包含的组�
   assert.deepEqual(out.ext, [])
 })
 
-test('外部供应商插件进 external 组（各是独立 bundle，启停在它自己页面）', () => {
+test('外部供应商插件进「供应商」组（各是独立 bundle，这一页有开关）', () => {
   const out = groupRouterComponents(health([
     { id: 'codebuddy', name: 'CodeBuddy', source: 'external' },
     { id: 'traework', name: 'TRAE SOLO', source: 'external' },
   ]), noExt)
   assert.deepEqual(out.external.map((r) => r.key), ['supplier:codebuddy', 'supplier:traework'])
-  assert.equal(out.external.every((r) => r.togglable === false), true)
+  assert.equal(out.external.every((r) => r.togglable), true, '供应商在这一页有开关（写 PATCH /suppliers/:id/enabled）')
 })
 
 test('缺 source 的供应商不显示，也不被误报成独立插件', () => {
@@ -81,4 +81,22 @@ test('两个端点都没有内容时不渲染这一节（不留空标题）', ()
 test('端点报错/缺字段时分组仍是空组，不抛（形状恒定）', () => {
   const out = groupRouterComponents({ ok: false, error: 'boom' }, { ok: false, error: 'boom' })
   assert.deepEqual(out, EMPTY_COMPONENTS)
+})
+
+test('供应商的开关状态：缺 enabled 按开着读，关掉的仍列出来（关掉后要能再开）', () => {
+  const out = groupRouterComponents(health([
+    { id: 'codebuddy', name: 'CodeBuddy', source: 'external' },
+    { id: 'traework', name: 'TRAE SOLO', source: 'external', enabled: false },
+  ]), noExt)
+  assert.deepEqual(out.external.map((r) => r.key), ['supplier:codebuddy', 'supplier:traework'],
+    '关掉的供应商不能从列表消失 —— 消失了就再没有可点的开关把它开回来')
+  assert.deepEqual(out.external.map((r) => r.enabled), [true, false])
+})
+
+test('供应商行没有 ready（那是扩展的运行时事实）—— 缺失不得让它变成点不开', () => {
+  const out = groupRouterComponents(health([{ id: 'codebuddy', name: 'CodeBuddy', source: 'external' }]), noExt)
+  const row = out.external.at(0)
+  assert.ok(row !== undefined)
+  assert.equal('ready' in row, false, '供应商不报就绪，别塞一个 undefined 键进去')
+  assert.equal(row.togglable, true)
 })

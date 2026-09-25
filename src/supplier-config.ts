@@ -23,6 +23,14 @@ import { dirname, join } from 'node:path'
 export const CREDITS_UNKNOWN = -1
 
 export interface SupplierConfig {
+  /**
+   * 这个供应商是否参与路由（用户开关，与扩展开关同构）。
+   *
+   * **缺省 true** —— 没记录过就是开着。关掉 = 核心不把它接进路由（`Router` 的
+   * 活跃集合），请求不会落到它、模型列表/组合里也不再出现它，而它自己仍留在
+   * `/health` 与面板里（不然关掉之后就找不回来、开关也失去了开关的对象）。
+   */
+  enabled: boolean
   alias: string
   disabled: string[]
   custom: string[]
@@ -87,7 +95,7 @@ export class SupplierConfigStore {
   get(supplierId: string): SupplierConfig {
     let cfg = this.bySupplier.get(supplierId)
     if (!cfg) {
-      cfg = { alias: '', disabled: [], custom: [], poolOrder: [], credits: {}, accountNames: {} }
+      cfg = { enabled: true, alias: '', disabled: [], custom: [], poolOrder: [], credits: {}, accountNames: {} }
       this.bySupplier.set(supplierId, cfg)
     }
     return cfg
@@ -108,6 +116,26 @@ export class SupplierConfigStore {
     this.get(supplierId).alias = clean
     this.saveLocked()
     return { ok: true }
+  }
+
+  // ---- 供应商开关（用户对核心面板的操作，归核心持久化，与 ext.json 同一层） ----
+
+  /** 这个供应商是否参与路由（未记录过 = 开）。 */
+  isEnabled(supplierId: string): boolean {
+    return this.get(supplierId).enabled
+  }
+
+  /**
+   * 置供应商开关。**不写盘**时值不变也要返回，让调用方知道是否需要重连路由。
+   * @returns 值确实变了
+   */
+  setEnabled(supplierId: string, enabled: boolean): boolean {
+    if (supplierId === '') return false
+    const cfg = this.get(supplierId)
+    if (cfg.enabled === enabled) return false
+    cfg.enabled = enabled
+    this.saveLocked()
+    return true
   }
 
   setModelEnabled(supplierId: string, modelId: string, enabled: boolean): void {
@@ -208,6 +236,8 @@ export class SupplierConfigStore {
     }
     for (const [id, c] of Object.entries(f.suppliers ?? {})) {
       this.bySupplier.set(id, {
+        // 老配置没有这个字段（写盘早于本开关）→ 视为开着，不让升级把全灭变成全开
+        enabled: typeof c.enabled === 'boolean' ? c.enabled : true,
         alias: typeof c.alias === 'string' ? c.alias : '',
         disabled: Array.isArray(c.disabled) ? c.disabled.filter((m) => typeof m === 'string') : [],
         custom: Array.isArray(c.custom) ? c.custom.filter((m) => typeof m === 'string') : [],
@@ -223,6 +253,7 @@ export class SupplierConfigStore {
     const f: ConfigFile = { suppliers: {} }
     for (const [id, cfg] of this.bySupplier) {
       f.suppliers[id] = {
+        enabled: cfg.enabled,
         alias: cfg.alias,
         disabled: [...cfg.disabled],
         custom: [...cfg.custom],

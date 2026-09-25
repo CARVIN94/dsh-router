@@ -635,6 +635,12 @@ interface UsageProbe {
 
 /** 路由器。 */
 export class Router {
+  /**
+   * **已装载**的全部供应商（含被开关关掉的）。关掉的仍留在列表里 —— 否则用户关掉
+   * 之后它在 `/health`、面板、插件页里一起消失，开关就没有可指的对象、也没法再开。
+   *
+   * 真正参与路由的只有 `active` 那一份。
+   */
   private suppliers: Supplier[] = []
   private combosFp = ''
   private customCombos: Combo[] = []
@@ -706,7 +712,7 @@ export class Router {
               if (slash <= 0) return m // 裸 id：保持，路由降级为遍历
               const alias = m.slice(0, slash)
               const modelId = m.slice(slash + 1)
-              const s = this.suppliers.find((x) => x.getAlias() === alias)
+              const s = this.active.find((x) => x.getAlias() === alias)
               return s === undefined ? modelId : `${s.id},${modelId}`
             })
             return {
@@ -743,6 +749,22 @@ export class Router {
     this.store.sync(this.suppliers.map((s) => s.id))
   }
 
+  /**
+   * **参与路由的供应商** —— 装载清单里开关为开的那一份，按 priority 排好。
+   *
+   * 这是「供应商开关」唯一的收口点：请求分发、别名反查、模型列表、组合、面板状态
+   * 全部读它。关掉一个供应商 = 它从这里消失，而不是在每个调用点各写一遍判断 ——
+   * 后者一定会漏（本次实测路由有 15 处读 `this.suppliers`）。
+   */
+  private get active(): Supplier[] {
+    return this.suppliers.filter((s) => this.store.isEnabled(s.id))
+  }
+
+  /** 某供应商当前是否参与路由（面板与 API 用）。 */
+  isEnabled(supplierId: string): boolean {
+    return this.store.isEnabled(supplierId)
+  }
+
   /** 移除供应商（外部插件卸载时注销）。 */
   removeSupplier(id: string): boolean {
     const i = this.suppliers.findIndex((s) => s.id === id)
@@ -753,14 +775,20 @@ export class Router {
     return true
   }
 
-  /** 返回全部供应商状态（面板用）。 */
-  status(): { suppliers: SupplierStatus[] } {
-    return { suppliers: this.suppliers.map((s) => s.status()) }
+  /**
+   * 返回全部供应商状态（面板用）。**含被开关关掉的** —— 面板要能显示它们
+   * （「已关闭」），否则用户在面板上就再也看不到自己装过的供应商。
+   * 开关状态由 `enabled` 字段带出，调用方自己决定要不要只留开着的。
+   */
+  status(): { suppliers: (SupplierStatus & { enabled: boolean })[] } {
+    return {
+      suppliers: this.suppliers.map((s) => ({ ...s.status(), enabled: this.store.isEnabled(s.id) })),
+    }
   }
 
-  /** 供应商前缀信息（组合模型全名 = alias/id，展示时动态拼接）。 */
+  /** 供应商前缀信息（组合模型全名 = alias/id，展示时动态拼接）。只含开着的。 */
   aliases(): Array<{ id: string; name: string; alias: string }> {
-    return this.suppliers.map((s) => ({ id: s.id, name: s.name, alias: s.getAlias() }))
+    return this.active.map((s) => ({ id: s.id, name: s.name, alias: s.getAlias() }))
   }
 
   /**
@@ -777,7 +805,7 @@ export class Router {
         out.push({ id: c.name })
       }
     }
-    for (const s of this.suppliers) {
+    for (const s of this.active) {
       try {
         const ids = s.customModelIds?.()
         for (const id of ids ?? []) {
@@ -846,7 +874,7 @@ export class Router {
   }
 
   async modelsOf(supplierId: string, force = false): Promise<ModelWithEnabled[]> {
-    const s = this.suppliers.find((x) => x.id === supplierId)
+    const s = this.active.find((x) => x.id === supplierId)
     if (s === undefined) return []
     const hit = this.modelsCache.get(supplierId)
     const fresh = hit !== undefined && Date.now() - hit.fetchedAt < MODELS_TTL_MS
@@ -918,7 +946,7 @@ export class Router {
   /** 可用模型（按供应商分组，仅启用），面板加模型用。
    *  各供应商**并行**拉取——串行会把每个上游的延迟累加起来。 */
   async supplierModels(): Promise<Array<{ supplier: { id: string; name: string; alias: string }; models: ModelWithEnabled[] }>> {
-    const groups = await Promise.all(this.suppliers.map(async (s) => {
+    const groups = await Promise.all(this.active.map(async (s) => {
       try {
         const models = (await this.modelsOf(s.id)).filter((m) => m.enabled)
         return { supplier: { id: s.id, name: s.name, alias: s.getAlias() }, models }
@@ -956,7 +984,7 @@ export class Router {
         if (slash <= 0) return m
         const alias = m.slice(0, slash)
         const modelId = m.slice(slash + 1)
-        const s = this.suppliers.find((x) => x.getAlias() === alias)
+        const s = this.active.find((x) => x.getAlias() === alias)
         return s === undefined ? modelId : `${s.id},${modelId}`
       })
   }
@@ -1149,9 +1177,14 @@ export class Router {
       return false
     }
     // 精准：只调这一个供应商。查不到就是配置错了，直接失败（不遍历兜底）
-    const s = this.suppliers.find((x) => x.id === supplierId)
+    const s = this.active.find((x) => x.id === supplierId)
     if (s === undefined) {
-      this.logChat(req.model, `supplier ${JSON.stringify(supplierId)} 不存在`, 0)
+      // 「被开关关掉」与「不存在」对请求是同一件事：都没有可用的上游。分开说
+      // 是为了日志能直接看出是用户关了它。
+      const reason = this.suppliers.some((x) => x.id === supplierId)
+        ? `supplier ${JSON.stringify(supplierId)} 已关闭`
+        : `supplier ${JSON.stringify(supplierId)} 不存在`
+      this.logChat(req.model, reason, 0)
       return false
     }
     const t0 = Date.now()
@@ -1170,7 +1203,7 @@ export class Router {
 
   /** 按别名找供应商（对外模型全名 = alias/model）。别名唯一，故最多命中一个。 */
   supplierByAlias(alias: string): Supplier | undefined {
-    return this.suppliers.find((s) => s.getAlias() === alias)
+    return this.active.find((s) => s.getAlias() === alias)
   }
 
   /**
@@ -1299,7 +1332,7 @@ export class Router {
    *  走真实的账号遍历 + chatOnce 路径：账号池回退/冷却由核心实现，自动生效；
    *  响应丢弃到 sink，限定单一供应商（不跨供应商回退）。 */
   async testModel(supplierId: string, model: string): Promise<{ ok: boolean; error?: string }> {
-    const s = this.suppliers.find((x) => x.id === supplierId)
+    const s = this.active.find((x) => x.id === supplierId)
     if (s === undefined) return { ok: false, error: `unknown supplier ${JSON.stringify(supplierId)}` }
     const sink = sinkRes()
     const req: ChatRequest = {

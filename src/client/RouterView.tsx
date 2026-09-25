@@ -92,7 +92,8 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
   const combosError = snapshot.combos?.ok === false ? snapshot.combos.error : undefined
 
   /** 渲染一组供应商卡片（内置 / 插件分开）。 */
-  const renderSupplierGroup = (title: string, group: Array<{ id: string; name: string; icon?: string; apiKeyHint?: string; source?: string }>): ReactNode => {
+  // `enabled` 缺省按开着读（老核心没这个字段）。
+  const renderSupplierGroup = (title: string, group: Array<{ id: string; name: string; icon?: string; apiKeyHint?: string; source?: string; enabled?: boolean }>): ReactNode => {
     if (group.length === 0) return null
     return (
       <div className="dshr-supplierGroup">
@@ -118,7 +119,12 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
                   <div className="dshr-supplierName">{supplier.name}</div>
                 </div>
                 <div className="dshr-supplierMeta">
-                  {supplierAccounts.length > 0 && (
+                  {supplier.enabled === false ? (
+                    // 关掉的供应商仍列出来（不是「消失」）：否则用户进面板发现
+                    // 供应商不见了，而开关在另一个页面。健康度对不参与路由的
+                    // 供应商没有意义，位置换成它当前的状态。
+                    <span className="dshr-muted">已关闭，不参与路由</span>
+                  ) : supplierAccounts.length > 0 && (
                     <span className="dshr-muted">{healthy}/{supplierAccounts.length} 健康</span>
                   )}
                   <span className="dshr-chevron">›</span>

@@ -3,6 +3,7 @@
  *
  * 通用能力（dsh-router 核心，所有供应商自动可用，js 无需实现）：
  *   GET    /suppliers/:id/models                  models + alias（listModels 合并启用状态）
+ *   PATCH  /suppliers/:id/enabled                 {enabled} —— 供应商开关（关掉不参与路由）
  *   POST   /suppliers/:id/models/toggle           {id, enabled}
  *   POST   /suppliers/:id/models/add              {id}
  *   POST   /suppliers/:id/models/remove           {id}
@@ -109,6 +110,31 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     handler: async (_req, res) => {
       const models = await router.modelsOf(s.id)
       writeJson(res, 200, { ok: true, alias: s.getAlias(), models })
+    },
+  })
+
+  // ---- 通用: 供应商开关 ----
+  // 与扩展开关同构（用户对核心面板的操作，归核心持久化）。关掉 = 核心不把它接进
+  // 路由：`Router` 的活跃集合里没有它，请求/模型列表/组合都看不到，而它自己仍留在
+  // `/health` 与面板里 —— 否则关掉之后就找不回来，开关也失去了对象。
+  routes.push({
+    kind: 'exact',
+    path: `${p}/enabled`,
+    handler: async (req, res) => {
+      let body: { enabled?: unknown }
+      try {
+        body = JSON.parse(await readBody(req)) as { enabled?: unknown }
+      } catch {
+        writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
+        return
+      }
+      if (typeof body.enabled !== 'boolean') {
+        writeJson(res, 400, { ok: false, error: 'enabled must be a boolean' })
+        return
+      }
+      store.setEnabled(s.id, body.enabled)
+      router.invalidateModels(s.id)
+      writeJson(res, 200, { ok: true, id: s.id, enabled: router.isEnabled(s.id) })
     },
   })
 

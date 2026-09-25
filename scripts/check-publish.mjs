@@ -26,7 +26,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -45,11 +45,25 @@ const SOURCE_ONLY = process.argv.includes('--source')
 
 /** `files` 白名单是否覆盖某个产物相对路径（glob 语义：`/` 结尾=目录前缀，`*`=任意段）。 */
 const patterns = pkg.files ?? []
-const covers = (rel) =>
-  patterns.some((p) =>
-    p.endsWith('/**') ? rel.startsWith(p.slice(0, -2)) :
-    p.includes('*') ? new RegExp(`^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`).test(rel) :
-    p.endsWith('/') ? rel.startsWith(p) : rel === p)
+const covers = (rel) => {
+  // 包根目录的 package.json 永远会随包发布，不需要在白名单里列一遍。
+  if (rel === 'package.json') return true
+  return patterns.some((p) => {
+    // `**` 跨越任意层目录，`*` 只在一段里（`/` 不参与匹配）—— 混为一谈会让
+    // `lib/types/**/*.d.ts` 这类模式匹配不到 `lib/types/foo.d.ts`。
+    if (p.includes('*')) {
+      const re = p
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*\*\//g, '\u0000')   // 先占位，避免下面的 `*` 规则吃掉
+        .replace(/\*\*/g, '\u0000')
+        .replace(/\*/g, '[^/]*')
+        .replace(/\u0000\//g, '(?:.*/)?')
+        .replace(/\u0000/g, '.*')
+      return new RegExp(`^${re}$`).test(rel)
+    }
+    return p.endsWith('/') ? rel.startsWith(p) : rel === p
+  })
+}
 
 
 // ---- 1/2/3：名字必须一致 ----
@@ -163,6 +177,57 @@ if (!SOURCE_ONLY) {
       if (!existsSync(join(root, 'lib', 'suppliers', dir, rel))) {
         problems.push(`lib/suppliers/${dir}/${rel} 不存在（构建期拷贝漏了？行会静默退化成模块说明符）`)
       }
+    }
+  }
+}
+
+// ---- exports 里声明的每个文件都必须真的产出 ----
+//
+// 为什么要有：`exports` 是**手写**的，而产物是构建出来的，两边没有任何工具保证同步。
+// 实测踩到：三个 `./suppliers/<x>` 的 `types` 指向 `lib/types/suppliers/<x>/index.d.ts`，
+// 而 tsconfig.build.json 的 include 没收行源码 → 文件压根不存在。这类声明失效没有
+// 任何运行期症状（loader 只看 default），但会把 IDE 与 `tsc` 的下游搞乱。
+if (!SOURCE_ONLY && existsSync(join(root, 'lib'))) {
+  for (const [key, value] of Object.entries(pkg.exports ?? {})) {
+    for (const [field, target] of Object.entries(typeof value === 'string' ? { default: value } : value)) {
+      if (target.includes('*')) continue
+      const rel = target.replace(/^\.\//, '')
+      if (!existsSync(join(root, rel))) problems.push(`package.json exports['${key}'].${field} 指向 ${target}，但该文件不存在`)
+      else if (!covers(rel)) problems.push(`package.json exports['${key}'].${field} 指向 ${target}，但 files 白名单没覆盖它`)
+    }
+  }
+}
+
+// ---- 行产物里的相对引用必须闭环 ----
+//
+// 为什么要有：行 js 会把共用模块抽成 `lib/<name>-<hash>.js`（内容哈希，随代码变），
+// 而那个 chunk **一直不在 files 白名单里**（早先它只是宿主内部依赖，从没被单独引用
+// 过）。实测踩到的是更靠前的一种形态：产物来自两次不同的构建 —— 行里写着
+// `http-state-C1vb3gW2.js`、磁盘上是 `http-state-CGDexmJf.js`，import 直接
+// ERR_MODULE_NOT_FOUND，症状是「行在页面上、但供应商一个都没注册」。
+// 这里逐个核对：行引用的每个相对文件都要真实存在，且被 files 白名单覆盖。
+if (!SOURCE_ONLY && existsSync(join(root, 'lib'))) {
+  const rowJs = supplierDirs.map((dir) => join(root, 'lib', 'suppliers', dir, 'index.js')).filter((f) => existsSync(f))
+  const referenced = new Set()
+  for (const file of rowJs) {
+    const text = readFileSync(file, 'utf8')
+    for (const m of text.matchAll(/from\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+      // 按**引用方所在目录**解析（`../../http-state-x.js` 只剥一层会得到假路径，
+      // 闸门自己先报了个不存在的 lib/../http-state-... —— 实测踩过）。
+      const abs = resolve(dirname(file), m[1])
+      const rel = relative(join(root, 'lib'), abs)
+      if (rel.startsWith('..')) {
+        problems.push(`行产物引用了 lib 之外的文件 ${m[1]}（打包后不成立）`)
+        continue
+      }
+      referenced.add(rel)
+    }
+  }
+  for (const rel of [...referenced].sort()) {
+    if (!existsSync(join(root, 'lib', rel))) {
+      problems.push(`行产物引用了 lib/${rel}，但它不存在 —— 产物来自两次不同的构建？（行会 import 失败，供应商静默不注册）`)
+    } else if (!covers(`lib/${rel}`)) {
+      problems.push(`行产物引用了 lib/${rel}，但 files 白名单没覆盖它（从 npm 装完就缺这个 chunk）`)
     }
   }
 }

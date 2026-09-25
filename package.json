@@ -63,6 +63,7 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client-registry.js",
+    "lib/*.js",
     "lib/suppliers/*/index.js",
     "lib/suppliers/*/package.json",
     "lib/suppliers/*/locale/*.json",

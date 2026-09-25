@@ -8,5 +8,12 @@
     "rootDir": "./src",
     "outDir": "lib/types"
   },
-  "include": ["src/index.ts", "src/shared.ts", "src/types.d.ts"]
+  "include": [
+    "src/index.ts",
+    "src/shared.ts",
+    "src/types.d.ts",
+    "src/suppliers/opencode/index.ts",
+    "src/suppliers/openrouter/index.ts",
+    "src/suppliers/nvidia/index.ts"
+  ]
 }

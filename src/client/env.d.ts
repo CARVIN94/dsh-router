@@ -23,4 +23,20 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     title?: string
     className?: string
   }): import('react').JSX.Element
+
+  /**
+   * 按钮。variant 各自对应宿主的 `--dsw-alias-button-*` token 家族，size `md`
+   * 是 36px 控件 / 12px 圆角（`sm` 是 28px / 8px）。原生 button 属性透传。
+   */
+  export function Button(props: {
+    variant?: 'primary' | 'ghost' | 'outline' | 'toolbar'
+    size?: 'md' | 'sm'
+    /** 前置 16px 图标。 */
+    icon?: import('react').ReactNode
+    className?: string
+    children?: import('react').ReactNode
+    type?: 'button' | 'submit' | 'reset'
+    disabled?: boolean
+    onClick?: () => void
+  }): import('react').JSX.Element
 }

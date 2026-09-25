@@ -3425,53 +3425,187 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 /* ============================================================
-   dsh-router — 连接自检面板（插件页里那一行的详情）
+   dsh-router — 连接自检面板（设置 → 路由 → 扩展 → 连接自检）
    ------------------------------------------------------------
    这一页渲染在**宿主的插件页**里，DOM 祖先既不是 .dshr-settings 也不是
-   .dshr-shell，所以 `router.css` 顶部那套 `--rs-*` 主题变量在这里**不存在**
-   （未定义的 var() 会让整条声明失效：边框/文字色退成继承值）。与「路由组件」
-   那一节同样的处境，两边各按各的办法处理。
+   .dshr-shell，所以文件顶部那套 `--rs-*` 主题变量在这里**不存在**（未定义的
+   var() 会让整条声明失效：边框/文字色退成继承值）。
 
-   这里在根节点上把面板要用到的那几个变量**就地映射**一次，于是可以继续复用
-   .dshr-select / .dshr-fieldLabel / .dshr-alert / .dshr-warnBox / .dshr-muted ——
-   不必把它们的样式抄一遍（抄一遍就会有两份，改一处忘另一处）。
+   所以这里**不用**设置页那套组件样式，直接按宿主页面的视觉语言写，用宿主的
+   `--dsw-alias-*` token：几何对齐它（14px 小标题、12px 次要文字、0.5px 描边、
+   12px 圆角），配色也从同一套 token 取 —— 于是这块面板看起来就是原生的一部分。
+   主按钮不用在这里画：交给宿主的 Button 原语（见 env.d.ts），配色由原语自己的
+   token 家族决定，不必猜「主色底上配什么字色」。
    ============================================================ */
 
-.dshr-extTest {
-    --rs-text: var(--dsw-alias-label-primary);
-    --rs-muted: var(--dsw-alias-label-secondary);
-    --rs-faint: var(--dsw-alias-label-tertiary);
-    --rs-line: var(--dsw-alias-border-l1);
-    --rs-line-strong: var(--dsw-alias-border-l2);
-    --rs-accent: var(--dsw-alias-state-business-primary);
-    --rs-danger: var(--dsw-alias-state-error-primary);
-    --rs-warn: var(--dsw-alias-state-warning-primary, #9a6a18);
-    color: var(--rs-text);
-    font: 13px/1.55 var(--ds-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+.dshr-comp {
+    gap: 16px;
 }
 
-/* 三个下拉并排：窄了换行（插件页详情区宽度随窗口变，写死三列会在窄窗口挤成一团）。 */
-.dshr-extTestGrid {
+.dshr-compIntro {
+    margin: 0;
+    color: var(--dsw-alias-label-secondary);
+    font-size: 13px;
+    line-height: 20px;
+}
+
+/* 三栏收进同一块面板，读起来是「一组控件」而不是三个飘着的输入框。
+   窄了换行（详情区宽度随窗口变，写死三列会在窄窗口挤成一团）。 */
+.dshr-compForm {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-    align-items: end;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px 16px;
+    padding: 14px 16px;
+    border: 0.5px solid var(--dsw-alias-border-l1);
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-layer-1);
 }
 
-/* 主按钮。`.dshr-primaryButton` 的规则挂在 .dshr-settings / .dshr-shell 下，
-   在这一页不生效，所以这里给一个只依赖本面板根节点的版本。 */
-.dshr-extTest .dshr-primaryButton {
-    border: none;
-    border-radius: 8px;
-    padding: 7px 16px;
+.dshr-compField {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dshr-compFieldHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.dshr-compFieldLabel {
+    color: var(--dsw-alias-label-primary);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 18px;
+}
+
+/* 标题右侧的用法要点。语义放这里比塞进顶部那段长文字更容易被读到 ——
+   「模型只列可用的」「连接留空 = 池内任选」都是用这一栏时才关心的。 */
+.dshr-compFieldNote {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    line-height: 18px;
+    text-align: right;
+}
+
+/* 36px / 12px 圆角，与宿主 Button 原语的 md 尺寸对齐。 */
+.dshr-compSelect {
+    width: 100%;
+    height: 36px;
+    padding: 0 32px 0 11px;
+    appearance: none;
+    border: 0.5px solid var(--dsw-alias-border-l2);
+    border-radius: 12px;
+    background-color: var(--dsw-alias-bg-layer-2);
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--dsw-alias-label-tertiary) 50%),
+        linear-gradient(135deg, var(--dsw-alias-label-tertiary) 50%, transparent 50%);
+    background-position:
+        calc(100% - 17px) 16px,
+        calc(100% - 12px) 16px;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    color: var(--dsw-alias-label-primary);
     font: inherit;
-    font-weight: 600;
-    color: var(--dsw-alias-label-inverse, #fff);
-    background: var(--rs-accent);
+    font-size: 13px;
+    line-height: 18px;
+    text-overflow: ellipsis;
     cursor: pointer;
 }
 
-.dshr-extTest .dshr-primaryButton:disabled {
-    opacity: 0.45;
-    cursor: default;
+.dshr-compSelect:hover:not(:disabled) {
+    border-color: var(--dsw-alias-border-l3);
+}
+
+.dshr-compSelect:focus {
+    outline: none;
+    border-color: var(--dsw-alias-brand-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 22%, transparent);
+}
+
+.dshr-compSelect:disabled {
+    border-color: var(--dsw-alias-border-l1);
+    background-color: var(--dsw-alias-bg-layer-1);
+    color: var(--dsw-alias-label-tertiary);
+    cursor: not-allowed;
+}
+
+.dshr-compActions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.dshr-compHint {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+/* 结果区：成功/失败/请求失败 三种语气。底下垫一层极淡的状态色，比只有一行
+   彩色文字更容易扫到 —— 自检的结果是这一页唯一重要的信息。 */
+.dshr-compNotice {
+    display: flex;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 0.5px solid var(--dsw-alias-border-l1);
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-layer-1);
+}
+
+.dshr-compNotice[data-tone="ok"] {
+    border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 34%, transparent);
+    background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, transparent);
+}
+
+.dshr-compNotice[data-tone="fail"],
+.dshr-compNotice[data-tone="network"] {
+    border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 34%, transparent);
+    background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+}
+
+.dshr-compNoticeIcon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    color: var(--dsw-alias-state-success-secondary);
+}
+
+.dshr-compNotice[data-tone="fail"] .dshr-compNoticeIcon,
+.dshr-compNotice[data-tone="network"] .dshr-compNoticeIcon {
+    color: var(--dsw-alias-state-error-primary);
+}
+
+.dshr-compNoticeBody {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dshr-compNoticeTitle {
+    color: var(--dsw-alias-label-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
+}
+
+.dshr-compNoticeText {
+    color: var(--dsw-alias-label-secondary);
+    font-size: 12.5px;
+    line-height: 19px;
+    /* 上游可能回一整段 HTML/JSON，限定宽度换行，别把布局撑破 */
+    overflow-wrap: anywhere;
+}
+
+/* 回显测的是哪三样。一条「通过」如果不带对象，就是没法归因的一串绿字。 */
+.dshr-compNoticeMeta {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    line-height: 18px;
+    overflow-wrap: anywhere;
 }

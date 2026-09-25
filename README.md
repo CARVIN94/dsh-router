@@ -41,6 +41,10 @@ dsh plugin --profile web add dsh-router-core
 
 然后**重启 `dsh web`**。打开设置面板,左侧导航「模型」下面会出现 **路由**。
 
+第二处入口是侧栏的**插件**面板:内置的供应商与扩展在那里各占一行「包含的组件」,
+**供应商与扩展的开关也在那一面**(见 [面板](#面板设置--路由)与
+[供应商开关](#供应商开关))。
+
 > 更多供应商:DSH 插件形态的供应商各自发 npm 包,同样
 > `dsh plugin --profile web add <包名>` 即可;供应商接入与开发见
 > [`docs/suppliers.md`](docs/suppliers.md)。
@@ -102,22 +106,18 @@ team 测试就是多个会话交错发请求。dsh-router 原生适配这个场�
 
 面板挂在 **设置 → 路由**(官方 `settings.section` 座位,排在「模型」下面):
 
-第二个入口是**设置 → 插件 → dsh-router-core 的详情页**,那里分两处:
+第二处入口是**设置 → 插件 → dsh-router-core 的详情页**,那里分两层:
 
-- 原生的**「包含的组件」**列 **core 自己 + 三个内置供应商**(每行宿主管的开关:
-  关一行 = loader 不 import 它 = 供应商没注册)。这三个是 core 自己 patch 里的
-  行,所以进得了原生列表。
-- 原生列表**下面**还有一节自绘的「路由组件」,列 **供应商**与**扩展**,
-  **两组都带开关**。供应商的开关写 `supplier-config.json`
-  (`PATCH /router/api/suppliers/:id/enabled`),扩展的写 `ext.json`
-  (`PATCH /router/api/ext`) —— 都是核心持久化的用户开关,且**真的停止路由**:
-  关掉的供应商不在核心的活跃集合里,请求不会落到它、模型列表与组合里也不再出现它。
+- 宿主的原生**「包含的组件」**列 core 自己 patch 里声明的**行**:core 本体、三个
+  内置供应商、连接自检这个内置扩展。每行一个宿主管的开关,关一行 = loader 不
+  import 它 = 它压根没注册。
+- 原生列表**下面**是本插件自绘的**「路由组件」**一节,列**外部供应商插件**与
+  **扩展插件**,两组都带开关。
 
-**内置那一组不在自绘节里**:同一份东西列两遍只会让人不知道该在哪开关。反过来说,
-外部供应商与扩展进不了原生列表 —— 官方那个列表只认**本 bundle 自己 patch 里声明
-的行**,跨 bundle 没有注入通道(见 `declaredRows`,它只读该 bundle 自己的 patch),
-而它们各自是独立 bundle、各自有自己的卡片与详情页。所以它们是「独立安装」与
-「进原生列表」二选一:现在保的是独立安装。
+两层的分工:**已经在原生行里的(内置的那些)不进自绘节** —— 同一份东西列两遍,
+用户就不知道该在哪开关。反过来说外部供应商与扩展进不了原生行:官方那个列表只认
+**本 bundle 自己 patch 里声明的行**(`declaredRows` 只读该 bundle 自己的 patch),
+而它们各自是独立 bundle,自己的行在自己的详情页上。
 
 - **概览** — 用量看板(默认页):
   - 周期切换 **今日 / 24 小时 / 7 天 / 30 天**;
@@ -223,82 +223,81 @@ curl -X POST http://localhost:3080/v1/chat/completions \
   工作面,只列开着的)。全关掉时那句空状态是「供应商都已关闭」并指去开关所在处 ——
   不复用「暂无供应商」,那句说的是一个都没装,用来描述「装了但自己关的」就是说假话。
 
-它**仍留在 `/health` 与插件页那一节**:那里是控制面,列全部(含关掉的),否则关掉之后
-就再没有可点的开关能把它开回来。**两个面刻意相反**:面板只列开着的,插件页列全部。
-
-开关 UI 在 **设置 → 插件 → dsh-router-core 详情页**下面的「路由组件」一节
-(「供应商」组 + 「扩展」组)。判据在 `supplier-visibility.ts`(面板侧)与
-`router-components.ts`(插件页侧),两处都有单测钉住。
+但它**仍留在 `/health` 与插件页那一节**(含关掉的),否则关掉之后就再没有可点的开关能
+把它开回来。开关 UI 在**设置 → 插件 → dsh-router-core 详情页**下面的「路由组件」一节
+(「供应商」组 + 「扩展」组)。
 
 ## 连接自检(内置扩展 `dsh-router-ext-test`)
 
-随核心分发的**内置扩展**,和三个内置供应商走同一套管道:它是 `cordis.patch.yml` 里的
-一个**行**(子路径模块 `dsh-router-core/ext-test`),因此在设置 → 插件 → dsh-router-core
-详情页的原生「包含的组件」里占一行,开关由宿主管。
+随核心分发的内置扩展,用途只有一个:选**供应商 / 模型 / 连接**,跑一次真实的访问测试,
+看连接是否可用、或报什么错。它**不挂任何监听、不改写任何命令** —— 与 RTK 那类扩展的
+区别只在于它只提供面板。
 
-**默认关闭**(`disabled: true`)。行关闭时 loader 根本不 import 这个模块,扩展就不在
-`router.ext` 表里 —— 所以「在插件页打开才出现这张卡片」是天然的,不需要额外状态位。
+它与三个内置供应商走同一套管道:是 `cordis.patch.yml` 里的一个**行**(子路径模块
+`dsh-router-core/ext-test`),因此在插件页原生「包含的组件」里占一行、开关由宿主管,
+且**默认关闭**。行关闭时 loader 根本不 import 这个模块,扩展就不在 `router.ext` 表里 ——
+「打开那一行才出现这张卡片」是天然的,不需要额外的状态位。
 
-### 内置扩展不出现在自绘节里
-
-`连接自检` 随核心分发，所以它在插件页原生「包含的组件」里**已经占一行**、自带宿主
-管的开关。插件页那个自绘的「路由组件」节因此**只列独立安装的扩展**（RTK 等）——
-与内置供应商的处理完全一样：已经有原生行的东西，再在下面列一遍就是同一个东西显示
-两处。靠 `RouterExt.source` 区分（内置的标 `builtin`，独立安装的不标 = `plugin`）。
-
-### 扩展自带详情面板
-
-`router.ext` 契约里只有 `id / name / description / icon / getState`,**没有「自带详情
-内容」的口子** —— 所以扩展详情页原本是一张写死的只读页(名字、id、状态、一段说明),
-扩展自己想放的东西(要选的模型、要跑的测试、要看的诊断)没地方放。
-
-现在有口子了:客户端按**扩展 id** 登记一个面板组件(`src/client/ext-panels.ts` 的
-`registerExtPanel`),扩展详情页优先渲染它,没登记才落回那张通用只读页。
-
-面板的入口**只有一处**:设置 → 路由 → 扩展 → 点开扩展卡片。插件页那一行**不挂详情页**
-—— 那一行的宿主行开关已经能开/关它,再点进去看同一块面板就是同一个东西有两个入口
-(与「内置扩展不在自绘节里重复列」同理)。那一行只负责开关。
-
-面板按宿主的插件页视觉语言写(`--dsw-alias-*` token、36px/12px 圆角控件),**不复用
-设置页那套 `dshr-*` 组件样式** —— 那些依赖 `--rs-*` 变量,而它只定义在 `.dshr-settings` /
-`.dshr-shell` 下,插件页不在其祖先里。主按钮交给宿主的 `Button` 原语,配色由原语自己的
-token 家族决定,不必在这里猜「主色底上配什么字色」。
-
-面板的模型下拉**只列可用模型** —— 端点给的是全部模型(含用户在供应商详情里停用的),
-实测某供应商 30 个里只有 3 个启用。把停用的也列出来,用户会挑一个自己明明关掉的模型
-去测,测通了也不代表配置是对的。列表为空时还区分「一个模型都没有」(该去拉取)与
-「全被停用」(该去开启)—— 共用一句「没有模型」会把用户往错的方向指。
-
-它和 rtk 那类扩展的差别:本扩展**不挂任何监听、不改写任何命令**,唯一作用是提供一块
-自检面板 —— 选**供应商 / 模型 / 连接**,跑一次真实访问测试,看连接是否可用或报什么错。
-面板挂在那一行的详情页上(官方 `plugins.row.config` 座位,key = `dsh-router-core#dsh-router-ext-test`)。
+面板入口**只有一处**:设置 → 路由 → 扩展 → 点开「连接自检」。插件页那一行不挂详情页,
+它只负责开关(理由见 [扩展插件](#扩展插件routerext) 一节)。
 
 测试走核心已有的 `POST /suppliers/:id/models/test`,与面板「供应商」详情里的「测试」
-按钮**同一条真实路径**(账号遍历 + chatOnce),区别只在可以**钉死连接**:留空则由账号池
-任选可用号(与那个按钮同义),指定连接则只测它、**失败不回退到别的号** —— 否则
+按钮**同一条真实路径**(账号遍历 + chatOnce)。区别只在可以**钉死连接**:留空则由账号池
+任选可用号(与那个按钮同义);指定连接则只测它、**失败不回退到别的号** —— 否则
 「测这个连接」测出来的是另一个号的结果,诊断就成了假话。
+
+面板的模型下拉**只列可用模型**:那个端点给的是全部模型(含用户在供应商详情里停用的),
+把停用的也列出来,用户会挑一个自己明明关掉的模型去测。列表为空时还区分「一个模型都
+没有」(该去拉取)与「全被停用」(该去开启)—— 共用一句「没有模型」会把用户往错的方向指。
 
 ## 扩展插件(`router.ext`)
 
 > 完整契约、注册方式、自检与降级约定见 [`docs/ext.md`](docs/ext.md)。
 
-面板「扩展」页只列**已启用**的扩展(关闭的连卡片都不出现),整页只读,详情页也没有
-开关 —— 启停只有一个入口:官方插件页 **设置 → 插件 → dsh-router-core** 详情页的
-「路由组件」一节(调 `PATCH /router/api/ext`)。扩展插件是**独立 npm 包**
-(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk)),
-经 cordis service `router.ext` 注册自己 —— 同 `router.suppliers` 的共享表模式,
-与加载顺序无关。
+扩展插件是**独立 npm 包**(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk)),
+经 cordis service `router.ext` 把自己追加进核心持有的共享表 —— 与 `router.suppliers`
+同一模式,与加载顺序无关。
 
-分工:
+### 契约
 
-- **dsh-router 核心**:持有 `router.ext` 空表;在 `tools/execute` 拦截 bash 工具
-  调用,把命令委派给表里 **enabled 且 ready** 的扩展器改写;命中则短路。只拦
-  `bash`,其他工具(含 `run_code` 体内自起的子进程)不动。
-- **扩展插件**:实现 `rewrite(command)`(同步、不能做 IO)+ 自管开关状态
-  (何时 enabled、是否 ready、怎么持久化)。核心不感知具体扩展器实现。
+注册进表的是一个**声明 + 状态**的对象,核心只认这几个成员:
 
-开关打开时会**自检**:扩展器 `getState().ready === false` 的(如没装 rtk)拒绝开启
-(API 返回 409 + 问题描述);插件页的开关**禁用**,面板内容区红字显示原因。
+| 成员 | 说明 |
+| --- | --- |
+| `id` | 扩展器 id(表的键,也是 `ext.json` 的键) |
+| `name` / `description?` / `icon?` | 面板显示名 / 副标题 / 图标 |
+| `getState()` | **运行时事实**:`{ ready, detail? }`,现算不落盘 |
+| `dispose?` | 表里被移除时核心调用 |
+| `source?: 'builtin'` | 标了就是随核心分发(见下) |
+
+**没有 `rewrite`** —— 怎么改命令是插件自己的实现细节,核心不感知、不调用。**开关也不
+在契约里**:开关归核心持久化(`<dataDir>/ext.json`,默认关);插件要存自己的数据走
+`router.extStore` 的 `readData/writeData`,不自己 file IO(落盘位置由核心锚定,
+不跟 cwd 跑)。
+
+### 面板与开关
+
+面板「扩展」页只列**已启用**的扩展(关闭的连卡片都不出现),整页只读,详情页也没有开关
+—— 启停只有一个入口:插件页 dsh-router-core 详情页的「路由组件」一节
+(`PATCH /router/api/ext`)。开启时会**自检**:`getState().ready === false` 的拒绝开启
+(API 409),那一面的开关禁用并显示原因。
+
+### 扩展可以自带详情面板
+
+扩展详情页原本是一张写死的只读页(名字、id、状态、一段说明),扩展自己想放的交互
+(要选的模型、要跑的测试、要看的诊断)没地方放。客户端因此有一张按**扩展 id** 索引的
+面板注册表(`src/client/ext-panels.ts` 的 `registerExtPanel`):登记了就用你的组件渲染
+整个内容区,没登记才落回通用只读页。`连接自检` 就是这么用的。
+
+⚠️ 这张注册表目前只在 dsh-router 自己的 client bundle 内,**外部插件包还引不到** ——
+`dsh-router-core/client` 是整个入口闭包、不导出它。要让外部插件也能自带面板需要加一个
+真正的导出路径,详见 [`docs/ext.md`](docs/ext.md)。
+
+### 内置扩展不在自绘节里重复列
+
+随核心分发的扩展(`source: 'builtin'`)已经是插件页原生「包含的组件」里的一行、自带
+宿主管的开关,自绘节因此**只列独立安装的扩展**。与内置供应商同理:已经有原生行的东西,
+再列一遍就是同一个东西显示两处。
 
 ### 已知坑
 
@@ -310,15 +309,22 @@ token 家族决定,不必在这里猜「主色底上配什么字色」。
 
 ```
 浏览器(client 半)
-  └─ 设置 → 路由(settings.section 座位, order 10, 排在「模型」下面)
-       ├─ RouterSettingsSection  注册入口(settings-section.tsx)
-       ├─ RouterView        tab: 概览 / 供应商 / 组合 / 端点与密钥(tab 条:下划线指示器)
-            ├─ StatsTab          概览:用量看板(周期按钮组 + 汇总卡 + 折线趋势 + Top 榜 + 最近请求)
-       ├─ SupplierDetail    供应商详情:链接池 + 加链接 + 可用模型
-       ├─ EndpointTab       端点 URL + requireApiKey + 密钥管理
-       └─ LastHitDock       「路由」徽章(composer.dock 座位,≥0.1.7;按会话显示最近命中)
-       └─ fetch /router/api/*            (同源,无 CORS)
-            └─ host 半(src/index.ts)
+  ├─ 设置 → 路由(settings.section 座位, order 10, 排在「模型」下面)
+  │    ├─ RouterSettingsSection  注册入口(settings-section.tsx)
+  │    ├─ RouterView        tab: 概览 / 供应商 / 组合 / 扩展 / 端点与密钥(tab 条:下划线指示器)
+  │    │    ├─ StatsTab          概览:用量看板(周期按钮组 + 汇总卡 + 折线趋势 + Top 榜 + 最近请求)
+  │    │    ├─ SupplierDetail    供应商详情:链接池 + 加链接 + 可用模型 + 模型测试
+  │    │    ├─ CombosTab / EndpointTab
+  │    │    └─ ExtTab → ExtDetail  扩展列表(只列已启用)与详情(优先渲染扩展自带的面板)
+  │    └─ LastHitDock       「路由」徽章(composer.dock 座位,≥0.1.7;按会话显示最近命中)
+  ├─ 设置 → 插件(官方 plugins.detail.section 座位)
+  │    ├─ (原生「包含的组件」)  core patch 里声明的行:core 本体 + 内置供应商 + 内置扩展
+  │    │                        宿主管的开关,关一行 = loader 不 import 它
+  │    └─ RouterComponentsSection  dsh-router-core 详情页自绘的「路由组件」一节
+  │                                (外部供应商 + 扩展,两组都带开关)
+  │         └─ ExtTestPanel       连接自检扩展的详情面板(按 ext id 登记到 ext-panels.ts)
+  └─ fetch /router/api/*            (同源,无 CORS)
+       └─ host 半(src/index.ts)
                  ├─ /v1/models + /v1/chat/completions   (OpenAI 兼容, KeysStore 鉴权)
                  │    └─ RouterAdapter(src/llm/adapter.ts)  OpenAI SSE → DSH StreamChunk
                  │         (usage 经 toTokenUsage 转 DSH 契约,见 docs/suppliers.md)
@@ -331,6 +337,9 @@ token 家族决定,不必在这里猜「主色底上配什么字色」。
                       ├─ NvidiaSupplier(lib/suppliers/nvidia/index.js)       API key 账号
                       └─ 外部插件供应商(经 router.suppliers service 注册)
                          ↑ 内置三个是 core 自己 patch 里的**行**(子路径模块),与外部插件同一条通道
+                 └─ 扩展表 router.ext(core provide 空表,谁都能往里 append)
+                      ├─ 内置:连接自检(行 dsh-router-core/ext-test,默认关闭)
+                      └─ 外部:dsh-router-ext-rtk 等独立 bundle 经同一个 service 注册
 ```
 
 - **供应商抽象**:可插拔 js 模块只提供**差异化能力**(`status/listModels/getAlias/chatOnce`

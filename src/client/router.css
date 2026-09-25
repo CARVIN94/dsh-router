@@ -544,6 +544,14 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     font-size: 13px;
 }
 
+/* 两行空状态（标题 + 说明）。`.dshr-empty` 本身是横排的单行 flex，直接套两行
+   div 会左右排开，所以另给一个纵向堆叠的变体。 */
+.dshr-emptyStack {
+    flex-direction: column;
+    gap: 6px;
+    text-align: center;
+}
+
 /* Accounts table */
 .dshr-tableWrap {
     overflow: auto;

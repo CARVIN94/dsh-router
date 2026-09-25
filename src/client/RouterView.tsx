@@ -27,6 +27,7 @@ import {
 import { SupplierDetail } from './SupplierDetail.tsx'
 import { EndpointTab } from './EndpointTab.tsx'
 import { CombosTab } from './CombosTab.tsx'
+import { supplierVisibility, type SupplierSummary } from './supplier-visibility.ts'
 import { StatsTab } from './StatsTab.tsx'
 import { ExtTab } from './ExtTab.tsx'
 
@@ -86,14 +87,16 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
   }, [])
 
   const suppliers = snapshot.health?.suppliers ?? []
+  // 面板只列**开着**的供应商（关掉的卡片不出现，与「扩展」页同一形状）；开关在
+  // 插件页那节。判据与空状态文案都在 supplier-visibility.ts，可单测。
+  const panel = supplierVisibility(suppliers)
   const accounts = snapshot.status?.accounts ?? []
   const combos = snapshot.combos?.combos ?? []
   const suppliersError = snapshot.status?.ok === false ? snapshot.status.error : undefined
   const combosError = snapshot.combos?.ok === false ? snapshot.combos.error : undefined
 
   /** 渲染一组供应商卡片（内置 / 插件分开）。 */
-  // `enabled` 缺省按开着读（老核心没这个字段）。
-  const renderSupplierGroup = (title: string, group: Array<{ id: string; name: string; icon?: string; apiKeyHint?: string; source?: string; enabled?: boolean }>): ReactNode => {
+  const renderSupplierGroup = (title: string, group: SupplierSummary[]): ReactNode => {
     if (group.length === 0) return null
     return (
       <div className="dshr-supplierGroup">
@@ -119,12 +122,7 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
                   <div className="dshr-supplierName">{supplier.name}</div>
                 </div>
                 <div className="dshr-supplierMeta">
-                  {supplier.enabled === false ? (
-                    // 关掉的供应商仍列出来（不是「消失」）：否则用户进面板发现
-                    // 供应商不见了，而开关在另一个页面。健康度对不参与路由的
-                    // 供应商没有意义，位置换成它当前的状态。
-                    <span className="dshr-muted">已关闭，不参与路由</span>
-                  ) : supplierAccounts.length > 0 && (
+                  {supplierAccounts.length > 0 && (
                     <span className="dshr-muted">{healthy}/{supplierAccounts.length} 健康</span>
                   )}
                   <span className="dshr-chevron">›</span>
@@ -187,11 +185,14 @@ export function RouterView({ onBack }: RouterViewProps): JSX.Element {
             )
             : (
               <div className="dshr-tabBody">
-                {suppliers.length === 0 && snapshot.health !== null && (
-                  <div className="dshr-empty">暂无供应商</div>
+                {snapshot.health !== null && panel.empty !== undefined && (
+                  <div className="dshr-empty dshr-emptyStack">
+                    <div>{panel.empty.title}</div>
+                    {panel.empty.desc !== '' && <div className="dshr-muted">{panel.empty.desc}</div>}
+                  </div>
                 )}
-                {renderSupplierGroup('内置', suppliers.filter(s => s.source !== 'external'))}
-                {renderSupplierGroup('插件', suppliers.filter(s => s.source === 'external'))}
+                {renderSupplierGroup('内置', panel.builtin)}
+                {renderSupplierGroup('插件', panel.external)}
                 {suppliersError !== undefined && (
                   <div className="dshr-empty">{suppliersError}</div>
                 )}

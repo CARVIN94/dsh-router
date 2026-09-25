@@ -181,6 +181,37 @@ if (!SOURCE_ONLY) {
   }
 }
 
+// ---- 随包发布的文本不许有编码损坏 ----
+//
+// 为什么要这个：中文文档与字典是手写的，经 shell heredoc 批量改写时很容易被转码
+// 破坏，而且**不报任何错** —— 症状是某个字变成「�」或整段乱码，只有肉眼能发现。
+// 本会话已经踩到两次（一次在供应商行的 row.json，Node 报 ERR_INVALID_PACKAGE_CONFIG；
+// 一次在 README 的一个「的」字）。这里读一遍：非法 UTF-8 或含 U+FFFD 就直接红。
+const TEXT_SHIPPED = [
+  'cordis.patch.yml',
+  'README.md',
+  ...readdirSync(join(root, 'docs')).filter((f) => f.endsWith('.md')).map((f) => `docs/${f}`),
+]
+for (const dir of supplierDirs) {
+  TEXT_SHIPPED.push(`src/suppliers/${dir}/row.json`)
+  const localeDir = join(root, 'src', 'suppliers', dir, 'locale')
+  if (existsSync(localeDir)) {
+    for (const f of readdirSync(localeDir)) TEXT_SHIPPED.push(`src/suppliers/${dir}/locale/${f}`)
+  }
+}
+for (const rel of TEXT_SHIPPED) {
+  const file = join(root, rel)
+  if (!existsSync(file)) continue
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    problems.push(`${rel} 不是合法 UTF-8（多半是某次批量改写时转码坏了）`)
+    continue
+  }
+  if (text.includes('\uFFFD')) problems.push(`${rel} 含替换字符 U+FFFD（有中文被转码破坏）`)
+}
+
 // ---- exports 里声明的每个文件都必须真的产出 ----
 //
 // 为什么要有：`exports` 是**手写**的，而产物是构建出来的，两边没有任何工具保证同步。

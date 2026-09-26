@@ -14,13 +14,13 @@
   <a href="#快速安装">快速安装</a> ·
   <a href="#面板设置--路由">面板</a> ·
   <a href="#agent-team-支持">Agent Team</a> ·
-  <a href="#api-端点openai-兼容3080v1">API 端点</a> ·
+  <a href="#api-端点openai-兼容v1">API 端点</a> ·
   <a href="docs/suppliers.md">供应商开发</a> ·
   <a href="docs/ext.md">扩展开发</a>
 </p>
 
 **插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进 DSH web,
-在 `http://localhost:3080/v1` 上原生暴露 OpenAI 兼容端点,把请求路由到内部供应商。
+在宿主 Web 服务的 `/v1` 上原生暴露 OpenAI 兼容端点(`http://127.0.0.1:<宿主页端口>/v1`;`dsh web` 默认 3080,面板「端点与密钥」页显示的是实际地址),把请求路由到内部供应商。
 管理界面在**设置 → 路由**(官方设置页座位,不是自己开的页面)。装好即用,
 不用多开一个 9router、不用维护第二个端口、不用在网关和 DSH 之间搬配置。
 
@@ -160,11 +160,15 @@ team 测试就是多个会话交错发请求。dsh-router 原生适配这个场�
   为 DSH 模型目录里的 `router` provider 选项(设置 → 模型直接选组合名即可用),请求
   按组合策略命中其中一个供应商模型;
 - **端点与密钥** — 端点核心(无隧道/Tailscale):
-  - API 端点 URL(`http://localhost:3080/v1`,可复制);
+  - API 端点 URL(面板按当前页面 origin 显示,可复制;端口跟着宿主走,`dsh web` 默认 3080);
   - 鉴权设置 `requireApiKey` 开关;
   - API Keys 管理:创建 / 启用切换 / 显示 / 复制 / 删除(持久化到 `data/keys.json`)。
 
-## API 端点(OpenAI 兼容,`:3080/v1`)
+## API 端点(OpenAI 兼容,`/v1`)
+
+> 端口 = **宿主 Web 服务实际监听的端口**:`dsh web` 默认 3080,桌面端等通道由宿主
+> 分配(不一定还是 3080)。下面按 3080 写;换通道时把端口换成面板「端点与密钥」
+> 页里显示的那个即可。
 
 ```bash
 # 模型列表
@@ -177,7 +181,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 ```
 
 任何支持 OpenAI 兼容 API 的工具(Claude Code、Cline、DSH 设置-模型 等)都可以把
-`baseURL` 指向 `http://localhost:3080/v1`。
+`baseURL` 指向面板「端点与密钥」页里显示的那个端点(`dsh web` 下即 `http://localhost:3080/v1`)。
 
 **鉴权**:默认 `requireApiKey=false`,`/v1/*` 不要求鉴权(本地使用,与 9router 一致)。
 在「端点与密钥」页开启「要求 API Key」后,请求必须带

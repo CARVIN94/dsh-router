@@ -223,7 +223,7 @@ tools.get('bash')              // ❌ 只查全局视图,查不到 → 静默走
 
 ```bash
 # 1) 看 API:扩展器 enabled / ready 是否都为 true
-curl -s http://127.0.0.1:3080/router/api/ext
+curl -s http://127.0.0.1:3080/router/api/ext   # 端口 = 宿主页端口(面板可见),非 3080 的通道要换
 
 # 2) 跑一条有等价改写的命令,看输出是否变成压缩格式
 ls                 # 被改写时是 rtk 树形格式,不是原生列表

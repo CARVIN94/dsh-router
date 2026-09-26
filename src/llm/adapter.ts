@@ -634,7 +634,12 @@ const ROUTER_REASONING_EFFORTS: readonly LlmReasoningEffortInfo[] = [
 ]
 
 export class RouterAdapter extends LlmAdapter {
-  private readonly baseURL: string
+  /**
+   * 网关端点。**函数形态 = 每次请求现算**：端口要等宿主 listen 完才有值的场景
+   * 必须传函数（写死 3080 在桌面端等非 3080 宿主上全线 `fetch failed`，
+   * issue #9），见 `host-base-url.ts`。
+   */
+  private readonly baseURL: string | (() => string)
   private readonly source: RouterAdapterSource
   private readonly resolveAttachments: () => RouterAttachmentStore | undefined
   /** 流空闲超时（ms）：上游这么久不吐字节就判 TIMEOUT。 */
@@ -649,7 +654,7 @@ export class RouterAdapter extends LlmAdapter {
    *   曾经那条路径是个空 `catch`，出问题跨版本都没人发现（issue #8）。
    */
   constructor(
-    baseURL: string,
+    baseURL: string | (() => string),
     source: RouterAdapterSource,
     resolveAttachments?: () => RouterAttachmentStore | undefined,
     idleTimeoutMs: number = STREAM_IDLE_TIMEOUT_MS,
@@ -713,7 +718,11 @@ export class RouterAdapter extends LlmAdapter {
     options.signal?.addEventListener('abort', onAbort, { once: true })
     let resp: Response
     try {
-      resp = await fetch(`${this.baseURL}/chat/completions`, {
+      // 端点现算：宿主监听端口在 listen 之后才有值、也会随宿主重启变（issue #9）。
+      // 解析器自己抛错时也落进下面这个 catch，于是「端口拿不到」是以
+      // LlmError 消息报出来的，而不是一句无从查证的 `fetch failed`。
+      const base = typeof this.baseURL === 'function' ? this.baseURL() : this.baseURL
+      resp = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         // attributionHeaders() 是 dsh-llm 对 adapter 的硬契约：每个 provider
         // 请求都必须带（LlmAdapter 类注释原话）。它给出

@@ -2,7 +2,8 @@
  * Host half of dsh-router — a simplified 9router.
  *
  * dsh-router IS the router: it exposes an OpenAI-compatible `/v1/*` endpoint
- * on the DSH web server (http://localhost:3080/v1), and routes requests to
+ * on the DSH web server (http://127.0.0.1:<宿主监听端口>/v1 — 端口随启动通道
+ * 变，`dsh web` 默认 3080，见 host-base-url.ts), and routes requests to
  * internal suppliers.
  *
  * Routes:
@@ -42,6 +43,7 @@ import type { SupplierEnv, SupplierModule, SupplierRegistry } from './suppliers/
 import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
 import { dataDirOf, profileDirOf } from './data-dir.ts'
+import { loopbackBaseURL } from './host-base-url.ts'
 import { detectHostVersion, isHost017Plus, supportsLastHitDock } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
 import type { ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
@@ -91,6 +93,12 @@ interface WebServerRoute {
 }
 interface WebServer {
   register: (route: WebServerRoute) => () => void
+  /**
+   * 宿主**实际监听**的端口（配置 port=0 时是 OS 分配的那个）。
+   * listen 之前为 undefined —— adapter 的端点按请求现读它，见 host-base-url.ts
+   * 与 issue #9。
+   */
+  readonly port?: number
 }
 
 /** Minimal shape of the llm service faces used here (设置-模型 提供方/模型目录). */
@@ -742,7 +750,11 @@ export function apply(rawContext: unknown): void {
       // 带上组合的上下文窗口：没有它 dsh 的自动压缩算不出阈值、会静默关闭。
       // 图片序列化需要读附件字节：把 ctx.attachments 传给 adapter（dsh-attachment
       // 是宿主注入的 service，插件不直接 import 它，只依赖 duck-typed 切面）。
-      disposers.push(ctx.llm.registerAdapter(['router'], new RouterAdapter('http://localhost:3080/v1', {
+      // 端点**按宿主实际监听端口现算**：`/v1` 路由注册在宿主 webServer 上，端口由
+      // 启动通道给（dsh web 默认 3080，桌面端/port=0 时不是），写死 3080 会让
+      // Router 在那些宿主上每一轮都 `fetch failed`（issue #9）。
+      disposers.push(ctx.llm.registerAdapter(['router'], new RouterAdapter(
+        loopbackBaseURL(() => ctx.webServer?.port), {
         comboModels: async () => (await router.combos()).map((c) => {
           const w = router.comboContextWindow(c)
           return { id: c.name, ...(w !== undefined ? { contextWindow: w } : {}) }

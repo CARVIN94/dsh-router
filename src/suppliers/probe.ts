@@ -7,10 +7,12 @@
  *
  * ## 最重要的约束：绝不代替用户做有副作用的事
  *
- * 「把所有功能跑一遍」听起来很爽，但契约里有一半成员**不能自动调**：
- * `dispose` 调了就是卸载供应商；`removeLink`/`addApiKey` 动凭证；
- * `generateLoginUrl` 很可能直接触发设备码/OAuth 流；`checkinNow` 是替用户签到。
- * 这些**只报「已实现」并说明为什么不自动执行**。体检是给眼睛看的，不是给手用的。
+ * 「把所有功能跑一遍」听起来很爽，但契约里有一批成员**不能自动调**：
+ * `dispose` 调了就是卸载这个供应商；`addApiKey` 写凭证；`removeLink` 删凭证；
+ * `generateLoginUrl` 很可能直接触发设备码/OAuth 流。
+ * 那些**不出现在报告里**（见 `PROBE_EXCLUDED_MEMBERS`）—— 体检是给眼睛看的，
+ * 占一行只为说「没验」，是用篇幅淹掉真问题。
+ * 剩下的成员一律实跑（需要真实账号/额度的用连接池里的 token 真跑一次）。
  *
  * `tests/probe.test.ts` 里有一条判据专门锁这件事：被标记为 `skip` 的成员，
  * 探针一个都不会去调（用会记账的假模块验）。
@@ -34,7 +36,8 @@ import type { LoadedSupplier } from './loader.ts'
  *   uid、`completeLogin` 传无效回调 URL、`generateLoginUrl` 直接调）；
  * - 需要真实账号/真实额度的也实跑（`chatOnce` 走 `router.testModel` 真发一次、
  *   `checkinNow` 对连接池里的真实连接签到）；
- * - 少数**任何输入都会破坏前提**的只报存在性（见 `NEVER_RUN`），并在报告里写清为什么。
+ * - 会破坏体检前提的（`dispose` 卸载自己、`addApiKey` 写凭证…）**不进清单** ——
+ *   见 `PROBE_EXCLUDED_MEMBERS`，逐个写了不测的理由。
  *
  * 报告的每个成员都标 `executed`：体检的价值全在「哪些是验过的、哪些只是看了一眼」。
  */
@@ -168,14 +171,6 @@ export const SUPPLIER_CONTRACT_MEMBERS: readonly ProbeMember[] = [
     skipReason: '会真的发一次请求（消耗额度）。用上面的「跑一次访问测试」单独测，或在供应商详情里测模型。',
   },
   {
-    key: 'dispose',
-    label: '卸载清理',
-    required: true,
-    probe: 'skip',
-    skipReason: '调用它就是把这个供应商卸载掉。',
-  },
-
-  {
     key: 'checkinNow',
     label: '签到',
     required: false,
@@ -200,6 +195,7 @@ export const SUPPLIER_CONTRACT_MEMBERS: readonly ProbeMember[] = [
  * `contract.ts` 断言「除了这份有意排除的名单之外必须全覆盖」。
  */
 export const PROBE_EXCLUDED_MEMBERS: Record<string, string> = {
+  dispose: '调用它就是把这个供应商卸载掉 —— 体检没法在自己身上验自己',
   completeLogin: '需要一个真实回调 URL',
   addApiKey: '需要一个真实 API key',
   removeLink: '只能用真连接验（试删不存在的连接必然返回 false，那是正常响应）',
@@ -276,32 +272,15 @@ async function probeValue(call: () => unknown): Promise<{ ok: boolean; detail: s
 }
 
 /**
- * 深度档下**仍然永不实跑**的成员，以及原因。
- *
- * 判据是「**任何输入都会改动真实状态**」——`probe: 'skip'` 里那些能靠无害探针输入
- * 试的（removeLink 传不存在的 uid、completeLogin 传无效回调）不在此列。
- * `dispose` 调用它就是把这个供应商卸载掉，连「试一下」都不成立。
+ *（这里原本有一份「永不实跑」名单：`dispose` / `addApiKey`。
+ *   两者都已移出体检清单，名单随之作废 —— 留着空机制比删掉更糟：
+ *   它看起来像个可配置的开关，其实没有任何成员会命中。
+ *   「为什么要移」见 PROBE_EXCLUDED_MEMBERS。）
  */
-const NEVER_RUN: Record<string, string> = {
-  dispose: '调用它就是把这个供应商卸载掉 —— 体检没法在它自己身上验自己。',
-  addApiKey: '需要一个真实的 API key 才能验，体检拿不到（自动造一个只会往凭证库里写垃圾）。',
-}
 
 /** 深度档用来「不碰真实状态就跑通代码路径」的探针输入。 */
 const PROBE_UID = '__probe_no_such_uid__'
 const PROBE_CALLBACK = 'https://invalid.example/__probe__'
-
-/**
- * 该成员会不会被实跑，以及**没跑时写什么理由**。
- *
- * 判据一句话：**任何输入会不会破坏「体检的前提」**。会 → 只报存在性；
- * 不会 → 实跑（`safe` 直接跑，其余用无害探针输入或真实连接跑）。
- */
-function execution(key: string, present: boolean): { executed: ProbeExecuted; detail?: string } {
-  if (!present) return { executed: 'no' }
-  const never = NEVER_RUN[key]
-  return never === undefined ? { executed: 'ran' } : { executed: 'no', detail: never }
-}
 
 /**
  * 体检一个已装载的供应商。
@@ -317,19 +296,16 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
   const members: ProbeResult[] = []
   for (const member of SUPPLIER_CONTRACT_MEMBERS) {
     const present = member.key in m ? m[member.key] !== undefined : false
-    const exec = execution(member.key, present)
-    const base = { key: member.key, label: member.label, required: member.required, present, executed: exec.executed }
+    // 清单里的成员一律实跑 —— 会毁掉体检前提的那些（dispose 等）早已移出清单
+    const base: Omit<ProbeResult, 'state' | 'detail'> = {
+      key: member.key, label: member.label, required: member.required, present,
+      executed: present ? 'ran' : 'no',
+    }
     if (!present) {
       members.push({
         ...base, state: member.required ? 'fail' : 'absent',
         ...(member.required ? { detail: '必填成员缺失，插件不完整' } : {}),
       })
-      continue
-    }
-    if (exec.executed === 'no') {
-      // 实现了、但任何输入都会破坏体检前提（如 dispose 会卸载这个供应商）
-      // → 只报存在性。必填成员的存在性本身就算通过。
-      members.push({ ...base, state: 'ok', detail: exec.detail })
       continue
     }
     const outcome = member.probe === 'safe'
@@ -375,9 +351,9 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
  * 两个刻意的口径：
  * 1. **可选成员缺失不降级** —— 契约里它们本就是「按存在性暴露」，不实现不是缺陷
  *    （Loomy 就不实现签到/登录流，它走会话串登录）。按「缺失就 warn」的话谁也拿不到 pass。
- * 2. **`NEVER_RUN` 名单里的必填成员也不降级** —— `chatOnce` 由面板的「跑一次访问测试」
- *    覆盖、`dispose` 本就不可验；它们在报告里逐条写着「为什么没验、谁负责验」。
- *    若把它们也算成 warn，`pass` 就永远不可达 —— 不可达的枚举值等于没有。
+ * 2. **不进清单的成员不降级** —— `chatOnce` 若无法实跑记 `unverified`（warn），
+ *    而 `dispose` 之类本就移出了清单，不参与判定。若把它们也算成 warn，`pass` 就
+ *    永远不可达 —— 不可达的枚举值等于没有。
  */
 function verdictOf(members: ReadonlyArray<ProbeResult>, modelsKnown: boolean, bulkOk: boolean | undefined): ProbeVerdict {
   // 核心区「全部启用/禁用」的实跑结果**必须**计入结论：它就是抓「插件私自过滤已禁用

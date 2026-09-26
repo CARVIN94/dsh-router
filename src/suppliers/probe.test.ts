@@ -3,8 +3,8 @@
  *
  *  1. **清单跟契约一起长** —— 契约加了成员而清单没加，体检就静默漏检。编译期类型
  *     抓不到（清单是运行时数组，契约成员是类型），只能解析契约源码来钉。
- *  2. **会毁掉体检前提的成员绝不被调用** —— 只有 `dispose`：调用它就是把这个供应商
- *     卸载掉，没法在自己身上验自己。
+ *  2. **会毁掉体检前提的成员绝不被调用** —— `dispose` 卸载自己、`addApiKey` 写凭证等，
+ *     一律移出清单（见 PROBE_EXCLUDED_MEMBERS），既不出现也不被调。
  *  3. **必填成员缺失要报错**（fail），可选成员缺失只是 absent。
  *  4. **「全部启用/全部禁用」真跑**（并还原）—— 它是唯一能抓出「插件在 listModels
  *     里过滤已禁用模型」越权的路径：全部禁用之后违规插件把模型全藏起来，核心就再也
@@ -96,28 +96,19 @@ test('留在清单里的成员都有明确的 probe 方式', () => {
 test('probe 输入的成员会实跑（单档全自动：能安全试的就是要试）', async () => {
   const { m, called } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
   await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
-  // 用无害探针输入 / 真实连接跑的：
-  for (const key of ['checkinNow']) {
-    assert.equal(called.includes(key), true, 'checkinNow 该对真实连接实跑')
-  }
-  // 任何输入都会毁掉体检前提的，才不跑：
-  for (const key of ['dispose', 'addApiKey']) {
-    assert.equal(called.includes(key), false, `不该调用 ${key} —— 跑了就毁掉体检自己`)
-  }
+  // 清单里的成员该跑的都要跑（需要真实连接的用连接池的 token）
+  assert.equal(called.includes('checkinNow'), true, 'checkinNow 该对真实连接实跑')
   assert.ok(called.includes('status'), 'safe 成员确实跑了')
 })
 
-test('毁前提的成员报「存在但不验」并带理由', async () => {
-  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  const report = await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
-  const dispose = report.members.find((x) => x.key === 'dispose')
-  assert.equal(dispose?.present, true, '存在性照样报')
-  assert.equal(dispose?.executed, 'no')
-  assert.match(dispose?.detail ?? '', /卸载/)
+test('dispose 不出现在报告里（调用它就是卸载自己，体检没法在自己身上验自己）', async () => {
+  const { m } = spyModule([...SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key), 'dispose'])
+  const report = await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }] })
   assert.equal(
-    report.members.some((x) => x.key === 'addApiKey'), false,
-    'addApiKey 移出了清单（需要一个真 key，体检拿不到），报告里不该再出现',
+    report.members.some((x) => x.key === 'dispose'), false,
+    'dispose 已移出清单：占一行只为说「没验」，是用篇幅淹掉真问题',
   )
+  assert.ok(PROBE_EXCLUDED_MEMBERS.dispose, '要留在「有意不测」名单里，并写清理由')
 })
 
 test('必填成员缺失 = fail（插件不完整），可选成员缺失 = absent', async () => {
@@ -240,13 +231,10 @@ test('单档全自动：checkinNow 对连接池里的真实连接真签到', asy
   assert.equal(report.members.find((x) => x.key === 'checkinNow')?.executed, 'ran')
 })
 
-test('dispose 一次都不实跑（跑了就把自己卸载了）', async () => {
-  const { m, called } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  const report = await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }] })
-  assert.equal(called.includes('dispose'), false, '调用 dispose 就是卸载这个供应商')
-  const row = report.members.find((x) => x.key === 'dispose')
-  assert.equal(row?.executed, 'no')
-  assert.ok((row?.detail ?? '').length > 0, '必须写清为什么没跑')
+test('dispose 一次都不被调用（哪怕它实现了）', async () => {
+  const { m, called } = spyModule([...SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key), 'dispose'])
+  await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }] })
+  assert.equal(called.includes('dispose'), false, '调用 dispose 就是把这个供应商卸载掉')
 })
 
 test('单档全自动：全实现且都实跑通 → pass（无 token/无模型时 chatOnce 如实说无法验证）', async () => {
@@ -266,9 +254,10 @@ test('单档全自动：全实现且都实跑通 → pass（无 token/无模型�
   assert.equal((await probeSupplier(loaded(missing.m), { models: [] })).verdict, 'fail', '必填成员缺失 → fail')
 })
 
-test('summary.ran 只数真的跑过的成员', async () => {
+test('summary.ran 只数真的跑过的成员（清单里全部实跑）', async () => {
   const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  const report = await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
-  assert.equal(report.summary.ran, report.summary.total - 1, '清单里只有 dispose 不实跑')
+  const report = await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }] })
+  assert.equal(report.summary.ran, report.summary.total,
+    '清单里的成员一律实跑（会毁掉前提的早已移出清单），所以 ran 应等于 total')
 })
 

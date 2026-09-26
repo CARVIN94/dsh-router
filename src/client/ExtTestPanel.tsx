@@ -219,7 +219,11 @@ export function ExtTestPanel(): JSX.Element {
 
   return (
     <div className="dshr-tabBody dshr-comp">
-      <p className="dshr-compIntro">选一个供应商、模型与连接，跑一次真实的访问测试。</p>
+      {/* 两节各自有标题：两个按钮都叫「测试」，没有标题就分不清点的是哪一个 */}
+      <div className="dshr-compHead">
+        <h4 className="dshr-compSectionTitle">连接测试</h4>
+        <span className="dshr-compSectionNote">选供应商 / 模型 / 连接</span>
+      </div>
 
       <div className="dshr-compForm">
         <Picker
@@ -263,7 +267,7 @@ export function ExtTestPanel(): JSX.Element {
           disabled={!runnable || busy}
           onClick={() => { void run() }}
         >
-          {busy ? '测试中…' : '跑一次访问测试'}
+          {busy ? '测试中…' : '测试'}
         </Button>
         {!runnable && <span className="dshr-compHint">先选供应商与模型</span>}
       </div>
@@ -300,7 +304,7 @@ export function ExtTestPanel(): JSX.Element {
       {/* ---- 契约体检：外部供应商插件的每个契约成员 ---- */}
       <div className="dshr-compSection">
         <div className="dshr-compHead">
-          <h4 className="dshr-compSectionTitle">插件契约体检</h4>
+          <h4 className="dshr-compSectionTitle">插件测试</h4>
           <span className="dshr-compSectionNote">外部供应商插件</span>
         </div>
         <p className="dshr-compIntro">前提：连接池里先有一个可用 token，剩下交给它。</p>
@@ -314,7 +318,7 @@ export function ExtTestPanel(): JSX.Element {
           />
           <div className="dshr-compProbeBtn dshr-compBtnRow">
             <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe() }}>
-              {probing ? '体检中…' : '跑一次出厂体检'}
+              {probing ? '测试中…' : '测试'}
             </Button>
           </div>
         </div>

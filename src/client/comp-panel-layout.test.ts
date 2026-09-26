@@ -33,3 +33,14 @@ test('面板顶部说明是一句话（不是写给维护者的长篇）', () =>
     assert.ok(text.length <= 60, `说明要一句话（现在 ${text.length} 字）：${text}`)
   }
 })
+
+test('两节各有一个标题，两个按钮都叫「测试」（否则分不清点的是哪一个）', () => {
+  // 两个按钮同名是有意的（用户就是要一个统一的动词），代价是两节必须有标题来区分
+  assert.match(panel, /<h4 className="dshr-compSectionTitle">连接测试<\/h4>/, '第一节要有标题')
+  assert.match(panel, /<h4 className="dshr-compSectionTitle">插件测试<\/h4>/, '第二节叫「插件测试」')
+  assert.equal((panel.match(/'测试'|'测试中…'/g) ?? []).length, 4,
+    '两节各一对（常态 + 进行中）')
+  assert.equal(panel.includes('跑一次访问测试'), false, '旧的按钮长称别回来')
+  assert.equal(panel.includes('跑一次出厂体检'), false, '旧的按钮长称别回来')
+  assert.equal(panel.includes('插件契约体检'), false, '旧的节名别回来')
+})

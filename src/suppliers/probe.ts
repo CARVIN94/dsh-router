@@ -54,10 +54,28 @@ export interface ProbeResult {
   detail?: string
 }
 
+/**
+ * **核心侧**能力：不属于插件契约（插件不实现它们，是核心代劳），所以不在上面的
+ * 成员表里 —— 但体检要看它们的状态。模型启用/禁用就是这一类。
+ */
+export interface ProbeCoreReport {
+  models: {
+    /** 模型总数；`listModels` 失败时为 null（= 拿不到，不代表 0 个）。 */
+    total: number | null
+    enabled: number
+    disabled: number
+    /** 拿不到总数时的原因。 */
+    note?: string
+  }
+  /** 核心代劳的操作：**只报可用性，一律不自动执行**（改了就是替用户改配置）。 */
+  operations: Array<{ key: string; label: string; available: boolean; detail?: string }>
+}
+
 export interface ProbeReport {
   supplier: string
   name: string
   members: ProbeResult[]
+  core: ProbeCoreReport
   summary: { total: number; implemented: number; ok: number; fail: number; absent: number; skipped: number }
 }
 
@@ -134,25 +152,50 @@ function rawModule(loaded: LoadedSupplier): Record<string, unknown> {
   return (loaded.supplier as unknown as { __module?: Record<string, unknown> }).__module ?? {}
 }
 
-/** 取一个账号 uid 供只读探测用（没有账号的供应商返回空串）。 */
-function someAccountUid(status: unknown): string {
-  if (typeof status !== 'object' || status === null) return ''
+/** 读出账号状态列表（只读，不改任何东西）。 */
+function accountStates(status: unknown): Array<{ uid: string; state: string; cooling: boolean }> {
+  if (typeof status !== 'object' || status === null) return []
   const accounts = (status as { accounts?: unknown }).accounts
-  if (!Array.isArray(accounts) || accounts.length === 0) return ''
-  const first = accounts[0]
-  return typeof (first as { uid?: unknown })?.uid === 'string' ? (first as { uid: string }).uid : ''
+  if (!Array.isArray(accounts)) return []
+  return accounts.flatMap((a) => {
+    const uid = (a as { uid?: unknown })?.uid
+    if (typeof uid !== 'string') return []
+    const state = typeof (a as { state?: unknown }).state === 'string' ? (a as { state: string }).state : 'ok'
+    return [{ uid, state, cooling: (a as { cooling?: unknown }).cooling === true }]
+  })
 }
 
-/** 摘要：把返回值压成一行可读文本。 */
+/** 账号状态分布：`正常 2、冷却 1`、`session_dead 1` 这样。 */
+function accountTally(accounts: Array<{ uid: string; state: string; cooling: boolean }>): string {
+  const counts = new Map<string, number>()
+  for (const a of accounts) {
+    const key = a.cooling ? '冷却' : a.state === 'ok' ? '正常' : a.state
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return [...counts].map(([k, n]) => `${k} ${n}`).join('、')
+}
+
+/**
+ * 摘要：把返回值压成一行**对排查有用**的文本。
+ *
+ * 原先只说「返回 number」「返回 data:image/svg+xml,%3Csvg…」——等于没说话：
+ * 体检的意义就是让人一眼看出「priority 是几」「图标给了没有」。
+ */
 function describe(value: unknown): string {
-  if (value === undefined) return '返回 undefined'
+  if (value === undefined) return '未提供（可选）'
   if (value === null) return '返回 null'
-  if (Array.isArray(value)) return `返回 ${value.length} 项`
-  if (typeof value === 'string') return value === '' ? '返回空串' : `返回 ${value.slice(0, 40)}`
+  if (Array.isArray(value)) return `${value.length} 项`
+  if (typeof value === 'string') {
+    // 内联图标是一整段 data URI，截断出来全是 %3C…，不如说清「给了、是什么格式」
+    if (value.startsWith('data:')) return `已提供（内联 ${value.slice(5, value.indexOf('/') || 12)}）`
+    if (value === '') return '返回空串'
+    return value.length > 48 ? `返回 ${value.slice(0, 48)}…` : `返回 ${value}`
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return `返回 ${value}`
   if (typeof value === 'object') {
     const o = value as Record<string, unknown>
     if (typeof o.ok === 'boolean') return o.ok === false ? `ok:false ${String(o.error ?? o.message ?? '')}`.trim() : 'ok:true'
-    return `${Object.keys(o).slice(0, 4).join(', ') || '空对象'}`
+    return Object.keys(o).slice(0, 4).join(', ') || '空对象'
   }
   return `返回 ${typeof value}`
 }
@@ -171,8 +214,15 @@ async function probeValue(call: () => unknown): Promise<{ ok: boolean; detail: s
  * 体检一个已装载的供应商。
  *
  * 只跑 `probe: 'safe'` 的成员；`skip` 的只报存在性。绝不代替用户调有副作用的成员。
+ *
+ * @param models - 该供应商当前的模型启用状态（由调用方用 `router.modelsOf` 取，
+ *   走核心缓存不额外打上游）。取不到就传 undefined —— 报告里会如实写「拿不到」，
+ *   不能拿 0 冒充「一个模型都没有」。
  */
-export async function probeSupplier(loaded: LoadedSupplier): Promise<ProbeReport> {
+export async function probeSupplier(
+  loaded: LoadedSupplier,
+  models?: ReadonlyArray<{ id: string; enabled: boolean }>,
+): Promise<ProbeReport> {
   const m = rawModule(loaded)
   const members: ProbeResult[] = []
   for (const member of SUPPLIER_CONTRACT_MEMBERS) {
@@ -197,7 +247,44 @@ export async function probeSupplier(loaded: LoadedSupplier): Promise<ProbeReport
     absent: members.filter((x) => x.state === 'absent').length,
     skipped: members.filter((x) => x.state === 'skipped').length,
   }
-  return { supplier: loaded.supplier.id, name: loaded.supplier.name, members, summary }
+  const listModels = members.find((x) => x.key === 'listModels')
+  return {
+    supplier: loaded.supplier.id,
+    name: loaded.supplier.name,
+    members,
+    core: coreReport(models, listModels?.state === 'ok'),
+    summary,
+  }
+}
+
+/** 核心代劳的能力区：模型启用/禁用状态 + 那几个改配置的操作（只报可用性）。 */
+function coreReport(models: ReadonlyArray<{ id: string; enabled: boolean }> | undefined, modelsProbed: boolean): ProbeCoreReport {
+  const enabled = models?.filter((m) => m.enabled).length
+  const disabled = models === undefined ? undefined : models.length - (enabled ?? 0)
+  return {
+    models: {
+      total: models?.length ?? null,
+      enabled: enabled ?? 0,
+      disabled: disabled ?? 0,
+      ...(models === undefined
+        ? { note: modelsProbed ? '拿不到模型列表' : 'listModels 不可用，无法读启用状态' }
+        : {}),
+    },
+    operations: [
+      {
+        key: 'models.bulk',
+        label: '模型全部启用 / 全部禁用',
+        available: models !== undefined,
+        detail: '会改配置（可逆）。体检只报可用性，不替你点。',
+      },
+      {
+        key: 'models.toggle',
+        label: '单个模型启用 / 停用',
+        available: models !== undefined,
+        detail: '同上。',
+      },
+    ],
+  }
 }
 
 /** 只读成员的实跑。**每个 case 都必须没有副作用** —— 新增成员时照此办理。 */
@@ -214,10 +301,15 @@ async function runSafeProbe(key: string, m: SupplierModule): Promise<{ ok: boole
       return { ok: true, detail: describe(value) }
     }
     case 'status': {
+      // 这是体检里最有信息量的一条：账号有几个、分别什么状态（冷却 / 失效 / 正常）。
+      // 报「≥1」等于没报 —— 链接全过期正是要靠它看出来。
       const r = await probeValue(() => m.status())
       if (!r.ok) return r
-      const uid = someAccountUid(m.status())
-      return { ok: true, detail: `${r.detail}，账号 ${uid === '' ? 0 : '≥1'}` }
+      const accounts = accountStates(m.status())
+      const summary = accounts.length === 0
+        ? '无账号（无账号直连型供应商）'
+        : `${accounts.length} 个账号：${accountTally(accounts)}`
+      return { ok: true, detail: summary }
     }
     case 'listModels': {
       return await probeValue(() => m.listModels())

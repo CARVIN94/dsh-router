@@ -116,3 +116,48 @@ test('safe 成员抛错只让那一条 fail，不连坐', async () => {
   assert.equal(status?.state, 'ok')
   assert.equal(report.summary.fail, report.members.filter((x) => x.state === 'fail').length, 'summary 与明细一致')
 })
+
+/* ---------------- 核心侧：模型启用/禁用只「报」不「改」 ---------------- */
+
+test('核心区：报出模型启用/停用数量，并如实写「拿不到」而不是冒充 0', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const withModels = await probeSupplier(loaded(m), [
+    { id: 'a', enabled: true }, { id: 'b', enabled: true }, { id: 'c', enabled: false },
+  ])
+  assert.deepEqual(withModels.core.models, { total: 3, enabled: 2, disabled: 1 })
+
+  const without = await probeSupplier(loaded(m))
+  assert.equal(without.core.models.total, null, '拿不到就是 null，不能当成 0 个模型')
+  assert.match(without.core.models.note ?? '', /拿不到|不可用/)
+  assert.equal(without.core.operations[0]?.available, false, '拿不到模型时这些操作不可用')
+})
+
+test('核心区：全部启用/禁用这类改配置的操作只报可用性，体检一次都不调', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const { called, m: probeModule } = (() => {
+    const spy = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+    return { called: spy.called, m: spy.m }
+  })()
+  const report = await probeSupplier(loaded(probeModule), [{ id: 'a', enabled: true }])
+  const bulk = report.core.operations.find((o) => o.key === 'models.bulk')
+  assert.equal(bulk?.available, true)
+  assert.match(bulk?.detail ?? '', /不替你点/, '必须说清体检不会替用户改配置')
+  // 模型状态是调用方传进来的，探针自己不碰任何开关
+  for (const key of ['setAllModelsEnabled', 'setModelEnabled', 'toggle']) {
+    assert.equal(called.includes(key), false, `探针不该调用 ${key}`)
+  }
+})
+
+test('status 的账号摘要给真实数量与状态分布（链接全过期正是要靠它看出来）', async () => {
+  const { m } = spyModule(['status'])
+  m.status = () => ({ id: 'spy', name: 'Spy', accounts: [
+    { uid: 'a', credits: 0, state: 'ok' },
+    { uid: 'b', credits: 0, state: 'ok' },
+    { uid: 'c', credits: 0, state: 'session_dead' },
+  ] })
+  const report = await probeSupplier(loaded(m))
+  const status = report.members.find((x) => x.key === 'status')
+  assert.equal(status?.state, 'ok')
+  assert.match(status?.detail ?? '', /3 个账号/, '要给真实数量，不是「≥1」')
+  assert.match(status?.detail ?? '', /session_dead 1/, '要把失效的号点出来')
+})

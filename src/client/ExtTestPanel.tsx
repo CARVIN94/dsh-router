@@ -333,6 +333,27 @@ export function ExtTestPanel(): JSX.Element {
                 共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent} · 未执行 {report.summary.skipped}
               </span>
             </div>
+            {/* 核心侧：模型启用/禁用不是插件契约成员（核心代劳），但体检要报它的状态 */}
+            <div className="dshr-compCore">
+              <div className="dshr-compCoreHead">
+                <span>模型启用状态（核心代劳）</span>
+                <span>
+                  {report.core.models.total === null
+                    ? (report.core.models.note ?? '拿不到')
+                    : `共 ${report.core.models.total} 个 · 启用 ${report.core.models.enabled} · 停用 ${report.core.models.disabled}`}
+                </span>
+              </div>
+              <ul className="dshr-compCoreOps">
+                {report.core.operations.map((o) => (
+                  <li key={o.key}>
+                    <span className="dshr-compCoreOpName">{o.label}</span>
+                    <span className="dshr-compCoreOpState" data-available={o.available}>
+                      {o.available ? '可用' : '不可用'} · {o.detail}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
             <ul className="dshr-compMembers">
               {report.members.map((m) => (
                 <li key={m.key} className="dshr-compMember" data-state={m.state}>

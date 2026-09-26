@@ -150,7 +150,9 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         return
       }
       try {
-        writeJson(res, 200, { ok: true, report: await probeSupplier(loaded) })
+        // 模型启用状态走 router.modelsOf（核心缓存，不额外打上游）
+        const models = await router.modelsOf(s.id).catch(() => undefined)
+        writeJson(res, 200, { ok: true, report: await probeSupplier(loaded, models) })
       } catch (err) {
         writeJson(res, 500, { ok: false, error: (err as Error).message })
       }

@@ -184,10 +184,11 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
               if (hidden !== ids.length || missing !== 0) {
                 return {
                   ok: false,
-                  detail: `全部禁用之后只剩 ${after.length}/${ids.length} 个模型（其中 ${hidden} 个标记为停用）—— 插件把已禁用的模型从 listModels 里藏起来了；启用状态归核心合并，插件不该自己筛`,
+                  // 一句话说完：现象 + 归因。细说留给源码与提交记录，面板上不占地方。
+                  detail: `全部禁用后只剩 ${after.length}/${ids.length} 个 —— 插件在 listModels 里藏了已禁用的模型（启用状态由核心合并）`,
                 }
               }
-              return { ok: true, detail: `全部禁用后 ${after.length} 个模型都在（均标记停用），再全部启用可恢复` }
+              return { ok: true, detail: `全部禁用后 ${after.length} 个都在，再启用可恢复` }
             } finally {
               store.setAllModelsEnabled(s.id, true, ids)
               for (const id of original) store.setAllModelsEnabled(s.id, false, [id])

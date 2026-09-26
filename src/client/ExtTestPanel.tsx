@@ -38,6 +38,11 @@ type Notice =
   | { tone: 'network'; text: string }
 
 /** 每个契约成员状态的字形（颜色由 data-state 给）。 */
+/** 模型启用状态那一行属于核心侧，没在 members 里，状态由「拿不拿得到」决定。 */
+function coreModelsState(report: ProbeReport): ProbeReport['members'][number]['state'] {
+  return report.core.models.total === null ? 'unverified' : 'ok'
+}
+
 const MEMBER_MARK: Record<ProbeReport['members'][number]['state'], string> = {
   ok: '✓',
   fail: '✕',
@@ -298,14 +303,7 @@ export function ExtTestPanel(): JSX.Element {
           <h4 className="dshr-compSectionTitle">插件契约体检</h4>
           <span className="dshr-compSectionNote">外部供应商插件</span>
         </div>
-        <p className="dshr-compIntro">
-          **全自动**：逐个成员实跑，能用探针输入试的就试（删连接传不存在的 id、登录回调
-          传无效 URL），需要真实连接的就用连接池里的 token 真跑一次（调用上游、签到）。
-          只有少数「任何输入都会破坏前提」的成员（`dispose` 卸载自己、`addApiKey` 要真 key）
-          只报存在性 —— 报告里逐条写明谁验了、谁没验、为什么。
-          <br />
-          前提：连接池里要先有一个可用 token。
-        </p>
+        <p className="dshr-compIntro">前提：连接池里先有一个可用 token，剩下交给它。</p>
         <div className="dshr-compProbeRow">
           <Picker
             label="供应商插件"
@@ -344,28 +342,34 @@ export function ExtTestPanel(): JSX.Element {
                 共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 实跑 {report.summary.ran} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent}
               </span>
             </div>
-            {/* 核心侧：模型启用/禁用不是插件契约成员（核心代劳），但体检要报它的状态 */}
-            <div className="dshr-compCore">
-              <div className="dshr-compCoreHead">
-                <span>模型启用状态（核心代劳）</span>
-                <span>
+            <ul className="dshr-compMembers">
+              {/* 核心侧那两项与契约成员**同构**（同一个列表、同一种行），只是它们不属于
+                  插件契约（是核心代劳）。原先给它们单画了个带框的区块，反而让它们看着
+                  像是另一个模块、比真问题还显眼。 */}
+              <li className="dshr-compMember" data-state={coreModelsState(report)}>
+                <span className="dshr-compMemberState" aria-hidden="true">{MEMBER_MARK[coreModelsState(report)]}</span>
+                <span className="dshr-compMemberName">
+                  模型启用状态
+                  <code className="dshr-compMemberKey">core</code>
+                </span>
+                <span className="dshr-compMemberDetail">
                   {report.core.models.total === null
                     ? (report.core.models.note ?? '拿不到')
                     : `共 ${report.core.models.total} 个 · 启用 ${report.core.models.enabled} · 停用 ${report.core.models.disabled}`}
                 </span>
-              </div>
-              <ul className="dshr-compCoreOps">
-                {report.core.operations.map((o) => (
-                  <li key={o.key}>
-                    <span className="dshr-compCoreOpName">{o.label}</span>
-                    <span className="dshr-compCoreOpState" data-ok={o.ok ?? false} data-ran={o.ran}>
-                      {o.ran === false ? '未跑' : o.ok === true ? '实跑通过' : '实跑发现问题'} · {o.detail}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <ul className="dshr-compMembers">
+              </li>
+              {report.core.operations.map((o) => (
+                <li key={o.key} className="dshr-compMember" data-state={o.ran === false ? 'unverified' : o.ok === true ? 'ok' : 'fail'}>
+                  <span className="dshr-compMemberState" aria-hidden="true">
+                    {MEMBER_MARK[o.ran === false ? 'unverified' : o.ok === true ? 'ok' : 'fail']}
+                  </span>
+                  <span className="dshr-compMemberName">
+                    {o.label}
+                    <code className="dshr-compMemberKey">core</code>
+                  </span>
+                  <span className="dshr-compMemberDetail">{o.detail}</span>
+                </li>
+              ))}
               {report.members.map((m) => (
                 <li key={m.key} className="dshr-compMember" data-state={m.state}>
                   <span className="dshr-compMemberState" aria-hidden="true">{MEMBER_MARK[m.state]}</span>

@@ -468,7 +468,7 @@ async function coreReport(
  */
 async function runBulkRoundTrip(input: ProbeInput): Promise<{ ran: boolean; ok?: boolean; detail: string }> {
   if (input.runBulkToggleRoundTrip === undefined) {
-    return { ran: false, detail: '未实跑（该供应商没有模型可禁用）' }
+    return { ran: false, detail: '没有模型可禁用' }
   }
   try {
     const r = await input.runBulkToggleRoundTrip()

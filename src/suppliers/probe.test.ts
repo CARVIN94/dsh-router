@@ -3,16 +3,18 @@
  *
  *  1. **清单跟契约一起长** —— 契约加了成员而清单没加，体检就静默漏检。编译期类型
  *     抓不到（清单是运行时数组，契约成员是类型），只能解析契约源码来钉。
- *  2. **skip 成员绝不被调用** —— 「把所有功能跑一遍」里有一半成员有副作用
- *     （dispose 卸载供应商、addApiKey/removeLink 动凭证、generateLoginUrl 触发
- *     登录流、checkinNow 替用户签到）。探针一个都不能碰。
+ *  2. **会毁掉体检前提的成员绝不被调用** —— 只有 `dispose`：调用它就是把这个供应商
+ *     卸载掉，没法在自己身上验自己。
  *  3. **必填成员缺失要报错**（fail），可选成员缺失只是 absent。
+ *  4. **「全部启用/全部禁用」真跑**（并还原）—— 它是唯一能抓出「插件在 listModels
+ *     里过滤已禁用模型」越权的路径：全部禁用之后违规插件把模型全藏起来，核心就再也
+ *     拉不到列表、用户「全部启用」时没有 id 可传。
  */
 import test from 'node:test'
-import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { probeSupplier, SUPPLIER_CONTRACT_MEMBERS, PROBE_EXCLUDED_MEMBERS } from './probe.ts'
 import type { LoadedSupplier } from './loader.ts'
 

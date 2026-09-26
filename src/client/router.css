@@ -3773,64 +3773,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-wrap: anywhere;
 }
 
-/* 核心侧那一区（模型启用/禁用）：与契约成员列表分开，因为它根本不是插件的成员。 */
-.dshr-compCore {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
-    border: 0.5px solid var(--dsw-alias-border-l1);
-    border-radius: 10px;
-    background: var(--dsw-alias-bg-layer-2);
-}
-
-.dshr-compCoreHead {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    color: var(--dsw-alias-label-primary);
-    font-size: 12.5px;
-    font-weight: 500;
-    line-height: 19px;
-}
-
-.dshr-compCoreHead > span:last-child {
-    color: var(--dsw-alias-label-secondary);
-    font-weight: 400;
-}
-
-.dshr-compCoreOps {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.dshr-compCoreOps li {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    font-size: 12px;
-    line-height: 18px;
-}
-
-.dshr-compCoreOpName {
-    flex: none;
-    color: var(--dsw-alias-label-primary);
-}
-
-.dshr-compCoreOpState {
-    color: var(--dsw-alias-label-tertiary);
-    overflow-wrap: anywhere;
-}
-
-.dshr-compCoreOpState[data-available="true"] {
-    color: var(--dsw-alias-label-secondary);
-}
 
 /* 出厂结论徽标：体检是「能不能出厂」的判据，结论要一眼可见。 */
 .dshr-compVerdict {

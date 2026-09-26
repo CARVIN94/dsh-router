@@ -26,7 +26,7 @@ import type { Router } from '../router/index.ts'
 import type { ModelWithEnabled, SupplierStatus } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { LoadedSupplier } from './loader.ts'
-import { probeSupplier, type ProbeMode } from './probe.ts'
+import { probeSupplier } from './probe.ts'
 
 /** webServer 路由形状（与 index.ts 的 WebServerRoute 一致）。 */
 export interface WebServerRoute {
@@ -149,27 +149,28 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         writeJson(res, 405, { ok: false, error: 'probe requires POST' })
         return
       }
-      // body 可空：默认只读。`{"mode":"full"}` = 出厂体检，会用无害探针输入实跑
-      // 有副作用的成员（详见 probe.ts）。
-      let mode: ProbeMode = 'read-only'
       try {
+        // body 可空；只用来选模型/连接（不选就用第一个可用的）
+        let pick: { model?: string; uid?: string } = {}
         const raw = (await readBody(req)).trim()
         if (raw !== '') {
-          const body = JSON.parse(raw) as { mode?: string }
-          if (body.mode === 'full') mode = 'full'
-          else if (body.mode !== undefined && body.mode !== 'read-only') {
-            writeJson(res, 400, { ok: false, error: 'mode must be read-only or full' })
-            return
+          const body = JSON.parse(raw) as { model?: unknown; uid?: unknown }
+          pick = {
+            ...(typeof body.model === 'string' ? { model: body.model } : {}),
+            ...(typeof body.uid === 'string' ? { uid: body.uid } : {}),
           }
         }
-      } catch {
-        writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
-        return
-      }
-      try {
         // 模型启用状态走 router.modelsOf（核心缓存，不额外打上游）
         const models = await router.modelsOf(s.id).catch(() => undefined)
-        writeJson(res, 200, { ok: true, report: await probeSupplier(loaded, models, mode) })
+        const report = await probeSupplier(loaded, {
+          models,
+          // chatOnce 真跑一次：账号遍历 / 冷却 / 首字节预算都走真实路径
+          runChatOnce: async (model) => {
+            const r = await router.testModel(s.id, model, pick.uid)
+            return { ok: r.ok, detail: r.ok ? '通了' : (r.error ?? '上游没给原因') }
+          },
+        })
+        writeJson(res, 200, { ok: true, report })
       } catch (err) {
         writeJson(res, 500, { ok: false, error: (err as Error).message })
       }

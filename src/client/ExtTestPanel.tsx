@@ -42,7 +42,7 @@ const MEMBER_MARK: Record<ProbeReport['members'][number]['state'], string> = {
   ok: '✓',
   fail: '✕',
   absent: '–',
-  skipped: '⊘',
+  unverified: '⊘',
 }
 
 const TONE_ICON: Record<Notice['tone'], string> = {
@@ -158,7 +158,7 @@ export function ExtTestPanel(): JSX.Element {
   // 外部供应商插件 = source 为 external 的那些（内置随核心分发，不进这个下拉）
   const pluginSuppliers = suppliers.filter((x) => x.source === 'external')
 
-  const runProbe = async (mode: 'read-only' | 'full'): Promise<void> => {
+  const runProbe = async (): Promise<void> => {
     if (pluginId === '' || probing) return
     setProbing(true)
     setProbeError('')
@@ -167,7 +167,7 @@ export function ExtTestPanel(): JSX.Element {
       const response = await fetch(`${ROUTER_API_BASE}/suppliers/${encodeURIComponent(pluginId)}/probe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({}),
         cache: 'no-store',
       })
       const data = await response.json() as { ok: boolean; error?: string; report?: ProbeReport }
@@ -299,8 +299,12 @@ export function ExtTestPanel(): JSX.Element {
           <span className="dshr-compSectionNote">外部供应商插件</span>
         </div>
         <p className="dshr-compIntro">
-          逐个成员报告「实现了吗 / 实跑通了吗」。**有副作用的一律不自动执行**（会卸载
-          供应商、改凭证、触发登录流、替用户签到），只标出它实现了并说明为什么没跑。
+          **全自动**：逐个成员实跑，能用探针输入试的就试（删连接传不存在的 id、登录回调
+          传无效 URL），需要真实连接的就用连接池里的 token 真跑一次（调用上游、签到）。
+          只有少数「任何输入都会破坏前提」的成员（`dispose` 卸载自己、`addApiKey` 要真 key）
+          只报存在性 —— 报告里逐条写明谁验了、谁没验、为什么。
+          <br />
+          前提：连接池里要先有一个可用 token。
         </p>
         <div className="dshr-compProbeRow">
           <Picker
@@ -311,17 +315,8 @@ export function ExtTestPanel(): JSX.Element {
             onChange={(v) => { setPluginId(v); setReport(null); setProbeError('') }}
           />
           <div className="dshr-compProbeBtn dshr-compBtnRow">
-            <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe('read-only') }}>
-              {probing ? '体检中…' : '只读体检'}
-            </Button>
-            <Button
-              variant="outline"
-              size="md"
-              disabled={pluginId === '' || probing}
-              title="会用无害的探针输入实跑有副作用的成员（删连接传不存在的 id、登录回调传无效 URL）"
-              onClick={() => { void runProbe('full') }}
-            >
-              深度体检
+            <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe() }}>
+              {probing ? '体检中…' : '跑一次出厂体检'}
             </Button>
           </div>
         </div>
@@ -346,7 +341,7 @@ export function ExtTestPanel(): JSX.Element {
                 </span>
               </span>
               <span className="dshr-compReportSum">
-                {report.mode === 'full' ? '深度' : '只读'} · 共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 实跑 {report.summary.ran} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent}
+                共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 实跑 {report.summary.ran} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent}
               </span>
             </div>
             {/* 核心侧：模型启用/禁用不是插件契约成员（核心代劳），但体检要报它的状态 */}

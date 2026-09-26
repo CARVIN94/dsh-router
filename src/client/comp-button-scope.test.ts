@@ -30,7 +30,7 @@ test('面板里每个 Button 都在一个带 dshr-compBtnRow 的动作行里', (
   // 用「按钮数 == 行数」来近似，被并排两个按钮的布局直接顶红了（这正是它的价值：
   // 假设一旦不成立就会暴露，而不是继续绿）。
   const opens = [...panel.matchAll(/<div className="([^"]*)">/g)].map((m) => m[1])
-  const rows = opens.filter((c) => c.includes('dshr-compBtnRow')).length
+  const rows = opens.filter((c) => (c ?? '').includes('dshr-compBtnRow')).length
   assert.ok(rows > 0, '面板里应当有动作行（这条判据才有意义）')
   const buttons = [...panel.matchAll(/<Button\b/g)]
   assert.ok(buttons.length > 0, '面板里应当有 Button')
@@ -38,7 +38,7 @@ test('面板里每个 Button 都在一个带 dshr-compBtnRow 的动作行里', (
     const before = panel.slice(0, b.index)
     // 取该 Button 之前最近一个开着的 <div>，看它是不是动作行
     const nearest = [...before.matchAll(/<div className="([^"]*)">/g)].pop()
-    assert.ok(nearest?.[1]?.includes('dshr-compBtnRow') === true,
+    assert.ok((nearest?.[1] ?? '').includes('dshr-compBtnRow'),
       `有一个 Button 不在任何 dshr-compBtnRow 动作行里（最近的容器：${nearest?.[1] ?? '无'}）—— 会变回黑底黑字`)
   }
 })

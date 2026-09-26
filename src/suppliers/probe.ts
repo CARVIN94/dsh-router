@@ -87,6 +87,14 @@ export interface ProbeInput {
    * 「无法验证」而不是假装通过。
    */
   runChatOnce?: (model: string) => Promise<{ ok: boolean; detail: string }>
+  /**
+   * 用户当前禁用掉的模型 id（核心配置里那份）。
+   *
+   * 用来做一条**契约对账**：`listModels` 少报了这些 id，就说明插件在
+   * listModels 里私自过滤了已禁用的模型 —— 那是越权（启用状态归核心合并），
+   * 且后果是面板的「已禁用」列表变空。
+   */
+  disabledIds?: readonly string[]
 }
 
 /** 出厂结论。 */
@@ -447,7 +455,22 @@ function coreReport(models: ReadonlyArray<{ id: string; enabled: boolean }> | un
 }
 
 /** 无副作用成员的实跑。**每个 case 都必须没有副作用** —— 新增成员时照此办理。 */
-async function runSafeProbe(key: string, m: SupplierModule, _input: ProbeInput): Promise<{ ok: boolean; detail: string }> {
+/**
+ * 插件的 listModels 少报了哪些「用户已禁用的模型」。
+ *
+ * 这是一条**越权检测**：`listModels` 的职责是「模型来源」，`enabled` 由核心按
+ * `supplier-config` 合并。插件若在 listModels 里就把已禁用的过滤掉，用户在面板上
+ * 再也看不到自己禁用过什么，而且「全部启用」之后它们也不会回来。
+ */
+function hiddenDisabledIds(input: ProbeInput): string[] {
+  const disabled = input.disabledIds ?? []
+  if (disabled.length === 0) return []
+  const reported = new Set(input.models?.map((m) => m.id) ?? [])
+  // 核心已把配置里缺的 id 补回 models，所以这里比对的是「补回后仍缺」的
+  return disabled.filter((id) => !reported.has(id))
+}
+
+async function runSafeProbe(key: string, m: SupplierModule, input: ProbeInput): Promise<{ ok: boolean; detail: string }> {
   switch (key) {
     case 'id':
     case 'name':
@@ -471,7 +494,16 @@ async function runSafeProbe(key: string, m: SupplierModule, _input: ProbeInput):
       return { ok: true, detail: summary }
     }
     case 'listModels': {
-      return await probeValue(() => m.listModels())
+      const r = await probeValue(() => m.listModels())
+      if (!r.ok) return r
+      const hidden = hiddenDisabledIds(input)
+      if (hidden.length > 0) {
+        return {
+          ok: false,
+          detail: `${r.detail}，但**少报了 ${hidden.length} 个用户已禁用的模型**（如 ${hidden.slice(0, 3).join('、')}）—— 插件不该在 listModels 里过滤它们，启用状态由核心合并；这样面板的「已禁用」列表会变空`,
+        }
+      }
+      return r
     }
     case 'pollLogin': {
       return await probeValue(() => m.pollLogin?.())

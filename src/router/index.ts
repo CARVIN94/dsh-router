@@ -909,13 +909,24 @@ export class Router {
         enabled: !disabled.has(mm.id),
         custom: custom.has(mm.id) ? true : undefined,
       }))
-      // 自定义模型（listModels 之外的）并入显示
+      // 配置里有的 id，**不该因为 listModels 没返回就消失**。
+      // 自定义模型与「用户禁用过的模型」都要并回显示列表：
+      // 插件的 listModels 只该报「模型来源」，**启用状态归核心合并**（见
+      // loader.ts 的 modelsWithEnabled 注释）。个别插件会自作主张在 listModels 里
+      // 把已禁用的过滤掉 —— 那样面板的「已禁用」列表就空了，用户再也看不到自己
+      // 禁用过什么，而且「全部启用」之后它们也不会回来（插件仍认为它们该被藏）。
+      // 这里按配置把缺的 id 补回（context_length 拿不到就留空，不编造）。
       const seen = new Set(models.map((mm) => mm.id))
       for (const id of custom) {
         if (!seen.has(id)) {
           seen.add(id)
           models.push({ id, enabled: !disabled.has(id), custom: true })
         }
+      }
+      for (const id of disabled) {
+        if (seen.has(id)) continue
+        seen.add(id)
+        models.push({ id, enabled: false })
       }
       const stale = this.modelsCache.get(supplierId)
       // 拉到空列表当「上游抖了一下」:有旧值就保住旧值并返回它,别把面板清空。

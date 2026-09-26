@@ -708,3 +708,41 @@ test('组合窗口：模型都没报 context_length → undefined', async () => 
     '一家都没报就别编一个数（traework/nvidia 目前就是如此）',
   )
 })
+
+
+/* ---- 「已禁用模型必须留在列表里」 ----
+ *
+ * 起因：用户把 Loomy 的模型全部禁用后，面板的「已禁用」列表是空的。根因是第三方插件
+ * 在自己的 `listModels` 里就把已禁用的模型过滤掉了 —— 而 `listModels` 的职责只是
+ * 「模型来源」，`enabled` 归核心合并（见 loader.ts 的 modelsWithEnabled 注释）。插件一
+ * 过滤，用户就再也看不到自己禁用过什么，而且「全部启用」之后它们也不会回来。
+ *
+ * 所以核心按配置把缺的 id 补回。**关键约束：对规规矩矩的供应商必须是零影响** ——
+ * 下面第一条判据就钉这件事，别让这个修复变成对正常供应商的行为变更。
+ */
+
+test('正常供应商（listModels 全量返回）：补回逻辑是零影响', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }, { id: 'a-2' }])
+  addSupplier(router, a.s)
+  router.store.setModelEnabled('a', 'a-2', false)
+
+  const models = await router.modelsOf('a')
+  assert.deepEqual(models.map((m) => m.id).sort(), ['a-1', 'a-2'], '列表内容不能因为这个修复而变')
+  assert.deepEqual(models.map((m) => m.enabled).sort(), [false, true], '启用状态照旧由核心合并')
+  assert.equal(models.find((m) => m.id === 'a-2')?.context_length, undefined, '没编造 context_length')
+})
+
+test('插件把已禁用的模型藏起来：核心按配置补回，面板看得见「已禁用」', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }, { id: 'a-2' }])
+  // 复刻越权实现：listModels 自己过滤掉了已禁用的
+  a.s.listModels = async (): Promise<ModelInfo[]> => [{ id: 'a-1' }]
+  addSupplier(router, a.s)
+  router.store.setModelEnabled('a', 'a-2', false)
+
+  const models = await router.modelsOf('a')
+  const ids = models.map((m) => m.id).sort()
+  assert.deepEqual(ids, ['a-1', 'a-2'], '用户禁用过的模型不能从列表里消失')
+  assert.equal(models.find((m) => m.id === 'a-2')?.enabled, false, '补回来的要标成停用')
+})

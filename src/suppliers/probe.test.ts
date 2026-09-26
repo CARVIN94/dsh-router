@@ -254,3 +254,37 @@ test('summary.ran 只数真的跑过的成员', async () => {
   const report = await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
   assert.equal(report.summary.ran, 13, '15 个成员里 dispose / addApiKey 不跑')
 })
+
+/* ---------------- 越权检测：插件在 listModels 里私自过滤已禁用的模型 ---------------- */
+
+test('listModels 少报用户已禁用的模型 = 违约，报 fail（出厂体检的核心价值）', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  // 复刻 Loomy 的做法：在 listModels 里把已禁用的过滤掉
+  m.listModels = () => [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  const report = await probeSupplier(loaded(m), {
+    models: [{ id: 'a', enabled: true }],
+    disabledIds: ['b', 'c'],
+  })
+  const lm = report.members.find((x) => x.key === 'listModels')
+  assert.equal(lm?.state, 'fail', '这是越权，必须 fail 而不是 absent/warn')
+  assert.match(lm?.detail ?? '', /少报了 2 个/, '要说清少报了几个')
+  assert.match(lm?.detail ?? '', /启用状态由核心合并/, '要说清这是越权，不是上游少模型')
+  assert.equal(report.verdict, 'fail')
+})
+
+test('正常实现（enabled 由核心合并）不报 fail', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  m.listModels = () => [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  const report = await probeSupplier(loaded(m), {
+    models: [{ id: 'a', enabled: true }, { id: 'b', enabled: false }, { id: 'c', enabled: false }],
+    disabledIds: ['b', 'c'],
+  })
+  assert.equal(report.members.find((x) => x.key === 'listModels')?.state, 'ok')
+})
+
+test('没有禁用任何模型时不做这项检测（不误报）', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  m.listModels = () => [{ id: 'a' }]
+  const report = await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }], disabledIds: [] })
+  assert.equal(report.members.find((x) => x.key === 'listModels')?.state, 'ok')
+})

@@ -164,6 +164,8 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         const models = await router.modelsOf(s.id).catch(() => undefined)
         const report = await probeSupplier(loaded, {
           models,
+          // 用户当前禁用的 id —— 用于「插件是否在 listModels 里私自过滤它们」的越权检测
+          disabledIds: store.get(s.id).disabled,
           // chatOnce 真跑一次：账号遍历 / 冷却 / 首字节预算都走真实路径
           runChatOnce: async (model) => {
             const r = await router.testModel(s.id, model, pick.uid)

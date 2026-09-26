@@ -747,7 +747,12 @@ export function apply(rawContext: unknown): void {
           const w = router.comboContextWindow(c)
           return { id: c.name, ...(w !== undefined ? { contextWindow: w } : {}) }
         }),
-      }, () => ctx.get('attachments') as RouterAttachmentStore | undefined)))
+      },
+      () => ctx.get('attachments') as RouterAttachmentStore | undefined,
+      undefined,
+      // 第五个参数 = 降级诊断出口：图片读不到会降级成占位文本，原因必须出口
+      // （曾经那条路径是空 catch，issue #8 的回归因此静默了两个内测版本）。
+      (msg) => ctx.logger.warn(`[dsh-router] ${msg}`))))
       log('llm provider (Router) + discovery + adapter registered ok')
       // 预热模型缓存：`comboContextWindow` 只读缓存、不打上游，缓存空着就
       // 报不出窗口。这里后台填一次，让第一次 resolveModel 就有值。

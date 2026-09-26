@@ -8,7 +8,9 @@
  * `image` 块序列化成 OpenAI 标准的 `image_url` base64 part，经 /v1 原样透传给
  * 命中的上游供应商。最终能否看图取决于**命中的那个上游模型**——组合里是异构
  * 供应商，可能在网关端声明了图片能力、某条上游却只收文本（此时由上游自行拒收）。
- * 图片字节从 `ctx.attachments` 读取（读不到的按稳定占位文本降级，绝不静默丢图）。
+ * 图片字节从 `ctx.attachments` 读取。读不到时按稳定占位文本降级（不让整条消息失败），
+ * 但**必须留痕**：降级原因走 adapter 的 `log` 出口打到宿主 logger。曾经这里是
+ * 一个空 `catch {}`，字段改名导致的读图失败静默了跨两个内测版本（issue #8）。
  */
 import {
   EMPTY_RESPONSE_CODE,
@@ -31,13 +33,56 @@ import { mergeUsage, normalizeUsage, toTokenUsage, type UsageTokens } from '../r
  * 这一行为，不引入对 dsh-attachment 包编译期/运行期的依赖（它是宿主注入的
  * devDependency）。本地声明与原包 `AttachmentStore.readImageRequest` 形状一致，
  * 宿主注入真实 store 时天然满足。
+ *
+ * ⚠️ **第二个参数是 `ImageRequestTarget`（`width` + `height` + `maxBytes`），
+ * 不是 0.1.5 时代的 `ImageRequestPolicy`（`maxPixels` + `maxBytes`）**。宿主从
+ * 0.1.6 起在 `validateTarget()` 里校验这三个字段，缺一个就抛
+ * `Image request width must be a positive integer`，读图整体失败（issue #8）。
+ * 这两个字段不是摆设：宿主的 `pipeline()` 按 **target 的长边**把图缩到该尺寸，
+ * 短边由它自己推 —— 所以这里传投影后的尺寸，就是「按预算给我这张图」。
  */
 export interface RouterAttachmentStore {
   readImageRequest(
     ref: { attachmentId: string; mediaType: string; bytes: number; width: number; height: number },
-    policy: { maxPixels: number; maxBytes: number },
+    target: { width: number; height: number; maxBytes: number },
     signal?: AbortSignal,
   ): Promise<{ mediaType: string; data: Uint8Array }>
+}
+
+/** 送上游的请求图的像素预算（宽 × 高），沿用 0.1.5 时代 `maxPixels` 的意图。 */
+const MAX_REQUEST_PIXELS = 64e4
+/** 送上游的请求图的字节上限。 */
+const MAX_REQUEST_BYTES = 1024 * 1024
+
+/**
+ * 把源图尺寸投影到「总像素 ≤ maxPixels」的请求目标（等比、只缩不放）。
+ *
+ * 为什么需要它：宿主 0.1.6 起要的是 `ImageRequestTarget`（width/height/maxBytes），
+ * 而「别把一张 12MP 手机照原样塞进对话」这个意图原本靠 `maxPixels` 表达。
+ * 宿主自己**只按 target 的长边**缩放、短边由它推，所以我们要做的只是给出一组
+ * 落在预算内的正整数；短边取 floor 即可（它只参与校验与缓存键，不决定出图尺寸）。
+ *
+ * 没有直接复用官方的 `requestImageDimensions`（`@deepseek-ai/dsh-attachment` 有导出）：
+ * 本文件刻意不依赖那个包（见 `RouterAttachmentStore` 的说明 —— 它是宿主注入的
+ * devDependency，引入它等于给插件加一条编译期/运行期依赖）。这 8 行是纯函数、
+ * 有测试钉住；真要换成官方实现时，语义等价。
+ */
+export function projectImageDimensions(
+  width: number,
+  height: number,
+  maxPixels: number,
+): { width: number; height: number } {
+  const pixels = width * height
+  // 尺寸缺失/非法时不投影：让宿主自己的校验去报错，别在这里造一个假尺寸掩盖问题
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    return { width, height }
+  }
+  if (pixels <= maxPixels) return { width, height }
+  const scale = Math.sqrt(maxPixels / pixels)
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+  }
 }
 
 /** 一张 image 块的 attachment ref 的最小形状（value 类型，够用即可）。 */
@@ -96,7 +141,7 @@ const TOOL_RESULT_IMAGE_TEXT = 'Tool result images'
  */
 const STREAM_IDLE_TIMEOUT_MS = 300_000
 
-async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined): Promise<Array<Record<string, unknown>>> {
+async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined, log?: (msg: string) => void): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = []
   /**
    * 攒着「tool-result 里带出来的图片」，等这一串 tool 消息**发完**再合并成一条
@@ -157,7 +202,7 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
       // 图片不能放进 tool 消息（实测模型会把两张不同图认成同一张），也不能插在两条 tool
       // 之间（同样 400），所以先攒进 pending，等整串 tool 发完再补一条 user(图)。
       const toolCallId = (message as { toolCallId?: unknown }).toolCallId
-      const parts = await contentParts(message.content, attachments, options.signal)
+      const parts = await contentParts(message.content, attachments, options.signal, log)
       const imageParts = parts.filter((p) => p.type !== 'text')
       const text = parts
         .filter((p) => p.type === 'text')
@@ -176,6 +221,7 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
       message.content.filter((b) => b.type !== 'tool-result'),
       attachments,
       options.signal,
+      log,
     )
     // 有实质 user 内容（或压根没有 tool 结果）就先发这条 user 消息；
     // 只有 tool 结果的「纯工具」消息不发空 user，图片留到 pending 里合并。
@@ -189,7 +235,7 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
       // 11148「tool calls and tool results do not match」。
       // 图片不能放进 tool 消息（实测模型会把两张不同的图认成同一张），
       // 也不能插在两条 tool 之间（同样 400），所以先攒起来、发完整串再补一条 user。
-      const parts = await contentParts(result.content, attachments, options.signal)
+      const parts = await contentParts(result.content, attachments, options.signal, log)
       const imageParts = parts.filter((p) => p.type !== 'text')
       const text = parts.filter((p) => p.type === 'text').map((p) => (p as { text?: string }).text ?? '').join('')
       // 空结果就发空串，不要替换成 '(no output)' 之类的字面量 —— 模型会
@@ -224,6 +270,7 @@ async function contentParts(
   blocks: ReadonlyArray<{ type: string }>,
   attachments: RouterAttachmentStore | undefined,
   signal: AbortSignal | undefined,
+  log?: (msg: string) => void,
 ): Promise<Array<Record<string, unknown>>> {
   const parts: Array<Record<string, unknown>> = []
   for (const block of blocks) {
@@ -234,11 +281,11 @@ async function contentParts(
     }
     if (block.type === 'image') {
       const ref = (block as unknown as { attachment: RouterImgLike }).attachment
-      parts.push(...(await imageParts(ref, attachments, signal)))
+      parts.push(...(await imageParts(ref, attachments, signal, log)))
       continue
     }
     if (block.type === 'tool-result') {
-      parts.push(...(await contentParts((block as unknown as { content: ReadonlyArray<{ type: string }> }).content, attachments, signal)))
+      parts.push(...(await contentParts((block as unknown as { content: ReadonlyArray<{ type: string }> }).content, attachments, signal, log)))
     }
     // 其它块（reasoning/tool-call）不属于 user content，忽略
   }
@@ -250,16 +297,23 @@ async function imageParts(
   ref: { attachmentId: string; mediaType: string; bytes: number; width: number; height: number },
   attachments: RouterAttachmentStore | undefined,
   signal: AbortSignal | undefined,
+  log?: (msg: string) => void,
 ): Promise<Array<Record<string, unknown>>> {
-  if (attachments === undefined) return [{ type: 'text', text: imagePlaceholder(ref.attachmentId) }]
+  if (attachments === undefined) {
+    log?.('图片附件 store 不可用（ctx.attachments 未注入），该图降级为占位文本')
+    return [{ type: 'text', text: imagePlaceholder(ref.attachmentId) }]
+  }
+  const ref0 = { attachmentId: ref.attachmentId, mediaType: ref.mediaType, bytes: ref.bytes, width: ref.width, height: ref.height }
+  // 目标 = 源尺寸按 64e4 像素预算等比投影后的宽高 + 字节上限（0.1.6+ 的 target 形状）
+  const target = { ...projectImageDimensions(ref.width, ref.height, MAX_REQUEST_PIXELS), maxBytes: MAX_REQUEST_BYTES }
   try {
-    const img = await attachments.readImageRequest(
-      { attachmentId: ref.attachmentId, mediaType: ref.mediaType, bytes: ref.bytes, width: ref.width, height: ref.height },
-      { maxPixels: 64e4, maxBytes: 1024 * 1024 },
-      signal,
-    )
+    const img = await attachments.readImageRequest(ref0, target, signal)
     return [{ type: 'image_url', image_url: { url: `data:${img.mediaType};base64,${bytesToBase64(img.data)}` } }]
-  } catch {
+  } catch (err) {
+    // 曾经这里是空 catch：宿主把请求目标从 maxPixels 换成 width/height 之后读图
+    // 全失败，图被静默换成占位文本，跨两个内测版本没被发现（issue #8）。降级仍然
+    // 保留（不能让整条消息失败），但原因必须出口。
+    log?.(`读取图片 ${ref.attachmentId} 失败，已降级为占位文本：${(err as Error).message}`)
     return [{ type: 'text', text: imagePlaceholder(ref.attachmentId) }]
   }
 }
@@ -280,8 +334,8 @@ function imagePlaceholder(attachmentId: string): string {
 }
 
 /** 组装 wire 请求体。图片序列化需要读 attachments，故为异步。 */
-async function wireRequest(options: GenerateOptions, attachments: RouterAttachmentStore | undefined): Promise<Record<string, unknown>> {
-  const messages = await wireMessages(options, options.system, attachments)
+async function wireRequest(options: GenerateOptions, attachments: RouterAttachmentStore | undefined, log?: (msg: string) => void): Promise<Record<string, unknown>> {
+  const messages = await wireMessages(options, options.system, attachments, log)
   const body: Record<string, unknown> = {
     model: options.model,
     messages,
@@ -585,22 +639,28 @@ export class RouterAdapter extends LlmAdapter {
   private readonly resolveAttachments: () => RouterAttachmentStore | undefined
   /** 流空闲超时（ms）：上游这么久不吐字节就判 TIMEOUT。 */
   private readonly idleTimeoutMs: number
+  /** 降级/失败诊断的出口（宿主接 ctx.logger.warn）。缺省丢弃 —— 仅为测试可注入。 */
+  private readonly log: ((msg: string) => void) | undefined
 
   /**
    * @param idleTimeoutMs 流空闲超时；缺省用生产值（300s，对齐 pi-ai）。
    *   可注入只为测试能压到几百毫秒，生产不传。
+   * @param log 降级诊断出口。图片读不到时会降级成占位文本，原因走这里 ——
+   *   曾经那条路径是个空 `catch`，出问题跨版本都没人发现（issue #8）。
    */
   constructor(
     baseURL: string,
     source: RouterAdapterSource,
     resolveAttachments?: () => RouterAttachmentStore | undefined,
     idleTimeoutMs: number = STREAM_IDLE_TIMEOUT_MS,
+    log?: (msg: string) => void,
   ) {
     super()
     this.baseURL = baseURL
     this.source = source
     this.resolveAttachments = resolveAttachments ?? (() => undefined)
     this.idleTimeoutMs = idleTimeoutMs
+    this.log = log
   }
 
   providerInfo(provider: string): { id: string; name: string } {
@@ -647,7 +707,7 @@ export class RouterAdapter extends LlmAdapter {
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const body = await wireRequest(options, this.resolveAttachments())
+    const body = await wireRequest(options, this.resolveAttachments(), this.log)
     const controller = new AbortController()
     const onAbort = (): void => controller.abort()
     options.signal?.addEventListener('abort', onAbort, { once: true })

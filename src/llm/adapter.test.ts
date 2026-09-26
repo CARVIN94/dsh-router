@@ -683,13 +683,48 @@ test('resolveModel 透传组合的 contextWindow（自动压缩才能算阈值�
 
 /* ---------------- 图片序列化：图片必须真正到上游（不静默丢图） ---------------- */
 
-/** 假附件 store：返回指定 mediaType + bytes 的请求版本。 */
+/**
+ * 假附件 store：**按宿主的方式校验请求目标**，返回指定 mediaType + bytes 的请求版本。
+ *
+ * 为什么必须校验：宿主 0.1.6 起把请求目标从 `ImageRequestPolicy`（maxPixels +
+ * maxBytes）换成 `ImageRequestTarget`（width + height + maxBytes），字段不匹配就在
+ * `validateTarget()` 抛错。之前这个假 store **两个参数都不看**（`async () => ({...})`），
+ * 于是插件侧传错字段没有任何测试会发现 —— 生产里图片静默降级成占位文本，跨两个
+ * 内测版本没人察觉（issue #8）。现在假 store 照宿主那样校验，字段写错会当场红。
+ */
 function fakeAttachments(mediaType = 'image/png', data = new TextEncoder().encode('<png-bytes>')): {
-  readImageRequest: () => Promise<{ mediaType: string; data: Uint8Array }>
+  readImageRequest: (
+    ref: { attachmentId: string; mediaType: string; bytes: number; width: number; height: number },
+    target: { width: number; height: number; maxBytes: number },
+  ) => Promise<{ mediaType: string; data: Uint8Array }>
+  /** 最近一次收到的请求目标，供断言检查。 */
+  lastTarget?: { width: number; height: number; maxBytes: number }
 } {
-  return {
-    readImageRequest: async () => ({ mediaType, data }),
+  // 用闭包记录而不是 `this`：对象字面量里的箭头函数拿不到宿主对象。
+  // 显式标注类型，否则 `store.lastTarget = …` 会被推断出的窄类型挡下。
+  const store: {
+    readImageRequest: (
+      ref: { attachmentId: string; mediaType: string; bytes: number; width: number; height: number },
+      target: { width: number; height: number; maxBytes: number },
+    ) => Promise<{ mediaType: string; data: Uint8Array }>
+    lastTarget?: { width: number; height: number; maxBytes: number }
+  } = {
+    readImageRequest: async (_ref: unknown, target: { width: number; height: number; maxBytes: number }) => {
+      // 与宿主 validateTarget **逐字同规则**：它查的是 width/height/maxBytes 这三个
+      // 键**存在且为正整数**。注意不能写成「遍历传进来的键校验」——那样漏掉整个
+      // 键（0.1.5 的 maxPixels）反而能过，闸门就成了摆设（实测：这么写时把实现改回
+      // maxPixels，45 条测试全绿）。
+      for (const key of ['width', 'height', 'maxBytes']) {
+        const value = (target as unknown as Record<string, unknown>)[key]
+        if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+          throw new Error(`Image request ${key} must be a positive integer.`)
+        }
+      }
+      store.lastTarget = target
+      return { mediaType, data }
+    },
   }
+  return store
 }
 
 /** 用给定 attachments 跑一次 stream()，返回上游收到的 body。 */
@@ -709,6 +744,68 @@ async function captureBodyWith(options: Record<string, unknown>, attachments?: u
   }
   return captured
 }
+
+/* ---------------- 请求目标：形状与像素预算（issue #8 的回归闸门） ---------------- */
+
+test('目标：请求目标是 0.1.6+ 的 target 形状（width/height/maxBytes），没有 0.1.5 的 maxPixels', async () => {
+  const attachments = fakeAttachments()
+  await captureBodyWith({
+    messages: [{ role: 'user', content: [
+      { type: 'image', attachment: { attachmentId: 'sha256:aa', mediaType: 'image/png', bytes: 11, width: 1000, height: 338 } },
+    ] }],
+  }, attachments)
+  const target = attachments.lastTarget
+  assert.ok(target !== undefined, '必须真的调过 readImageRequest')
+  assert.deepEqual(Object.keys(target).sort(), ['height', 'maxBytes', 'width'],
+    '键就是宿主 validateTarget 查的那三个；多一个少一个都会被宿主拒')
+  assert.equal('maxPixels' in (target as unknown as Record<string, unknown>), false,
+    '0.1.5 时代的 maxPixels 不再被宿主接受，带上它等于没传 width/height')
+})
+
+test('目标：大图按 64e4 像素预算等比投影（不放大；小图原样）', async () => {
+  const big = fakeAttachments()
+  await captureBodyWith({
+    messages: [{ role: 'user', content: [
+      { type: 'image', attachment: { attachmentId: 'sha256:bb', mediaType: 'image/png', bytes: 11, width: 4000, height: 3000 } },
+    ] }],
+  }, big)
+  const t = big.lastTarget
+  assert.ok(t !== undefined)
+  // 12MP 投影到 ~64e4 像素内，且不超过预算
+  assert.ok(t.width * t.height <= 64e4, `投影后仍在预算内，实际 ${t.width}x${t.height}`)
+  assert.ok(t.width < 4000 && t.height < 3000, '大图要缩')
+  const small = fakeAttachments()
+  await captureBodyWith({
+    messages: [{ role: 'user', content: [
+      { type: 'image', attachment: { attachmentId: 'sha256:cc', mediaType: 'image/png', bytes: 11, width: 4, height: 2 } },
+    ] }],
+  }, small)
+  assert.deepEqual(small.lastTarget, { width: 4, height: 2, maxBytes: 1024 * 1024 }, '预算内的小图不放大')
+})
+
+test('降级留痕：读图失败会写一条 log，不再静默（issue #8 为什么能静默两个版本）', async () => {
+  const lines: string[] = []
+  const boom = {
+    readImageRequest: async () => { throw new Error('Image request width must be a positive integer.') },
+  }
+  const adapter = new RouterAdapter(
+    'http://x',
+    { comboModels: async () => [] },
+    () => boom as never,
+    undefined,
+    (msg) => lines.push(msg),
+  )
+  globalThis.fetch = (async () => new Response('data: [DONE]\n\n', { status: 200 })) as typeof fetch
+  for await (const _c of adapter.stream({
+    model: 'm',
+    messages: [{ role: 'user', content: [
+      { type: 'image', attachment: { attachmentId: 'sha256:dd', mediaType: 'image/png', bytes: 11, width: 4, height: 2 } },
+    ] }],
+    signal: AbortSignal.timeout(3000),
+  } as never)) { void _c }
+  assert.equal(lines.length, 1, '降级必须留一条痕，否则问题又会是「静默」')
+  assert.match(lines[0] ?? '', /width must be a positive integer/, 'log 要带上真实原因')
+})
 
 test('wire：图片块被序列化成 OpenAI image_url base64 part（不再静默丢图）', async () => {
   const ref = {

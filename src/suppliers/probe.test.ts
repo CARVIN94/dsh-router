@@ -168,7 +168,7 @@ test('核心区：全部启用/禁用实跑发现问题 = 报出来（Loomy 那�
   const bulk = report.core.operations.find((o) => o.key === 'models.bulk')
   assert.equal(bulk?.ok, false, '必须报出问题')
   assert.match(bulk?.detail ?? '', /藏起来了/)
-  assert.equal(report.verdict, 'fail', '核心区实跑失败也要影响出厂结论')
+  assert.equal(report.summary.bulk, 'fail', '核心区实跑失败要能被数字看见（不是只藏在 detail 里）')
 })
 
 test('status 的账号摘要给真实数量与状态分布（链接全过期正是要靠它看出来）', async () => {
@@ -218,7 +218,7 @@ test('chatOnce 跑不通就是 fail（出厂体检最该抓住的就是这个）
   })
   const chat = report.members.find((x) => x.key === 'chatOnce')
   assert.equal(chat?.state, 'fail')
-  assert.equal(report.verdict, 'fail')
+  assert.ok(report.summary.fail > 0, 'listModels 越权要计入失败数')
 })
 
 test('单档全自动：checkinNow 对连接池里的真实连接真签到', async () => {
@@ -237,21 +237,24 @@ test('dispose 一次都不被调用（哪怕它实现了）', async () => {
   assert.equal(called.includes('dispose'), false, '调用 dispose 就是把这个供应商卸载掉')
 })
 
-test('单档全自动：全实现且都实跑通 → pass（无 token/无模型时 chatOnce 如实说无法验证）', async () => {
+test('没有 token / 没有模型时，数字要如实说「未验」而不是「通过」', async () => {
   const full = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
   full.m.checkinNow = (uid: string) => Promise.resolve({ ok: true, status: 'ok' })
+  // 假模块没有 runChatOnce → chatOnce 无法验证 → 记 unverified
   const noAccount = await probeSupplier(loaded(full.m), { models: [{ id: 'm1', enabled: true }] })
-  // 假模块没有 runChatOnce → chatOnce 无法验证 → 必填未验 → warn
-  assert.equal(noAccount.verdict, 'warn', '没有 token 就该是 warn，不是 pass')
+  assert.equal(noAccount.summary.unverified, 1, '没条件验就是未验，不能混进通过里')
+  assert.equal(noAccount.members.find((x) => x.key === 'chatOnce')?.state, 'unverified')
 
   const withToken = await probeSupplier(loaded(full.m), {
     models: [{ id: 'm1', enabled: true }],
     runChatOnce: async () => ({ ok: true, detail: '通了' }),
   })
-  assert.equal(withToken.verdict, 'pass', '有 token 且全跑通 → 可以出厂')
+  assert.equal(withToken.summary.unverified, 0, '有 token 且全跑通 → 没有未验项')
+  assert.equal(withToken.summary.fail, 0)
 
   const missing = spyModule(['status', 'listModels'])
-  assert.equal((await probeSupplier(loaded(missing.m), { models: [] })).verdict, 'fail', '必填成员缺失 → fail')
+  const m = await probeSupplier(loaded(missing.m), { models: [] })
+  assert.ok(m.summary.fail > 0, '必填成员缺失要体现在失败数里')
 })
 
 test('summary.ran 只数真的跑过的成员（清单里全部实跑）', async () => {

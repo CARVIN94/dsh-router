@@ -336,14 +336,13 @@ export function ExtTestPanel(): JSX.Element {
         {report !== null && (
           <div className="dshr-compReport">
             <div className="dshr-compReportHead">
-              <span className="dshr-compReportName">
-                {report.name}
-                <span className="dshr-compVerdict" data-verdict={report.verdict}>
-                  {report.verdict === 'pass' ? '可以出厂' : report.verdict === 'warn' ? '有未验项' : '不合格'}
-                </span>
-              </span>
+              <span className="dshr-compReportName">{report.name}</span>
+              {/* 只报数字，不下判词。合格与否是判断，应当由看报告的人自己做 ——
+                  工具给数字和逐条事实就够，替人定性既越位，也会在判据本身有偏差
+                  时把话说死。 */}
               <span className="dshr-compReportSum">
-                共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 实跑 {report.summary.ran} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent}
+                共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 实跑 {report.summary.ran} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未验 {report.summary.unverified} · 未实现 {report.summary.absent}
+                {report.summary.bulk === 'fail' ? ' · 全部启用/禁用有问题' : report.summary.bulk === 'ok' ? ' · 全部启用/禁用通过' : ''}
               </span>
             </div>
             <ul className="dshr-compMembers">

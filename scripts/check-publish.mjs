@@ -226,6 +226,24 @@ for (const sub of rowSubpaths) {
     for (const f of readdirSync(localeDir)) TEXT_SHIPPED.push(`src/${sub}/locale/${f}`)
   }
 }
+// 源码里的中文注释/字符串同样要查：mojibake 只在源码里也能骗过 tsconfig（它是合法
+// UTF-8，只是内容坏了），而注释坏掉没人会发现。原先只查随包发出去的那几个文本文件。
+function sourceTextFiles(dir) {
+  const out = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'lib' || entry.name.startsWith('.')) continue
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...sourceTextFiles(full))
+    else if (/\.(ts|tsx|md|json|yml|css)$/.test(entry.name)) out.push(full)
+  }
+  return out
+}
+for (const file of sourceTextFiles(join(root, 'src'))) {
+  const text = readFileSync(file, 'utf8')
+  if (text.includes('\uFFFD')) {
+    problems.push(`源码里有 mojibake（U+FFFD）：${relative(root, file)}`)
+  }
+}
 for (const rel of TEXT_SHIPPED) {
   const file = join(root, rel)
   if (!existsSync(file)) continue

@@ -3774,31 +3774,3 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 
-/* 出厂结论徽标：体检是「能不能出厂」的判据，结论要一眼可见。 */
-.dshr-compVerdict {
-    margin-left: 8px;
-    padding: 1px 8px;
-    border-radius: 999px;
-    border: 0.5px solid var(--dsw-alias-border-l2);
-    font-size: 11px;
-    font-weight: 500;
-    line-height: 17px;
-}
-
-.dshr-compVerdict[data-verdict="pass"] {
-    color: var(--dsw-alias-state-success-secondary);
-    border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 40%, transparent);
-    background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
-}
-
-.dshr-compVerdict[data-verdict="warn"] {
-    color: var(--dsw-alias-label-secondary);
-    border-color: var(--dsw-alias-border-l2);
-    background: var(--dsw-alias-bg-layer-2);
-}
-
-.dshr-compVerdict[data-verdict="fail"] {
-    color: var(--dsw-alias-state-error-primary);
-    border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent);
-    background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
-}

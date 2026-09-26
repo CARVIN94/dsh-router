@@ -44,3 +44,15 @@ test('两节各有一个标题，两个按钮都叫「测试」（否则分不�
   assert.equal(panel.includes('跑一次出厂体检'), false, '旧的按钮长称别回来')
   assert.equal(panel.includes('插件契约体检'), false, '旧的节名别回来')
 })
+
+test('报告头只给数字，不给判词（合格/不合格该由看报告的人自己下）', () => {
+  for (const word of ['可以出厂', '不合格', '有未验项', '结论']) {
+    assert.equal(panel.includes(word), false, `判词「${word}」不该出现在面板上`)
+  }
+  assert.equal(panel.includes('dshr-compVerdict'), false, '徽标整块删掉')
+  assert.equal(/\.dshr-compVerdict/.test(css), false, '徽标样式也删掉')
+  // 数字要够：实跑数与「未验」都不能少 —— 没条件验的项混进「通过」就是撒谎
+  for (const field of ['total', 'implemented', 'ran', 'ok', 'fail', 'unverified', 'absent', 'bulk']) {
+    assert.match(panel, new RegExp(`summary\\.${field}`), `汇总里要能看到 ${field}`)
+  }
+})

@@ -103,8 +103,6 @@ export interface ProbeInput {
   runBulkToggleRoundTrip?: () => Promise<{ ok: boolean; detail: string }>
 }
 
-/** 出厂结论。 */
-export type ProbeVerdict = 'pass' | 'warn' | 'fail'
 
 
 /**
@@ -132,7 +130,6 @@ export interface ProbeReport {
   supplier: string
   name: string
   /** 出厂结论：`fail` = 必填成员缺失/实跑失败；`warn` = 可选能力缺或没实跑；`pass` = 全绿。 */
-  verdict: ProbeVerdict
   members: ProbeResult[]
   core: ProbeCoreReport
   summary: {
@@ -145,6 +142,8 @@ export interface ProbeReport {
     unverified: number
     /** 实际实跑过的成员数（`executed !== 'no'`）。 */
     ran: number
+    /** 核心区「全部启用/全部禁用」实跑的结果（抓插件越权的那条路）。 */
+    bulk: 'ok' | 'fail' | 'unverified'
   }
 }
 
@@ -320,7 +319,6 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
   }
   const bulkResult = await runBulkRoundTrip(input)
   const models = input.models
-  const verdict = verdictOf(members, models !== undefined, input.runBulkToggleRoundTrip === undefined ? undefined : (await bulkResult).ok)
   const summary = {
     total: members.length,
     implemented: members.filter((x) => x.present).length,
@@ -333,34 +331,16 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
   return {
     supplier: loaded.supplier.id,
     name: loaded.supplier.name,
-    verdict,
     members,
     core: await coreReport(input, listModels?.state === 'ok', bulkResult),
-    summary: { ...summary, ran: members.filter((x) => x.executed === 'ran' && x.present).length },
+    summary: {
+      ...summary,
+      ran: members.filter((x) => x.executed === 'ran' && x.present).length,
+      // 核心区「全部启用/禁用」是实跑的，它失败必须能被数字看见 —— 否则那条最该抓的
+      // 越权（插件在 listModels 里藏了已禁用的模型）就只藏在 detail 里。
+      bulk: bulkResult.ran ? (bulkResult.ok === true ? 'ok' : 'fail') : 'unverified',
+    },
   }
-}
-
-/**
- * 出厂结论。
- *
- * 判据要能真正分出三档，否则 `pass` 只是个摆设：
- * - `fail`：必填成员缺失，或实跑抛错/失败 —— 这个插件不合格。
- * - `warn`：必填齐全且实跑通过，但**有我们没预料到的未验项**，或模型状态拿不到。
- * - `pass`：必填齐全、实跑全过、必填里没有未验项。
- *
- * 两个刻意的口径：
- * 1. **可选成员缺失不降级** —— 契约里它们本就是「按存在性暴露」，不实现不是缺陷
- *    （Loomy 就不实现签到/登录流，它走会话串登录）。按「缺失就 warn」的话谁也拿不到 pass。
- * 2. **不进清单的成员不降级** —— `chatOnce` 若无法实跑记 `unverified`（warn），
- *    而 `dispose` 之类本就移出了清单，不参与判定。若把它们也算成 warn，`pass` 就
- *    永远不可达 —— 不可达的枚举值等于没有。
- */
-function verdictOf(members: ReadonlyArray<ProbeResult>, modelsKnown: boolean, bulkOk: boolean | undefined): ProbeVerdict {
-  // 核心区「全部启用/禁用」的实跑结果**必须**计入结论：它就是抓「插件私自过滤已禁用
-  // 模型」越权的那条路，失败了却还判 pass，等于体检最该抓的问题被放过。
-  if (members.some((x) => x.state === 'fail') || bulkOk === false) return 'fail'
-  if (members.some((x) => x.state === 'unverified') || !modelsKnown) return 'warn'
-  return 'pass'
 }
 
 /**

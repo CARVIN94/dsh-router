@@ -88,13 +88,16 @@ export interface ProbeInput {
    */
   runChatOnce?: (model: string) => Promise<{ ok: boolean; detail: string }>
   /**
-   * 用户当前禁用掉的模型 id（核心配置里那份）。
+   * **真跑一遍「全部禁用 → 全部启用」并还原**。
    *
-   * 用来做一条**契约对账**：`listModels` 少报了这些 id，就说明插件在
-   * listModels 里私自过滤了已禁用的模型 —— 那是越权（启用状态归核心合并），
-   * 且后果是面板的「已禁用」列表变空。
+   * 这不是「只报可用性」—— 它就是体检里能测出「插件在 listModels 里过滤已禁用模型」
+   * 越权的那条路径：核心把全部模型标成停用，再拉一次模型列表，**被藏起来的就露馅**
+   * （插件以为该藏，核心却必须还能看见它们，否则面板的「已禁用」列表会空、用户再也
+   * 看不到自己禁用过什么）。
+   *
+   * 由调用方实现，**必须自己还原**（体检不该在用户配置上留痕）。
    */
-  disabledIds?: readonly string[]
+  runBulkToggleRoundTrip?: () => Promise<{ ok: boolean; detail: string }>
 }
 
 /** 出厂结论。 */
@@ -115,7 +118,11 @@ export interface ProbeCoreReport {
     note?: string
   }
   /** 核心代劳的操作：**只报可用性，一律不自动执行**（改了就是替用户改配置）。 */
-  operations: Array<{ key: string; label: string; available: boolean; detail?: string }>
+  /**
+   * 核心代劳的能力区。**「全部启用 / 全部禁用」是实跑的**（并还原）：它既是面板上
+   * 真实存在的操作，也是体检唯一能验出「插件私自过滤已禁用模型」的办法。
+   */
+  operations: Array<{ key: string; label: string; ran: boolean; ok?: boolean; detail?: string }>
 }
 
 export interface ProbeReport {
@@ -169,35 +176,6 @@ export const SUPPLIER_CONTRACT_MEMBERS: readonly ProbeMember[] = [
   },
 
   {
-    key: 'generateLoginUrl',
-    label: '生成登录链接',
-    required: false,
-    probe: 'skip',
-    skipReason: '可能直接触发设备码 / OAuth 登录流。',
-  },
-  {
-    key: 'completeLogin',
-    label: '完成登录回调',
-    required: false,
-    probe: 'skip',
-    skipReason: '需要一个真实的回调 URL 才能调，空调没有意义。',
-  },
-  {
-    key: 'addApiKey',
-    label: '添加 API key',
-    required: false,
-    probe: 'skip',
-    skipReason: '会写进凭证库。',
-  },
-  {
-    key: 'removeLink',
-    label: '删除连接',
-    required: false,
-    probe: 'skip',
-    skipReason: '会删掉这个连接的凭证。',
-  },
-  { key: 'pollLogin', label: '轮询式登录', required: false, probe: 'safe' },
-  {
     key: 'checkinNow',
     label: '签到',
     required: false,
@@ -205,6 +183,29 @@ export const SUPPLIER_CONTRACT_MEMBERS: readonly ProbeMember[] = [
     skipReason: '会替这个连接真的去签到。',
   },
 ] as const
+
+/**
+ * **故意不列进体检清单的成员**（不是「不跑」，是**不在报告里出现**）：
+ *
+ * - `completeLogin`：需要一个真实回调 URL 才跑得通，体检拿不到 —— 跑了也只是验
+ *   「无效 URL 会不会抛错」，那不是功能是否可用。
+ * - `addApiKey`：需要一个真实 API key，自动造一个只会往凭证库写垃圾。
+ * - `removeLink`：用不存在的 uid 去试，它当然返回 false —— 那是**正常响应**，
+ *   判成失败是体检自己错判功能有问题（踩过）。真要验它只能删一个真连接。
+ * - `pollLogin`：只读一个布尔标记，验它通不通没有意义。
+ * - `generateLoginUrl`：可能直接触发设备码 / OAuth 登录流，会在上游留下待处理的会话。
+ *
+ * 保留在清单里、逐条占行、只为说「没验」，是在用篇幅淹掉真问题。
+ * 但**契约里加了新成员，体检要能报出来** —— `probe.test.ts` 有一条判据解析
+ * `contract.ts` 断言「除了这份有意排除的名单之外必须全覆盖」。
+ */
+export const PROBE_EXCLUDED_MEMBERS: Record<string, string> = {
+  completeLogin: '需要一个真实回调 URL',
+  addApiKey: '需要一个真实 API key',
+  removeLink: '只能用真连接验（试删不存在的连接必然返回 false，那是正常响应）',
+  pollLogin: '只读一个布尔标记，验它通不通没有意义',
+  generateLoginUrl: '可能触发设备码 / OAuth 流，会在上游留下待处理会话',
+}
 
 /** 读原始模块实例（`wrapModule` 挂在 wrapper 上）。 */
 function rawModule(loaded: LoadedSupplier): Record<string, unknown> {
@@ -341,8 +342,9 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
       detail: outcome.detail,
     })
   }
+  const bulkResult = await runBulkRoundTrip(input)
   const models = input.models
-  const verdict = verdictOf(members, models !== undefined)
+  const verdict = verdictOf(members, models !== undefined, input.runBulkToggleRoundTrip === undefined ? undefined : (await bulkResult).ok)
   const summary = {
     total: members.length,
     implemented: members.filter((x) => x.present).length,
@@ -357,7 +359,7 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
     name: loaded.supplier.name,
     verdict,
     members,
-    core: coreReport(models, listModels?.state === 'ok'),
+    core: await coreReport(input, listModels?.state === 'ok', bulkResult),
     summary: { ...summary, ran: members.filter((x) => x.executed === 'ran' && x.present).length },
   }
 }
@@ -377,8 +379,10 @@ export async function probeSupplier(loaded: LoadedSupplier, input: ProbeInput = 
  *    覆盖、`dispose` 本就不可验；它们在报告里逐条写着「为什么没验、谁负责验」。
  *    若把它们也算成 warn，`pass` 就永远不可达 —— 不可达的枚举值等于没有。
  */
-function verdictOf(members: ReadonlyArray<ProbeResult>, modelsKnown: boolean): ProbeVerdict {
-  if (members.some((x) => x.state === 'fail')) return 'fail'
+function verdictOf(members: ReadonlyArray<ProbeResult>, modelsKnown: boolean, bulkOk: boolean | undefined): ProbeVerdict {
+  // 核心区「全部启用/禁用」的实跑结果**必须**计入结论：它就是抓「插件私自过滤已禁用
+  // 模型」越权的那条路，失败了却还判 pass，等于体检最该抓的问题被放过。
+  if (members.some((x) => x.state === 'fail') || bulkOk === false) return 'fail'
   if (members.some((x) => x.state === 'unverified') || !modelsKnown) return 'warn'
   return 'pass'
 }
@@ -425,7 +429,13 @@ async function runProbedMember(key: string, m: SupplierModule, input: ProbeInput
 }
 
 /** 核心代劳的能力区：模型启用/禁用状态 + 那几个改配置的操作（只报可用性）。 */
-function coreReport(models: ReadonlyArray<{ id: string; enabled: boolean }> | undefined, modelsProbed: boolean): ProbeCoreReport {
+/** 核心区：模型启用状态 + 「全部启用/禁用」实跑结果。 */
+async function coreReport(
+  input: ProbeInput,
+  modelsProbed: boolean,
+  bulk: { ran: boolean; ok?: boolean; detail: string },
+): Promise<ProbeCoreReport> {
+  const models = input.models
   const enabled = models?.filter((m) => m.enabled).length
   const disabled = models === undefined ? undefined : models.length - (enabled ?? 0)
   return {
@@ -441,35 +451,34 @@ function coreReport(models: ReadonlyArray<{ id: string; enabled: boolean }> | un
       {
         key: 'models.bulk',
         label: '模型全部启用 / 全部禁用',
-        available: models !== undefined,
-        detail: '会改配置（可逆）。体检只报可用性，不替你点。',
-      },
-      {
-        key: 'models.toggle',
-        label: '单个模型启用 / 停用',
-        available: models !== undefined,
-        detail: '同上。',
+        ran: bulk.ran,
+        ...(bulk.ok === undefined ? {} : { ok: bulk.ok }),
+        detail: bulk.detail,
       },
     ],
   }
 }
 
-/** 无副作用成员的实跑。**每个 case 都必须没有副作用** —— 新增成员时照此办理。 */
 /**
- * 插件的 listModels 少报了哪些「用户已禁用的模型」。
+ * 实跑「全部禁用 → 看列表 → 全部启用」。
  *
- * 这是一条**越权检测**：`listModels` 的职责是「模型来源」，`enabled` 由核心按
- * `supplier-config` 合并。插件若在 listModels 里就把已禁用的过滤掉，用户在面板上
- * 再也看不到自己禁用过什么，而且「全部启用」之后它们也不会回来。
+ * 违规的插件会在这里露馅：它把已禁用的模型从 `listModels` 里过滤掉了，于是全部禁用
+ * 之后核心**看不到任何一个模型** —— 用户点「全部启用」也就再也点不回来了
+ * （路由里没有可用的模型 id 可传）。
  */
-function hiddenDisabledIds(input: ProbeInput): string[] {
-  const disabled = input.disabledIds ?? []
-  if (disabled.length === 0) return []
-  const reported = new Set(input.models?.map((m) => m.id) ?? [])
-  // 核心已把配置里缺的 id 补回 models，所以这里比对的是「补回后仍缺」的
-  return disabled.filter((id) => !reported.has(id))
+async function runBulkRoundTrip(input: ProbeInput): Promise<{ ran: boolean; ok?: boolean; detail: string }> {
+  if (input.runBulkToggleRoundTrip === undefined) {
+    return { ran: false, detail: '未实跑（该供应商没有模型可禁用）' }
+  }
+  try {
+    const r = await input.runBulkToggleRoundTrip()
+    return { ran: true, ok: r.ok, detail: r.detail }
+  } catch (err) {
+    return { ran: true, ok: false, detail: `实跑抛错：${(err as Error).message}` }
+  }
 }
 
+/** 无副作用成员的实跑。**每个 case 都必须没有副作用** —— 新增成员时照此办理。 */
 async function runSafeProbe(key: string, m: SupplierModule, input: ProbeInput): Promise<{ ok: boolean; detail: string }> {
   switch (key) {
     case 'id':
@@ -494,16 +503,11 @@ async function runSafeProbe(key: string, m: SupplierModule, input: ProbeInput): 
       return { ok: true, detail: summary }
     }
     case 'listModels': {
-      const r = await probeValue(() => m.listModels())
-      if (!r.ok) return r
-      const hidden = hiddenDisabledIds(input)
-      if (hidden.length > 0) {
-        return {
-          ok: false,
-          detail: `${r.detail}，但**少报了 ${hidden.length} 个用户已禁用的模型**（如 ${hidden.slice(0, 3).join('、')}）—— 插件不该在 listModels 里过滤它们，启用状态由核心合并；这样面板的「已禁用」列表会变空`,
-        }
-      }
-      return r
+      // 「插件是否在 listModels 里过滤已禁用的模型」不在这里查 —— 那要看「全部禁用」
+      // 之后列表还剩多少，由核心区的 runBulkToggleRoundTrip 验（见下）。
+      // 在这里查会有个致命前提：得先有用户禁用过模型才查得出来，而出厂体检面对的
+      // 恰恰是「用户还没用过的新插件」。
+      return await probeValue(() => m.listModels())
     }
     case 'pollLogin': {
       return await probeValue(() => m.pollLogin?.())

@@ -358,8 +358,8 @@ export function ExtTestPanel(): JSX.Element {
                 {report.core.operations.map((o) => (
                   <li key={o.key}>
                     <span className="dshr-compCoreOpName">{o.label}</span>
-                    <span className="dshr-compCoreOpState" data-available={o.available}>
-                      {o.available ? '可用' : '不可用'} · {o.detail}
+                    <span className="dshr-compCoreOpState" data-ok={o.ok ?? false} data-ran={o.ran}>
+                      {o.ran === false ? '未跑' : o.ok === true ? '实跑通过' : '实跑发现问题'} · {o.detail}
                     </span>
                   </li>
                 ))}

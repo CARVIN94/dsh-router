@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { probeSupplier, SUPPLIER_CONTRACT_MEMBERS } from './probe.ts'
+import { probeSupplier, SUPPLIER_CONTRACT_MEMBERS, PROBE_EXCLUDED_MEMBERS } from './probe.ts'
 import type { LoadedSupplier } from './loader.ts'
 
 // 本文件在 src/suppliers/ 下，所以 '../..' 才是仓库根
@@ -28,25 +28,29 @@ function contractMemberNames(): string[] {
   return [...names]
 }
 
-test('清单覆盖契约的全部成员（契约加了成员而清单没加 = 体检漏检）', () => {
-  const declared = new Set(SUPPLIER_CONTRACT_MEMBERS.map((m) => m.key))
+test('清单覆盖契约的全部成员，除了有意排除的那几个（契约加了成员而清单没加 = 体检漏检）', () => {
+  const declared = new Set([...SUPPLIER_CONTRACT_MEMBERS.map((m) => m.key), ...Object.keys(PROBE_EXCLUDED_MEMBERS)])
   const missing = contractMemberNames().filter((k) => !declared.has(k))
-  assert.deepEqual(missing, [], `契约里有、清单里没有的成员：${missing.join('、')}`)
+  assert.deepEqual(missing, [], `契约里有、清单里和排除名单里都没有的成员：${missing.join('、')}`)
+})
+
+test('有意排除的成员都写了排除理由（不能无声消失）', () => {
+  for (const [key, why] of Object.entries(PROBE_EXCLUDED_MEMBERS)) {
+    assert.ok(why.length > 0, `${key} 必须写清为什么不测`)
+  }
+})
+
+test('不测的成员不出现在报告清单里（不占篇幅）', () => {
+  const keys = new Set(SUPPLIER_CONTRACT_MEMBERS.map((m) => m.key))
+  for (const key of Object.keys(PROBE_EXCLUDED_MEMBERS)) {
+    assert.equal(keys.has(key), false, `${key} 说好不测，就不该出现在清单里`)
+  }
 })
 
 test('清单里没有契约里不存在的成员（写错名字 = 永远探不到，且不报错）', () => {
   const inContract = new Set(contractMemberNames())
   const extra = SUPPLIER_CONTRACT_MEMBERS.map((m) => m.key).filter((k) => !inContract.has(k))
   assert.deepEqual(extra, [], `清单里写了契约中不存在的成员：${extra.join('、')}`)
-})
-
-test('有副作用的成员一律标 skip，且都写了不自动执行的理由', () => {
-  for (const key of ['dispose', 'addApiKey', 'removeLink', 'generateLoginUrl', 'completeLogin', 'checkinNow']) {
-    const m = SUPPLIER_CONTRACT_MEMBERS.find((x) => x.key === key)
-    assert.ok(m !== undefined, `清单里没有 ${key}`)
-    assert.equal(m.probe, 'skip', `${key} 有副作用，不能自动跑`)
-    assert.ok((m.skipReason ?? '').length > 0, `${key} 必须写清为什么不自动执行`)
-  }
 })
 
 /** 会记账的假模块：任何被调用的成员都会被记下来。 */
@@ -78,12 +82,21 @@ function loaded(m: Record<string, unknown>): LoadedSupplier {
   } as unknown as LoadedSupplier
 }
 
+test('留在清单里的成员都有明确的 probe 方式', () => {
+  for (const m of SUPPLIER_CONTRACT_MEMBERS) {
+    assert.ok(m.probe === 'safe' || m.probe === 'skip', `${m.key} 的 probe 类型不明确`)
+    if (m.probe === 'skip') {
+      assert.ok((m.skipReason ?? '').length > 0, `${m.key} 标了 skip 必须写清为什么不自动跑`)
+    }
+  }
+})
+
 test('probe 输入的成员会实跑（单档全自动：能安全试的就是要试）', async () => {
   const { m, called } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
   await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
   // 用无害探针输入 / 真实连接跑的：
-  for (const key of ['removeLink', 'generateLoginUrl', 'completeLogin']) {
-    assert.equal(called.includes(key), true, `${key} 现在该实跑（探针输入不碰真实状态）`)
+  for (const key of ['checkinNow']) {
+    assert.equal(called.includes(key), true, 'checkinNow 该对真实连接实跑')
   }
   // 任何输入都会毁掉体检前提的，才不跑：
   for (const key of ['dispose', 'addApiKey']) {
@@ -99,18 +112,18 @@ test('毁前提的成员报「存在但不验」并带理由', async () => {
   assert.equal(dispose?.present, true, '存在性照样报')
   assert.equal(dispose?.executed, 'no')
   assert.match(dispose?.detail ?? '', /卸载/)
-  const addKey = report.members.find((x) => x.key === 'addApiKey')
-  assert.equal(addKey?.executed, 'no')
-  assert.match(addKey?.detail ?? '', /真实的 API key/)
+  assert.equal(
+    report.members.some((x) => x.key === 'addApiKey'), false,
+    'addApiKey 移出了清单（需要一个真 key，体检拿不到），报告里不该再出现',
+  )
 })
 
 test('必填成员缺失 = fail（插件不完整），可选成员缺失 = absent', async () => {
   const { m } = spyModule(['status', 'listModels'])  // 缺 chatOnce/dispose，也缺全部可选
   const report = await probeSupplier(loaded(m))
   const chatOnce = report.members.find((x) => x.key === 'chatOnce')
-  const addApiKey = report.members.find((x) => x.key === 'addApiKey')
   assert.equal(chatOnce?.state, 'fail', '必填成员缺失要报 fail')
-  assert.equal(addApiKey?.state, 'absent', '可选成员缺失只是 absent')
+  assert.equal(report.members.find((x) => x.key === 'checkinNow')?.state, 'absent', '可选成员缺失只是 absent')
 })
 
 test('safe 成员抛错只让那一条 fail，不连坐', async () => {
@@ -127,7 +140,7 @@ test('safe 成员抛错只让那一条 fail，不连坐', async () => {
 
 /* ---------------- 核心侧：模型启用/禁用只「报」不「改」 ---------------- */
 
-test('核心区：报出模型启用/停用数量，并如实写「拿不到」而不是冒充 0', async () => {
+test('核心区：「全部启用/全部禁用」实跑，并如实写「拿不到」而不是冒充 0', async () => {
   const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
   const withModels = await probeSupplier(loaded(m), { models: [
     { id: 'a', enabled: true }, { id: 'b', enabled: true }, { id: 'c', enabled: false },
@@ -137,22 +150,32 @@ test('核心区：报出模型启用/停用数量，并如实写「拿不到」�
   const without = await probeSupplier(loaded(m))
   assert.equal(without.core.models.total, null, '拿不到就是 null，不能当成 0 个模型')
   assert.match(without.core.models.note ?? '', /拿不到|不可用/)
-  assert.equal(without.core.operations[0]?.available, false, '拿不到模型时这些操作不可用')
+  assert.equal(without.core.operations[0]?.ran, false, '拿不到模型时这一项不跑')
 })
 
-test('核心区：全部启用/禁用这类改配置的操作只报可用性，体检一次都不调', async () => {
-  const { called, m: probeModule } = (() => {
-    const spy = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-    return { called: spy.called, m: spy.m }
-  })()
-  const report = await probeSupplier(loaded(probeModule), { models: [{ id: 'a', enabled: true }] })
+test('核心区：全部启用/禁用是真跑的（不是只报可用性）', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const calls: string[] = []
+  const report = await probeSupplier(loaded(m), {
+    models: [{ id: 'a', enabled: true }, { id: 'b', enabled: true }],
+    runBulkToggleRoundTrip: async () => { calls.push('bulk'); return { ok: true, detail: '全部禁用后 2 个模型都在' } },
+  })
+  assert.deepEqual(calls, ['bulk'], '这条必须真跑 —— 它是唯一能抓出越权的路径')
   const bulk = report.core.operations.find((o) => o.key === 'models.bulk')
-  assert.equal(bulk?.available, true)
-  assert.match(bulk?.detail ?? '', /不替你点/, '必须说清体检不会替用户改配置')
-  // 模型状态是调用方传进来的，探针自己不碰任何开关
-  for (const key of ['setAllModelsEnabled', 'setModelEnabled', 'toggle']) {
-    assert.equal(called.includes(key), false, `探针不该调用 ${key}`)
-  }
+  assert.equal(bulk?.ran, true)
+  assert.equal(bulk?.ok, true)
+})
+
+test('核心区：全部启用/禁用实跑发现问题 = 报出来（Loomy 那种）', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const report = await probeSupplier(loaded(m), {
+    models: [{ id: 'a', enabled: true }],
+    runBulkToggleRoundTrip: async () => ({ ok: false, detail: '全部禁用之后只剩 0/1 个模型 —— 插件把已禁用的藏起来了' }),
+  })
+  const bulk = report.core.operations.find((o) => o.key === 'models.bulk')
+  assert.equal(bulk?.ok, false, '必须报出问题')
+  assert.match(bulk?.detail ?? '', /藏起来了/)
+  assert.equal(report.verdict, 'fail', '核心区实跑失败也要影响出厂结论')
 })
 
 test('status 的账号摘要给真实数量与状态分布（链接全过期正是要靠它看出来）', async () => {
@@ -171,18 +194,12 @@ test('status 的账号摘要给真实数量与状态分布（链接全过期正�
 
 /* ---------------- 单档全自动：能跑的都跑，跑不了的写清为什么 ---------------- */
 
-test('单档全自动：removeLink / completeLogin / generateLoginUrl 用探针输入实跑', async () => {
-  const seen: Record<string, unknown[]> = {}
-  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  m.removeLink = (uid: string) => { (seen.removeLink ??= []).push(uid); return Promise.resolve(false) }
-  m.completeLogin = (url: string) => { (seen.completeLogin ??= []).push(url); return Promise.reject(new Error('invalid callback')) }
-  m.generateLoginUrl = () => { (seen.generateLoginUrl ??= []).push('called'); return 'https://example.test/login' }
-
-  const report = await probeSupplier(loaded(m))
-  assert.deepEqual(seen.removeLink, ['__probe_no_such_uid__'], 'removeLink 必须收到一个不存在的 uid')
-  assert.match(String(seen.completeLogin?.[0] ?? ''), /invalid\.example/, 'completeLogin 必须收到无效回调 URL')
-  assert.equal((seen.generateLoginUrl ?? []).length, 1, 'generateLoginUrl 直接实跑')
-  assert.equal(report.members.find((x) => x.key === 'removeLink')?.executed, 'ran', '能安全试的就实跑')
+test('不测的成员不会被调用（就算插件实现了）', async () => {
+  const { m, called } = spyModule([...SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key), ...Object.keys(PROBE_EXCLUDED_MEMBERS)])
+  await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }] })
+  for (const key of Object.keys(PROBE_EXCLUDED_MEMBERS)) {
+    assert.equal(called.includes(key), false, `${key} 说好不测，就不该被调用`)
+  }
 })
 
 test('单档全自动：chatOnce 真跑一次（前提是调用方给了 runChatOnce）', async () => {
@@ -221,15 +238,13 @@ test('单档全自动：checkinNow 对连接池里的真实连接真签到', asy
   assert.equal(report.members.find((x) => x.key === 'checkinNow')?.executed, 'ran')
 })
 
-test('单档全自动：dispose / addApiKey 仍然一次都不实跑（跑了就毁前提）', async () => {
+test('dispose 一次都不实跑（跑了就把自己卸载了）', async () => {
   const { m, called } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  const report = await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
-  for (const key of ['dispose', 'addApiKey']) {
-    assert.equal(called.includes(key), false, `不该调用 ${key}`)
-    const row = report.members.find((x) => x.key === key)
-    assert.equal(row?.executed, 'no', `${key} 应标为未实跑`)
-    assert.ok((row?.detail ?? '').length > 0, `${key} 必须写清为什么没跑`)
-  }
+  const report = await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }] })
+  assert.equal(called.includes('dispose'), false, '调用 dispose 就是卸载这个供应商')
+  const row = report.members.find((x) => x.key === 'dispose')
+  assert.equal(row?.executed, 'no')
+  assert.ok((row?.detail ?? '').length > 0, '必须写清为什么没跑')
 })
 
 test('单档全自动：全实现且都实跑通 → pass（无 token/无模型时 chatOnce 如实说无法验证）', async () => {
@@ -252,39 +267,6 @@ test('单档全自动：全实现且都实跑通 → pass（无 token/无模型�
 test('summary.ran 只数真的跑过的成员', async () => {
   const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
   const report = await probeSupplier(loaded(m), { models: [{ id: 'm1', enabled: true }] })
-  assert.equal(report.summary.ran, 13, '15 个成员里 dispose / addApiKey 不跑')
+  assert.equal(report.summary.ran, report.summary.total - 1, '清单里只有 dispose 不实跑')
 })
 
-/* ---------------- 越权检测：插件在 listModels 里私自过滤已禁用的模型 ---------------- */
-
-test('listModels 少报用户已禁用的模型 = 违约，报 fail（出厂体检的核心价值）', async () => {
-  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  // 复刻 Loomy 的做法：在 listModels 里把已禁用的过滤掉
-  m.listModels = () => [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
-  const report = await probeSupplier(loaded(m), {
-    models: [{ id: 'a', enabled: true }],
-    disabledIds: ['b', 'c'],
-  })
-  const lm = report.members.find((x) => x.key === 'listModels')
-  assert.equal(lm?.state, 'fail', '这是越权，必须 fail 而不是 absent/warn')
-  assert.match(lm?.detail ?? '', /少报了 2 个/, '要说清少报了几个')
-  assert.match(lm?.detail ?? '', /启用状态由核心合并/, '要说清这是越权，不是上游少模型')
-  assert.equal(report.verdict, 'fail')
-})
-
-test('正常实现（enabled 由核心合并）不报 fail', async () => {
-  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  m.listModels = () => [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
-  const report = await probeSupplier(loaded(m), {
-    models: [{ id: 'a', enabled: true }, { id: 'b', enabled: false }, { id: 'c', enabled: false }],
-    disabledIds: ['b', 'c'],
-  })
-  assert.equal(report.members.find((x) => x.key === 'listModels')?.state, 'ok')
-})
-
-test('没有禁用任何模型时不做这项检测（不误报）', async () => {
-  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
-  m.listModels = () => [{ id: 'a' }]
-  const report = await probeSupplier(loaded(m), { models: [{ id: 'a', enabled: true }], disabledIds: [] })
-  assert.equal(report.members.find((x) => x.key === 'listModels')?.state, 'ok')
-})

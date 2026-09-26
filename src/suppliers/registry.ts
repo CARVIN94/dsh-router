@@ -164,8 +164,37 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         const models = await router.modelsOf(s.id).catch(() => undefined)
         const report = await probeSupplier(loaded, {
           models,
-          // 用户当前禁用的 id —— 用于「插件是否在 listModels 里私自过滤它们」的越权检测
-          disabledIds: store.get(s.id).disabled,
+          // **实跑「全部禁用 → 看列表 → 全部启用」，验完还原。**
+          //
+          // 这是体检里唯一能抓出「插件在 listModels 里过滤已禁用模型」越权的路径：
+          // 违规插件把已禁用的藏起来，于是全部禁用之后核心一个模型都看不到，
+          // 用户点「全部启用」也就再也点不回来（没有 id 可传）。
+          // 还原写在 finally —— 体检不该在用户配置上留痕，哪怕中间抛了。
+          runBulkToggleRoundTrip: async () => {
+            const original = [...store.get(s.id).disabled]
+            const before = await router.modelsOf(s.id)
+            const ids = before.map((mm) => mm.id)
+            if (ids.length === 0) return { ok: true, detail: '该供应商没有模型，跳过' }
+            try {
+              store.setAllModelsEnabled(s.id, false, ids)
+              router.invalidateModels(s.id)
+              const after = await router.modelsOf(s.id, true)
+              const hidden = after.filter((mm) => !mm.enabled).length
+              const missing = ids.length - after.length
+              if (hidden !== ids.length || missing !== 0) {
+                return {
+                  ok: false,
+                  detail: `全部禁用之后只剩 ${after.length}/${ids.length} 个模型（其中 ${hidden} 个标记为停用）—— 插件把已禁用的模型从 listModels 里藏起来了；启用状态归核心合并，插件不该自己筛`,
+                }
+              }
+              return { ok: true, detail: `全部禁用后 ${after.length} 个模型都在（均标记停用），再全部启用可恢复` }
+            } finally {
+              store.setAllModelsEnabled(s.id, true, ids)
+              for (const id of original) store.setAllModelsEnabled(s.id, false, [id])
+              router.invalidateModels(s.id)
+              await router.modelsOf(s.id, true)
+            }
+          },
           // chatOnce 真跑一次：账号遍历 / 冷却 / 首字节预算都走真实路径
           runChatOnce: async (model) => {
             const r = await router.testModel(s.id, model, pick.uid)

@@ -66,6 +66,12 @@ function addSupplier(router: Router, s: unknown): void {
   ;(router as unknown as { suppliers: unknown[] }).suppliers.push(s)
 }
 
+/** 禁用某供应商的一个模型（store 是私有的，测试按同文件惯例断言访问）。 */
+function disableModel(router: Router, supplierId: string, modelId: string): void {
+  ;(router as unknown as { store: { setModelEnabled(id: string, m: string, enabled: boolean): void } })
+    .store.setModelEnabled(supplierId, modelId, false)
+}
+
 /**
  * 把某供应商的缓存标记成「已过期」（TTL 现在 10 分钟，测试不能真等）。
  * 白盒改 fetchedAt，模拟插件重启/TTL 到期的冷路径。
@@ -710,39 +716,40 @@ test('组合窗口：模型都没报 context_length → undefined', async () => 
 })
 
 
-/* ---- 「已禁用模型必须留在列表里」 ----
+/* ---- 核心不替违约插件兜底 ----
  *
- * 起因：用户把 Loomy 的模型全部禁用后，面板的「已禁用」列表是空的。根因是第三方插件
- * 在自己的 `listModels` 里就把已禁用的模型过滤掉了 —— 而 `listModels` 的职责只是
- * 「模型来源」，`enabled` 归核心合并（见 loader.ts 的 modelsWithEnabled 注释）。插件一
- * 过滤，用户就再也看不到自己禁用过什么，而且「全部启用」之后它们也不会回来。
+ * 起因：插件在 listModels 里把用户禁用的模型过滤掉（越权 —— 启用状态归核心合并），
+ * 面板的「已禁用」列表于是空了。曾想过在核心按配置把缺的 id 补回来，**这是错的**：
  *
- * 所以核心按配置把缺的 id 补回。**关键约束：对规规矩矩的供应商必须是零影响** ——
- * 下面第一条判据就钉这件事，别让这个修复变成对正常供应商的行为变更。
+ *  1. 那是替有问题的插件擦屁股，插件永远不会被修；
+ *  2. 更糟的是**它会把体检的越权检测一起掩盖掉** —— 模型被补全之后，
+ *     probe.ts 的 hiddenDisabledIds 找不到「少报的 id」，报告变成 OK，
+ *     第三方那个 bug 就再也没人知道了。
+ *
+ * 所以核心只负责：自己不合并不掩饰（插件少报就是少报），并让体检把违约报出来。
+ * 下面两条判据钉住这个方向，防止以后有人（我）再犯同样的错。
  */
 
-test('正常供应商（listModels 全量返回）：补回逻辑是零影响', async () => {
+test('核心不替违约插件补回已禁用的模型（要留着证据给体检）', async () => {
   const router = new Router('')
   const a = supplier('a', [{ id: 'a-1' }, { id: 'a-2' }])
-  addSupplier(router, a.s)
-  router.store.setModelEnabled('a', 'a-2', false)
-
-  const models = await router.modelsOf('a')
-  assert.deepEqual(models.map((m) => m.id).sort(), ['a-1', 'a-2'], '列表内容不能因为这个修复而变')
-  assert.deepEqual(models.map((m) => m.enabled).sort(), [false, true], '启用状态照旧由核心合并')
-  assert.equal(models.find((m) => m.id === 'a-2')?.context_length, undefined, '没编造 context_length')
-})
-
-test('插件把已禁用的模型藏起来：核心按配置补回，面板看得见「已禁用」', async () => {
-  const router = new Router('')
-  const a = supplier('a', [{ id: 'a-1' }, { id: 'a-2' }])
-  // 复刻越权实现：listModels 自己过滤掉了已禁用的
+  // 越权实现：listModels 自己过滤掉了已禁用的
   a.s.listModels = async (): Promise<ModelInfo[]> => [{ id: 'a-1' }]
   addSupplier(router, a.s)
-  router.store.setModelEnabled('a', 'a-2', false)
+  disableModel(router, 'a', 'a-2')
 
   const models = await router.modelsOf('a')
-  const ids = models.map((m) => m.id).sort()
-  assert.deepEqual(ids, ['a-1', 'a-2'], '用户禁用过的模型不能从列表里消失')
-  assert.equal(models.find((m) => m.id === 'a-2')?.enabled, false, '补回来的要标成停用')
+  assert.deepEqual(models.map((m) => m.id), ['a-1'],
+    '核心不该把插件藏掉的模型补回来 —— 补回来就等于替它兜底，越权检测也会失效')
+})
+
+test('正常供应商（listModels 全量返回）：列表内容与启用状态照旧', async () => {
+  const router = new Router('')
+  const a = supplier('a', [{ id: 'a-1' }, { id: 'a-2' }])
+  addSupplier(router, a.s)
+  disableModel(router, 'a', 'a-2')
+
+  const models = await router.modelsOf('a')
+  assert.deepEqual(models.map((m) => m.id).sort(), ['a-1', 'a-2'])
+  assert.deepEqual(models.map((m) => m.enabled).sort(), [false, true], '启用状态仍由核心合并')
 })

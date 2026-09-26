@@ -3,6 +3,7 @@
  *
  * 通用能力（dsh-router 核心，所有供应商自动可用，js 无需实现）：
  *   GET    /suppliers/:id/models                  models + alias（listModels 合并启用状态）
+ *   POST   /suppliers/:id/probe                  契约体检：逐成员报「实现/可用/不执行」
  *   PATCH  /suppliers/:id/enabled                 {enabled} —— 供应商开关（关掉不参与路由）
  *   POST   /suppliers/:id/models/toggle           {id, enabled}
  *   POST   /suppliers/:id/models/add              {id}
@@ -25,6 +26,7 @@ import type { Router } from '../router/index.ts'
 import type { ModelWithEnabled, SupplierStatus } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { LoadedSupplier } from './loader.ts'
+import { probeSupplier } from './probe.ts'
 
 /** webServer 路由形状（与 index.ts 的 WebServerRoute 一致）。 */
 export interface WebServerRoute {
@@ -135,6 +137,23 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
       store.setEnabled(s.id, body.enabled)
       router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true, id: s.id, enabled: router.isEnabled(s.id) })
+    },
+  })
+
+  // ---- 契约体检（只跑只读成员；有副作用的只报存在性）----
+  routes.push({
+    kind: 'exact',
+    path: `${p}/probe`,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        writeJson(res, 405, { ok: false, error: 'probe requires POST' })
+        return
+      }
+      try {
+        writeJson(res, 200, { ok: true, report: await probeSupplier(loaded) })
+      } catch (err) {
+        writeJson(res, 500, { ok: false, error: (err as Error).message })
+      }
     },
   })
 

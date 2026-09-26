@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Connection self-test",
-    "description": "Pick a supplier, model and connection, then run a real access test and see whether it works or what it reports."
+    "title": "Plugin self-check",
+    "description": "Run a real access test against a supplier/model/connection, or run a contract check over an external supplier plugin (every member: implemented / usable / not executed)"
   }
 }

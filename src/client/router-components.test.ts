@@ -105,7 +105,7 @@ test('内置扩展不进这一节（它已经是原生「包含的组件」里�
   const out = groupRouterComponents({ ok: true }, {
     ok: true,
     enhancers: [
-      { id: 'test', name: '连接自检', source: 'builtin' },
+      { id: 'test', name: '插件自检', source: 'builtin' },
       { id: 'rtk', name: 'RTK' },
     ],
   })

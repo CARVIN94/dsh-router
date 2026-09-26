@@ -1,5 +1,5 @@
 /**
- * 连接自检扩展（`router.ext` 侧）测试 —— 锁住三件事：
+ * 插件自检扩展（`router.ext` 侧）测试 —— 锁住三件事：
  *   1. 登记进 `router.ext` 表，带上可显示的身份（名字/说明/就绪）；
  *   2. **幂等**：同一个 id 已在表里就不顶掉别人的登记；
  *   3. 恒为就绪 —— 自检能力不依赖外部二进制，不该提前否决（真跑一次才知道）。
@@ -16,7 +16,7 @@ import type { RouterExtService } from '../ext/contract.ts'
 test('扩展器带上面板要用的身份，且恒为就绪', () => {
   const ext = createTestExt()
   assert.equal(ext.id, EXT_TEST_ID)
-  assert.equal(ext.name, '连接自检')
+  assert.equal(ext.name, '插件自检')
   assert.ok((ext.description ?? '').length > 0, '没有说明，插件页那一行就没有副标题')
   assert.equal(ext.getState().ready, true, '自检不依赖本机二进制，不该报未就绪')
 })
@@ -46,7 +46,7 @@ test('apply 把扩展登记进 router.ext 表（这张表就是「卡片出现�
   const table: RouterExtService = {}
   const { ctx, events } = fakeCtx(table)
   apply(ctx)
-  assert.equal(table[EXT_TEST_ID]?.name, '连接自检')
+  assert.equal(table[EXT_TEST_ID]?.name, '插件自检')
   assert.deepEqual(events, [], '核心持有同一个 live 对象且每次请求现读，不需要广播事件')
 })
 

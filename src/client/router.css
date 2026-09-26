@@ -3425,7 +3425,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 /* ============================================================
-   dsh-router — 连接自检面板（设置 → 路由 → 扩展 → 连接自检）
+   dsh-router — 插件自检面板（设置 → 路由 → 扩展 → 插件自检）
    ------------------------------------------------------------
    这一页渲染在**宿主的插件页**里，DOM 祖先既不是 .dshr-settings 也不是
    .dshr-shell，所以文件顶部那套 `--rs-*` 主题变量在这里**不存在**（未定义的
@@ -3624,4 +3624,145 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     color: var(--dsw-alias-label-primary-foreground);
     font-size: 14px;
     line-height: 22px;
+}
+
+/* --- 契约体检区（插件自检面板的第二块） ---
+   状态靠 data-state 上色，和「结果卡」那套语气一致：过了是绿、失败是红、
+   没实现是灰、不执行是中性（它是**故意**不跑的，不是问题）。 */
+
+.dshr-compSection {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 4px;
+    padding-top: 16px;
+    border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.dshr-compHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.dshr-compSectionTitle {
+    margin: 0;
+    color: var(--dsw-alias-label-primary);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+}
+
+.dshr-compSectionNote {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dshr-compProbeRow {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.dshr-compProbeRow .dshr-compField {
+    flex: 1;
+}
+
+.dshr-compProbeBtn {
+    flex: none;
+}
+
+.dshr-compReport {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border: 0.5px solid var(--dsw-alias-border-l1);
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-layer-1);
+}
+
+.dshr-compReportHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.dshr-compReportName {
+    color: var(--dsw-alias-label-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
+}
+
+.dshr-compReportSum {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dshr-compMembers {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dshr-compMember {
+    display: grid;
+    grid-template-columns: 16px minmax(0, auto) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.dshr-compMember:last-child {
+    border-bottom: 0;
+}
+
+.dshr-compMemberState {
+    flex: none;
+    text-align: center;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dshr-compMember[data-state="ok"] .dshr-compMemberState {
+    color: var(--dsw-alias-state-success-secondary);
+}
+
+.dshr-compMember[data-state="fail"] .dshr-compMemberState {
+    color: var(--dsw-alias-state-error-primary);
+}
+
+.dshr-compMember[data-state="absent"] .dshr-compMemberState,
+.dshr-compMember[data-state="skipped"] .dshr-compMemberState {
+    color: var(--dsw-alias-label-tertiary);
+}
+
+.dshr-compMemberName {
+    color: var(--dsw-alias-label-primary);
+    font-size: 12.5px;
+    line-height: 19px;
+    white-space: nowrap;
+}
+
+.dshr-compMemberKey {
+    margin-left: 6px;
+    color: var(--dsw-alias-label-tertiary);
+    font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 11px;
+}
+
+.dshr-compMemberDetail {
+    color: var(--dsw-alias-label-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    overflow-wrap: anywhere;
 }

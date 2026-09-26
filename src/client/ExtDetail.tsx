@@ -33,7 +33,7 @@ interface ExtDetailProps {
 }
 
 export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
-  // 扩展**自带**详情面板时用它（连接自检就是这么做的：选供应商/模型/连接 + 跑测试）。
+  // 扩展**自带**详情面板时用它（插件自检就是这么做的：选供应商/模型/连接 + 跑测试）。
   // 没有就退回下面这张通用只读页 —— 保留返回链接与标题，导航形状与有没有自定义
   // 面板无关，用户点进去的预期是稳定的。
   const Custom = extPanel(item.id)

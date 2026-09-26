@@ -1,5 +1,5 @@
 {
   "name": "dsh-router-core-ext-test",
   "type": "module",
-  "description": "连接自检扩展（随 dsh-router 核心分发）"
+  "description": "插件自检扩展（随 dsh-router 核心分发）"
 }

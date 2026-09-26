@@ -1,5 +1,5 @@
 /**
- * 连接自检扩展（`router.ext` 侧的实现）—— 声明与状态都在这里，**不做任何拦截**。
+ * 插件自检扩展（`router.ext` 侧的实现）—— 声明与状态都在这里，**不做任何拦截**。
  *
  * 它和 rtk 那类扩展的区别要写清楚：本扩展**不挂任何监听、不改写任何命令**，
  * 唯一作用是让用户在官方插件页里打开一块自检面板（选供应商 / 模型 / 连接，跑一次
@@ -25,8 +25,8 @@ export const EXT_TEST_ID = 'test'
 export function createTestExt(): RouterExt {
   return {
     id: EXT_TEST_ID,
-    name: '连接自检',
-    description: '选供应商、模型与连接，跑一次真实访问测试，看连接是否可用或报什么错',
+    name: '插件自检',
+    description: '选供应商、模型与连接跑一次真实访问测试；或对外部供应商插件做契约体检，逐个成员报告实现与可用情况',
     // 随核心分发 -> 插件页的原生「包含的组件」里有它一行，自绘节里不再重复列。
     source: 'builtin' as const,
     getState: () => ({ ready: true }),

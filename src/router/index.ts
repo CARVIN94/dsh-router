@@ -1220,7 +1220,7 @@ export class Router {
    *   挨个等下去只会把 60s 乘以号数，组合永远轮不到下一个模型。
    */
   /**
-   * @param onlyUid - 只试这一个连接，**不做账号池回退**。给「指定连接自检」用
+   * @param onlyUid - 只试这一个连接，**不做账号池回退**。给面板「指定连接」那档用
    *   （诊断单个链接到底通不通）；正常请求与普通模型测试都不传，走账号池。
    */
   private async chatWithSupplier(

@@ -1,7 +1,7 @@
 /**
- * 连接自检面板 —— 扩展「连接自检」(`dsh-router-ext-test` / 扩展 id `test`) 的详情内容。
+ * 插件自检面板 —— 扩展「插件自检」(`dsh-router-ext-test` / 扩展 id `test`) 的详情内容。
  *
- * **入口只有一处**：设置 → 路由 → 扩展 → 点开「连接自检」那张卡片（`ExtDetail` 查
+ * **入口只有一处**：设置 → 路由 → 扩展 → 点开「插件自检」那张卡片（`ExtDetail` 查
  * `ext-panels.ts` 的注册表拿到本组件）。
  *
  * 刻意**不给插件页那一行也挂一个详情页**：那一行的宿主行开关已经能开/关它，再点进去
@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ROUTER_API_BASE, type RouterAccount, type RouterHealthResponse } from '../shared.ts'
 import { modelChoice, type ModelRow } from './model-choice.ts'
+import type { ProbeReport } from '../suppliers/probe.ts'
 
 /** 一次测试的结果。`ok` 为 false 时 `error` 是核心给的真实原因（上游响应 / chatOnce message）。 */
 interface TestResult {
@@ -35,6 +36,14 @@ type Notice =
   | { tone: 'ok'; result: TestResult }
   | { tone: 'fail'; result: TestResult }
   | { tone: 'network'; text: string }
+
+/** 每个契约成员状态的字形（颜色由 data-state 给）。 */
+const MEMBER_MARK: Record<ProbeReport['members'][number]['state'], string> = {
+  ok: '✓',
+  fail: '✕',
+  absent: '–',
+  skipped: '⊘',
+}
 
 const TONE_ICON: Record<Notice['tone'], string> = {
   ok: 'M20 6L9 17l-5-5',
@@ -97,6 +106,11 @@ export function ExtTestPanel(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [loaded, setLoaded] = useState(false)
+  // 契约体检：只针对**外部供应商插件**（内置供应商随核心分发，没有独立插件可体检）
+  const [pluginId, setPluginId] = useState('')
+  const [probing, setProbing] = useState(false)
+  const [report, setReport] = useState<ProbeReport | null>(null)
+  const [probeError, setProbeError] = useState('')
 
   // 供应商与连接各读一次：/health 给供应商（开着的那批，与面板一致），
   // /status 给账号（uid + 昵称 + 冷却状态）。
@@ -140,6 +154,29 @@ export function ExtTestPanel(): JSX.Element {
     })()
     return () => { live = false }
   }, [supplierId])
+
+  // 外部供应商插件 = source 为 external 的那些（内置随核心分发，不进这个下拉）
+  const pluginSuppliers = suppliers.filter((x) => x.source === 'external')
+
+  const runProbe = async (): Promise<void> => {
+    if (pluginId === '' || probing) return
+    setProbing(true)
+    setProbeError('')
+    setReport(null)
+    try {
+      const response = await fetch(`${ROUTER_API_BASE}/suppliers/${encodeURIComponent(pluginId)}/probe`, {
+        method: 'POST',
+        cache: 'no-store',
+      })
+      const data = await response.json() as { ok: boolean; error?: string; report?: ProbeReport }
+      if (data.ok && data.report !== undefined) setReport(data.report)
+      else setProbeError(data.error ?? '体检失败')
+    } catch (err) {
+      setProbeError((err as Error).message)
+    } finally {
+      setProbing(false)
+    }
+  }
 
   const links = accounts.filter((a) => a.supplier === supplierId)
   const runnable = supplierId !== '' && modelId !== ''
@@ -252,6 +289,65 @@ export function ExtTestPanel(): JSX.Element {
           </div>
         </div>
       )}
+
+      {/* ---- 契约体检：外部供应商插件的每个契约成员 ---- */}
+      <div className="dshr-compSection">
+        <div className="dshr-compHead">
+          <h4 className="dshr-compSectionTitle">插件契约体检</h4>
+          <span className="dshr-compSectionNote">外部供应商插件</span>
+        </div>
+        <p className="dshr-compIntro">
+          逐个成员报告「实现了吗 / 实跑通了吗」。**有副作用的一律不自动执行**（会卸载
+          供应商、改凭证、触发登录流、替用户签到），只标出它实现了并说明为什么没跑。
+        </p>
+        <div className="dshr-compProbeRow">
+          <Picker
+            label="供应商插件"
+            value={pluginId}
+            options={pluginSuppliers.map((x) => ({ value: x.id, label: x.name }))}
+            emptyHint={pluginSuppliers.length === 0 ? '没有装外部供应商插件' : '请选择'}
+            onChange={(v) => { setPluginId(v); setReport(null); setProbeError('') }}
+          />
+          <div className="dshr-compProbeBtn">
+            <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe() }}>
+              {probing ? '体检中…' : '跑一次契约体检'}
+            </Button>
+          </div>
+        </div>
+
+        {probeError !== '' && (
+          <div className="dshr-compNotice" data-tone="network" role="status">
+            <Glyph d={TONE_ICON.network} />
+            <div className="dshr-compNoticeBody">
+              <div className="dshr-compNoticeTitle">体检失败</div>
+              <div className="dshr-compNoticeText">{probeError}</div>
+            </div>
+          </div>
+        )}
+
+        {report !== null && (
+          <div className="dshr-compReport">
+            <div className="dshr-compReportHead">
+              <span className="dshr-compReportName">{report.name}</span>
+              <span className="dshr-compReportSum">
+                共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent} · 未执行 {report.summary.skipped}
+              </span>
+            </div>
+            <ul className="dshr-compMembers">
+              {report.members.map((m) => (
+                <li key={m.key} className="dshr-compMember" data-state={m.state}>
+                  <span className="dshr-compMemberState" aria-hidden="true">{MEMBER_MARK[m.state]}</span>
+                  <span className="dshr-compMemberName">
+                    {m.label}
+                    <code className="dshr-compMemberKey">{m.key}</code>
+                  </span>
+                  <span className="dshr-compMemberDetail">{m.detail ?? ''}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

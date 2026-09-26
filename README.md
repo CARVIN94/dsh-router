@@ -109,7 +109,7 @@ team 测试就是多个会话交错发请求。dsh-router 原生适配这个场�
 第二处入口是**设置 → 插件 → dsh-router-core 的详情页**,那里分两层:
 
 - 宿主的原生**「包含的组件」**列 core 自己 patch 里声明的**行**:core 本体、三个
-  内置供应商、连接自检这个内置扩展。每行一个宿主管的开关,关一行 = loader 不
+  内置供应商、插件自检这个内置扩展。每行一个宿主管的开关,关一行 = loader 不
   import 它 = 它压根没注册。
 - 原生列表**下面**是本插件自绘的**「路由组件」**一节,列**外部供应商插件**与
   **扩展插件**,两组都带开关。
@@ -227,18 +227,21 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 把它开回来。开关 UI 在**设置 → 插件 → dsh-router-core 详情页**下面的「路由组件」一节
 (「供应商」组 + 「扩展」组)。
 
-## 连接自检(内置扩展 `dsh-router-ext-test`)
+## 插件自检(内置扩展 `dsh-router-ext-test`)
 
-随核心分发的内置扩展,用途只有一个:选**供应商 / 模型 / 连接**,跑一次真实的访问测试,
-看连接是否可用、或报什么错。它**不挂任何监听、不改写任何命令** —— 与 RTK 那类扩展的
-区别只在于它只提供面板。
+随核心分发的内置扩展,提供两块自检面板。它**不挂任何监听、不改写任何命令** ——
+与 RTK 那类扩展的区别只在于它只提供面板。
+
+1. **连接测试**:选**供应商 / 模型 / 连接**,跑一次真实的访问测试。
+2. **契约体检**:选一个**外部供应商插件**,逐个契约成员报告「实现了吗 / 实跑通了吗 /
+   为什么没跑」。
 
 它与三个内置供应商走同一套管道:是 `cordis.patch.yml` 里的一个**行**(子路径模块
 `dsh-router-core/ext-test`),因此在插件页原生「包含的组件」里占一行、开关由宿主管,
 且**默认关闭**。行关闭时 loader 根本不 import 这个模块,扩展就不在 `router.ext` 表里 ——
 「打开那一行才出现这张卡片」是天然的,不需要额外的状态位。
 
-面板入口**只有一处**:设置 → 路由 → 扩展 → 点开「连接自检」。插件页那一行不挂详情页,
+面板入口**只有一处**:设置 → 路由 → 扩展 → 点开「插件自检」。插件页那一行不挂详情页,
 它只负责开关(理由见 [扩展插件](#扩展插件routerext) 一节)。
 
 测试走核心已有的 `POST /suppliers/:id/models/test`,与面板「供应商」详情里的「测试」
@@ -249,6 +252,29 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 面板的模型下拉**只列可用模型**:那个端点给的是全部模型(含用户在供应商详情里停用的),
 把停用的也列出来,用户会挑一个自己明明关掉的模型去测。列表为空时还区分「一个模型都
 没有」(该去拉取)与「全被停用」(该去开启)—— 共用一句「没有模型」会把用户往错的方向指。
+
+### 契约体检:报告,不是代替你操作
+
+`POST /router/api/suppliers/:id/probe` 逐个成员给状态:`ok`(实现了且实跑通)/
+`fail`(必填成员缺失,或实跑抛错)/ `absent`(可选成员没实现)/ `skipped`(实现了但**故意
+不跑**)。
+
+**有副作用的一律不自动执行**,只标出它实现了并说明为什么:
+
+| 成员 | 为什么不给自动跑 |
+| --- | --- |
+| `dispose` | 调用它就是把这个供应商卸载掉 |
+| `addApiKey` / `removeLink` | 写/删凭证 |
+| `generateLoginUrl` | 可能直接触发设备码 / OAuth 登录流 |
+| `completeLogin` | 需要一个真实回调 URL,空调没有意义 |
+| `checkinNow` | 替这个连接真的去签到 |
+| `chatOnce` | 会真发一次请求(消耗额度)——用上面的「跑一次访问测试」单独测 |
+
+体检是给眼睛看的,不是给手用的:要触发上面这些,去供应商详情里点对应的按钮。
+
+清单与契约**必须一起长**:`src/suppliers/probe.ts` 的成员表有一条判据直接解析
+`contract.ts` 源码里的 `SupplierModule` 成员名并断言全覆盖(编译期抓不到这种「两份
+清单」),所以契约新增成员而体检漏检会当场红。
 
 ## 扩展插件(`router.ext`)
 
@@ -287,7 +313,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 扩展详情页原本是一张写死的只读页(名字、id、状态、一段说明),扩展自己想放的交互
 (要选的模型、要跑的测试、要看的诊断)没地方放。客户端因此有一张按**扩展 id** 索引的
 面板注册表(`src/client/ext-panels.ts` 的 `registerExtPanel`):登记了就用你的组件渲染
-整个内容区,没登记才落回通用只读页。`连接自检` 就是这么用的。
+整个内容区,没登记才落回通用只读页。`插件自检` 就是这么用的。
 
 ⚠️ 这张注册表目前只在 dsh-router 自己的 client bundle 内,**外部插件包还引不到** ——
 `dsh-router-core/client` 是整个入口闭包、不导出它。要让外部插件也能自带面板需要加一个
@@ -322,7 +348,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
   │    │                        宿主管的开关,关一行 = loader 不 import 它
   │    └─ RouterComponentsSection  dsh-router-core 详情页自绘的「路由组件」一节
   │                                (外部供应商 + 扩展,两组都带开关)
-  │         └─ ExtTestPanel       连接自检扩展的详情面板(按 ext id 登记到 ext-panels.ts)
+  │         └─ ExtTestPanel       插件自检扩展的详情面板(按 ext id 登记到 ext-panels.ts)
   └─ fetch /router/api/*            (同源,无 CORS)
        └─ host 半(src/index.ts)
                  ├─ /v1/models + /v1/chat/completions   (OpenAI 兼容, KeysStore 鉴权)
@@ -338,7 +364,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
                       └─ 外部插件供应商(经 router.suppliers service 注册)
                          ↑ 内置三个是 core 自己 patch 里的**行**(子路径模块),与外部插件同一条通道
                  └─ 扩展表 router.ext(core provide 空表,谁都能往里 append)
-                      ├─ 内置:连接自检(行 dsh-router-core/ext-test,默认关闭)
+                      ├─ 内置:插件自检(行 dsh-router-core/ext-test,默认关闭)
                       └─ 外部:dsh-router-ext-rtk 等独立 bundle 经同一个 service 注册
 ```
 

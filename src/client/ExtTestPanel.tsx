@@ -249,7 +249,7 @@ export function ExtTestPanel(): JSX.Element {
         />
       </div>
 
-      <div className="dshr-compActions">
+      <div className="dshr-compActions dshr-compBtnRow">
         <Button
           variant="primary"
           size="md"
@@ -308,7 +308,7 @@ export function ExtTestPanel(): JSX.Element {
             emptyHint={pluginSuppliers.length === 0 ? '没有装外部供应商插件' : '请选择'}
             onChange={(v) => { setPluginId(v); setReport(null); setProbeError('') }}
           />
-          <div className="dshr-compProbeBtn">
+          <div className="dshr-compProbeBtn dshr-compBtnRow">
             <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe() }}>
               {probing ? '体检中…' : '跑一次契约体检'}
             </Button>

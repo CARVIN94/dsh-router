@@ -158,7 +158,7 @@ export function ExtTestPanel(): JSX.Element {
   // 外部供应商插件 = source 为 external 的那些（内置随核心分发，不进这个下拉）
   const pluginSuppliers = suppliers.filter((x) => x.source === 'external')
 
-  const runProbe = async (): Promise<void> => {
+  const runProbe = async (mode: 'read-only' | 'full'): Promise<void> => {
     if (pluginId === '' || probing) return
     setProbing(true)
     setProbeError('')
@@ -166,6 +166,8 @@ export function ExtTestPanel(): JSX.Element {
     try {
       const response = await fetch(`${ROUTER_API_BASE}/suppliers/${encodeURIComponent(pluginId)}/probe`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
         cache: 'no-store',
       })
       const data = await response.json() as { ok: boolean; error?: string; report?: ProbeReport }
@@ -309,8 +311,17 @@ export function ExtTestPanel(): JSX.Element {
             onChange={(v) => { setPluginId(v); setReport(null); setProbeError('') }}
           />
           <div className="dshr-compProbeBtn dshr-compBtnRow">
-            <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe() }}>
-              {probing ? '体检中…' : '跑一次契约体检'}
+            <Button variant="primary" size="md" disabled={pluginId === '' || probing} onClick={() => { void runProbe('read-only') }}>
+              {probing ? '体检中…' : '只读体检'}
+            </Button>
+            <Button
+              variant="outline"
+              size="md"
+              disabled={pluginId === '' || probing}
+              title="会用无害的探针输入实跑有副作用的成员（删连接传不存在的 id、登录回调传无效 URL）"
+              onClick={() => { void runProbe('full') }}
+            >
+              深度体检
             </Button>
           </div>
         </div>
@@ -328,9 +339,14 @@ export function ExtTestPanel(): JSX.Element {
         {report !== null && (
           <div className="dshr-compReport">
             <div className="dshr-compReportHead">
-              <span className="dshr-compReportName">{report.name}</span>
+              <span className="dshr-compReportName">
+                {report.name}
+                <span className="dshr-compVerdict" data-verdict={report.verdict}>
+                  {report.verdict === 'pass' ? '可以出厂' : report.verdict === 'warn' ? '有未验项' : '不合格'}
+                </span>
+              </span>
               <span className="dshr-compReportSum">
-                共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent} · 未执行 {report.summary.skipped}
+                {report.mode === 'full' ? '深度' : '只读'} · 共 {report.summary.total} 个 · 实现 {report.summary.implemented} · 实跑 {report.summary.ran} · 通过 {report.summary.ok} · 失败 {report.summary.fail} · 未实现 {report.summary.absent}
               </span>
             </div>
             {/* 核心侧：模型启用/禁用不是插件契约成员（核心代劳），但体检要报它的状态 */}

@@ -24,8 +24,28 @@
 import type { SupplierModule } from './contract.ts'
 import type { LoadedSupplier } from './loader.ts'
 
-/** 探针会不会自动执行。`skip` = 有副作用或无法凭空调用，只报存在性。 */
+/**
+ * 体检档位。
+ *
+ * - `read-only`（默认）：只跑没有副作用的成员。日常排查用这个，随便点。
+ * - `full`（出厂体检）：额外用**无害的探针输入**实跑那些「有副作用但可以不碰真实
+ *   状态就跑通代码路径」的成员 —— 例如 `removeLink` 传一个不存在的 uid、
+ *   `completeLogin` 传一个明显无效的回调 URL。出厂前要问的是「每个功能到底通不通」，
+ *   只报存在性回答不了这个问题。
+ *
+ * 即便在 `full` 档，仍有成员**永不实跑**（见 `NEVER_RUN`）：那些不是「用探针输入就能
+ * 安全试」的，而是任何输入都会改动真实状态。
+ */
+export type ProbeMode = 'read-only' | 'full'
+
+/** 探针会不会自动执行。`skip` = 只报存在性。 */
 export type ProbeKind = 'safe' | 'skip'
+
+/**
+ * 这个成员**到底跑没跑**。`no` 时 `detail` 必须写清为什么 —— 体检报告的价值全在
+ * 「哪些是验过的、哪些只是看了一眼」。
+ */
+export type ProbeExecuted = 'ran' | 'probed' | 'no'
 
 /** 一个契约成员的体检条目。 */
 export interface ProbeMember {
@@ -50,9 +70,15 @@ export interface ProbeResult {
   present: boolean
   probe: ProbeKind
   state: ProbeState
-  /** 摘要/失败原因。 */
+  /** 到底跑没跑：实跑 / 用探针输入实跑 / 没跑。 */
+  executed: ProbeExecuted
+  /** 摘要/失败原因；`executed: 'no'` 时这里是「为什么没跑」。 */
   detail?: string
 }
+
+/** 出厂结论。 */
+export type ProbeVerdict = 'pass' | 'warn' | 'fail'
+
 
 /**
  * **核心侧**能力：不属于插件契约（插件不实现它们，是核心代劳），所以不在上面的
@@ -74,9 +100,21 @@ export interface ProbeCoreReport {
 export interface ProbeReport {
   supplier: string
   name: string
+  mode: ProbeMode
+  /** 出厂结论：`fail` = 必填成员缺失/实跑失败；`warn` = 可选能力缺或没实跑；`pass` = 全绿。 */
+  verdict: ProbeVerdict
   members: ProbeResult[]
   core: ProbeCoreReport
-  summary: { total: number; implemented: number; ok: number; fail: number; absent: number; skipped: number }
+  summary: {
+    total: number
+    implemented: number
+    ok: number
+    fail: number
+    absent: number
+    skipped: number
+    /** 实际实跑过的成员数（`executed !== 'no'`）。 */
+    ran: number
+  }
 }
 
 /**
@@ -211,6 +249,34 @@ async function probeValue(call: () => unknown): Promise<{ ok: boolean; detail: s
 }
 
 /**
+ * 深度档下**仍然永不实跑**的成员，以及原因。
+ *
+ * 判据是「**任何输入都会改动真实状态**」——`probe: 'skip'` 里那些能靠无害探针输入
+ * 试的（removeLink 传不存在的 uid、completeLogin 传无效回调）不在此列。
+ * `dispose` 调用它就是把这个供应商卸载掉，连「试一下」都不成立。
+ */
+const NEVER_RUN: Record<string, string> = {
+  dispose: '调用它就是把这个供应商卸载掉 —— 连「试一下」都不成立。',
+  addApiKey: '任何输入都会写进凭证库，没有无害的探针输入。',
+  checkinNow: '会替这个连接真的去签到，签到额度用掉就没了。',
+  chatOnce: '会真发一次请求（消耗额度）。用「跑一次访问测试」单独测。',
+}
+
+/** 深度档用来「不碰真实状态就跑通代码路径」的探针输入。 */
+const PROBE_UID = '__probe_no_such_uid__'
+const PROBE_CALLBACK = 'https://invalid.example/__probe__'
+
+/** 该成员在当前档位下怎么执行；`undefined` = 本档不跑。 */
+function execution(key: string, present: boolean, probe: ProbeKind, mode: ProbeMode): { executed: ProbeExecuted; detail?: string } {
+  if (!present) return { executed: 'no' }
+  if (probe === 'safe') return { executed: 'ran' }
+  const never = NEVER_RUN[key]
+  if (never !== undefined) return { executed: 'no', detail: never }
+  if (mode === 'read-only') return { executed: 'no' }
+  return { executed: 'probed' }
+}
+
+/**
  * 体检一个已装载的供应商。
  *
  * 只跑 `probe: 'safe'` 的成员；`skip` 的只报存在性。绝不代替用户调有副作用的成员。
@@ -222,23 +288,34 @@ async function probeValue(call: () => unknown): Promise<{ ok: boolean; detail: s
 export async function probeSupplier(
   loaded: LoadedSupplier,
   models?: ReadonlyArray<{ id: string; enabled: boolean }>,
+  mode: ProbeMode = 'read-only',
 ): Promise<ProbeReport> {
   const m = rawModule(loaded)
   const members: ProbeResult[] = []
   for (const member of SUPPLIER_CONTRACT_MEMBERS) {
     const present = member.key in m ? m[member.key] !== undefined : false
-    const base = { key: member.key, label: member.label, required: member.required, present, probe: member.probe }
+    const exec = execution(member.key, present, member.probe, mode)
+    const base = {
+      key: member.key, label: member.label, required: member.required, present, probe: member.probe, executed: exec.executed,
+    }
     if (!present) {
-      members.push({ ...base, state: member.required ? 'fail' : 'absent', ...(member.required ? { detail: '必填成员缺失，插件不完整' } : {}) })
+      members.push({
+        ...base, state: member.required ? 'fail' : 'absent', executed: 'no',
+        ...(member.required ? { detail: '必填成员缺失，插件不完整' } : {}),
+      })
       continue
     }
     if (member.probe === 'skip') {
-      members.push({ ...base, state: 'skipped', ...(member.skipReason === undefined ? {} : { detail: member.skipReason }) })
+      const detail = exec.executed === 'probed'
+        ? (await runSideEffectProbe(member.key, m as unknown as SupplierModule)).detail
+        : (exec.detail ?? member.skipReason)
+      members.push({ ...base, state: 'skipped', detail })
       continue
     }
     const outcome = await runSafeProbe(member.key, m as unknown as SupplierModule)
     members.push({ ...base, state: outcome.ok ? 'ok' : 'fail', detail: outcome.detail })
   }
+  const verdict = verdictOf(members, models !== undefined)
   const summary = {
     total: members.length,
     implemented: members.filter((x) => x.present).length,
@@ -251,9 +328,62 @@ export async function probeSupplier(
   return {
     supplier: loaded.supplier.id,
     name: loaded.supplier.name,
+    mode,
+    verdict,
     members,
     core: coreReport(models, listModels?.state === 'ok'),
-    summary,
+    summary: { ...summary, ran: members.filter((x) => x.executed !== 'no' && x.present).length },
+  }
+}
+
+/**
+ * 出厂结论。
+ *
+ * 判据要能真正分出三档，否则 `pass` 只是个摆设：
+ * - `fail`：必填成员缺失，或实跑抛错/失败 —— 这个插件不合格。
+ * - `warn`：必填齐全且实跑通过，但**有我们没预料到的未验项**，或模型状态拿不到。
+ * - `pass`：必填齐全、实跑全过、必填里没有未验项。
+ *
+ * 两个刻意的口径：
+ * 1. **可选成员缺失不降级** —— 契约里它们本就是「按存在性暴露」，不实现不是缺陷
+ *    （Loomy 就不实现签到/登录流，它走会话串登录）。按「缺失就 warn」的话谁也拿不到 pass。
+ * 2. **`NEVER_RUN` 名单里的必填成员也不降级** —— `chatOnce` 由面板的「跑一次访问测试」
+ *    覆盖、`dispose` 本就不可验；它们在报告里逐条写着「为什么没验、谁负责验」。
+ *    若把它们也算成 warn，`pass` 就永远不可达 —— 不可达的枚举值等于没有。
+ */
+function verdictOf(members: ReadonlyArray<ProbeResult>, modelsKnown: boolean): ProbeVerdict {
+  if (members.some((x) => x.state === 'fail')) return 'fail'
+  const unverified = members.filter((x) => x.required && x.executed === 'no' && NEVER_RUN[x.key] === undefined)
+  if (unverified.length > 0 || !modelsKnown) return 'warn'
+  return 'pass'
+}
+
+/**
+ * 深度档：用**无害的探针输入**实跑有副作用的成员，跑通它的代码路径而不动真实状态。
+ *
+ * 这里返回的 state 一律是 `skipped`（它仍是有副作用的成员），`detail` 说明「用探针输入
+ * 试过、结果如何」—— 出厂体检要的就是这个信息。
+ */
+async function runSideEffectProbe(key: string, m: SupplierModule): Promise<{ detail?: string }> {
+  try {
+    switch (key) {
+      case 'generateLoginUrl': {
+        const v = await m.generateLoginUrl?.()
+        return { detail: `用探针实跑：${describe(v)}` }
+      }
+      case 'completeLogin': {
+        const v = await m.completeLogin?.(PROBE_CALLBACK)
+        return { detail: `用无效回调实跑：${describe(v)}` }
+      }
+      case 'removeLink': {
+        const v = await m.removeLink?.(PROBE_UID)
+        return { detail: `用不存在的连接实跑：${describe(v)}` }
+      }
+      default:
+        return {}
+    }
+  } catch (err) {
+    return { detail: `用探针实跑抛错（这本身就是一条问题）：${(err as Error).message}` }
   }
 }
 

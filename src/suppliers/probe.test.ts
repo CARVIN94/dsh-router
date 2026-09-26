@@ -161,3 +161,69 @@ test('status 的账号摘要给真实数量与状态分布（链接全过期正�
   assert.match(status?.detail ?? '', /3 个账号/, '要给真实数量，不是「≥1」')
   assert.match(status?.detail ?? '', /session_dead 1/, '要把失效的号点出来')
 })
+
+/* ---------------- 出厂体检（full 档）：用无害探针输入实跑，绝不动真实状态 ---------------- */
+
+test('full 档：removeLink / completeLogin / generateLoginUrl 用探针输入实跑', async () => {
+  const seen: Record<string, unknown[]> = {}
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  m.removeLink = (uid: string) => { (seen.removeLink ??= []).push(uid); return Promise.resolve(false) }
+  m.completeLogin = (url: string) => { (seen.completeLogin ??= []).push(url); return Promise.reject(new Error('invalid callback')) }
+  m.generateLoginUrl = () => { (seen.generateLoginUrl ??= []).push('called'); return 'https://example.test/login' }
+
+  const report = await probeSupplier(loaded(m), undefined, 'full')
+  assert.deepEqual(seen.removeLink, ['__probe_no_such_uid__'], 'removeLink 必须收到一个不存在的 uid')
+  assert.match(String(seen.completeLogin?.[0] ?? ''), /invalid\.example/, 'completeLogin 必须收到无效回调 URL')
+  assert.equal((seen.generateLoginUrl ?? []).length, 1)
+  const rm = report.members.find((x) => x.key === 'removeLink')
+  assert.equal(rm?.executed, 'probed')
+  assert.match(rm?.detail ?? '', /不存在的连接/, '要说清是用探针试的')
+})
+
+test('full 档：dispose / addApiKey / checkinNow / chatOnce 仍然一次都不实跑', async () => {
+  const { m, called } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const report = await probeSupplier(loaded(m), undefined, 'full')
+  for (const key of ['dispose', 'addApiKey', 'checkinNow', 'chatOnce']) {
+    assert.equal(called.includes(key), false, `full 档也不该调用 ${key}`)
+    const row = report.members.find((x) => x.key === key)
+    assert.equal(row?.executed, 'no', `${key} 应标为未实跑`)
+    assert.ok((row?.detail ?? '').length > 0, `${key} 必须写清为什么没跑`)
+  }
+})
+
+test('read-only 档（默认）：有副作用的成员只报存在性，一个都不实跑', async () => {
+  const { m, called } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const report = await probeSupplier(loaded(m))
+  for (const key of ['removeLink', 'completeLogin', 'generateLoginUrl']) {
+    assert.equal(called.includes(key), false, `read-only 档不该调用 ${key}`)
+    assert.equal(report.members.find((x) => x.key === key)?.executed, 'no')
+  }
+  assert.equal(report.mode, 'read-only', '默认档必须是只读')
+})
+
+test('出厂结论：必填缺失/实跑失败 = fail；可选缺失或没实跑 = warn；全绿 = pass', async () => {
+  const full = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  // 第二参数是模型启用状态；传 [] = 「拿到了，确实 0 个模型」，与 undefined（拿不到）不同
+  assert.equal((await probeSupplier(loaded(full.m), [], 'full')).verdict, 'pass',
+    '必填齐全、实跑全过、无未验必填项 → pass')
+
+  const missing = spyModule(['status', 'listModels'])
+  assert.equal((await probeSupplier(loaded(missing.m))).verdict, 'fail', '必填成员缺失 → fail')
+
+  // 只读档：必填里 chatOnce/dispose 在 NEVER_RUN 名单内（由访问测试覆盖、不可验），
+  // 不降级；可选成员缺失也不降级 → 仍然是 pass
+  const ro = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  assert.equal((await probeSupplier(loaded(ro.m), [])).verdict, 'pass',
+    '可选缺失与「名单内不验」都不该把 pass 变成不可达')
+
+  // 拿不到模型状态 → warn（体检有一部分没验成）
+  assert.equal((await probeSupplier(loaded(ro.m), undefined)).verdict, 'warn', '模型状态拿不到 → warn')
+})
+
+test('summary.ran 只数真的跑过的成员', async () => {
+  const { m } = spyModule(SUPPLIER_CONTRACT_MEMBERS.map((x) => x.key))
+  const ro = await probeSupplier(loaded(m))
+  const full = await probeSupplier(loaded(m), undefined, 'full')
+  assert.equal(ro.summary.ran, 8, '只读档只跑 safe 的 8 个（id/name/priority/icon/apiKeyHint/status/listModels/pollLogin）')
+  assert.equal(full.summary.ran, 11, 'full 档 = 8 个 safe + removeLink/completeLogin/generateLoginUrl 三个探针实跑')
+})

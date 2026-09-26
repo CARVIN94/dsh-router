@@ -25,11 +25,22 @@ const panel = readFileSync(fileURLToPath(new URL('./ExtTestPanel.tsx', import.me
 const css = readFileSync(fileURLToPath(new URL('./router.css', import.meta.url)), 'utf8')
 
 test('面板里每个 Button 都在一个带 dshr-compBtnRow 的动作行里', () => {
-  const buttons = (panel.match(/<Button\b/g) ?? []).length
-  const acts = (panel.match(/dshr-compBtnRow/g) ?? []).length
-  assert.ok(buttons > 0, '面板里应当有 Button（这条判据才有意义）')
-  assert.equal(acts, buttons,
-    `面板里有 ${buttons} 个 Button、只有 ${acts} 个 dshr-compBtnRow 动作行 —— 多出来的按钮不在字色规则的覆盖范围内，会变回黑底黑字`)
+  // 一个动作行可以放多个按钮（「只读体检」+「深度体检」并排），所以判据是
+  // **每个 Button 在源码里都处于某个 dshr-compBtnRow 容器之内** —— 早期版本
+  // 用「按钮数 == 行数」来近似，被并排两个按钮的布局直接顶红了（这正是它的价值：
+  // 假设一旦不成立就会暴露，而不是继续绿）。
+  const opens = [...panel.matchAll(/<div className="([^"]*)">/g)].map((m) => m[1])
+  const rows = opens.filter((c) => c.includes('dshr-compBtnRow')).length
+  assert.ok(rows > 0, '面板里应当有动作行（这条判据才有意义）')
+  const buttons = [...panel.matchAll(/<Button\b/g)]
+  assert.ok(buttons.length > 0, '面板里应当有 Button')
+  for (const b of buttons) {
+    const before = panel.slice(0, b.index)
+    // 取该 Button 之前最近一个开着的 <div>，看它是不是动作行
+    const nearest = [...before.matchAll(/<div className="([^"]*)">/g)].pop()
+    assert.ok(nearest?.[1]?.includes('dshr-compBtnRow') === true,
+      `有一个 Button 不在任何 dshr-compBtnRow 动作行里（最近的容器：${nearest?.[1] ?? '无'}）—— 会变回黑底黑字`)
+  }
 })
 
 test('那条字色规则挂在共用类上（不能再写死某个容器）', () => {

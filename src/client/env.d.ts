@@ -37,6 +37,8 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     children?: import('react').ReactNode
     type?: 'button' | 'submit' | 'reset'
     disabled?: boolean
+    /** 原生 button 属性透传，所以 title 等标准属性可用。 */
+    title?: string
     onClick?: () => void
   }): import('react').JSX.Element
 }

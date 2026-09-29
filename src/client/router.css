@@ -3376,77 +3376,11 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     font-size: 11.5px;
     line-height: 16px;
     overflow-wrap: anywhere;
-}
-
-/* 扩展子开关的**原文**（`ExtDetail` 的子开关区）。
-   刻意**直接全文展示：不折叠、不限高**（2026-09-29 用户拍板）。
-   中间那版试过 `<details>` + `line-clamp: 2`，撤掉了 —— 折叠让"照着原文决定
-   开不开"这个动作被多点一次打断，同一份 body 还要渲染两份（可能不同步）。
-   颜色/字号沿用 compRowState 那一套 CSS 变量（深浅色两套值由变量负责，
-   这里不写死颜色）。 */
-/* 提示词全文（`ExtDetail` 的「实际生效的提示词」区）。
-   提示词是**代码不是散文** ⇒ 等宽字体 + 保留换行（`pre-wrap`），
-   与上面 `-compRowState` 那些散文行区分开；否则 15 条规则在窄栏里
-   密排成一块，看不出是分开的（2026-09-29 用户报「全都跑成一行」）。 */
-.dshr-promptDump {
-    margin: 0;
-    padding: 10px 12px;
-    border: 0.5px solid var(--dsw-alias-border-l3);
-    border-radius: 8px;
-    background: var(--dsw-alias-layer-1);
-    color: var(--dsw-alias-label-secondary);
-    font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-    font-size: 11.5px;
-    line-height: 1.7;
+    /* 保留换行：子开关的**原文**是这个类的另一个用法（2026-09-29 合并进来），
+       它是多行段落。状态文案都是单行，所以这条对它们没有副作用。
+       ⇒ 原来的 `.dshr-compRowBody` 整块删掉：14 条规则的正文不需要左边框 +
+       缩进那种「引用块」的额外装饰（用户要求），层级只靠颜色就够。 */
     white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 60vh;
-    overflow-y: auto;
-}
-
-/* 子开关卡底部的脚注（`ExtDetail` 的「实际生效的提示词」）。
-   刻意**不是另一张卡**：它是核对面，不是第二个功能区 ——
-   拆成两张卡会让这页变成"控制一份 + 预览一份"的错觉，
-   而实际上预览读的是上面那份开关的**结果**（2026-09-29 用户嫌布局太多）。 */
-.dshr-compFoot {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-/* 子开关标题右侧的「修改」按钮（2026-09-29）。
-   刻意小而淡：它是**次要动作**（多数时候只是开关），不该和标题抢注意力；
-   但也不能藏到 hover 才出现 —— 移动端没有 hover。 */
-.dshr-compEditBtn {
-    flex: none;
-    margin-left: auto;
-    padding: 2px 8px;
-    border: 0.5px solid var(--dsw-alias-border-l2);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--dsw-alias-label-tertiary);
-    font-size: 11px;
-    line-height: 16px;
-    cursor: pointer;
-}
-
-.dshr-compEditBtn:hover {
-    color: var(--dsw-alias-label-primary);
-    border-color: var(--dsw-alias-border-l3);
-}
-
-.dshr-compRowBody {
-    color: var(--dsw-alias-label-tertiary);
-    font-size: 11.5px;
-    line-height: 17px;
-    margin-top: 4px;
-    padding-left: 8px;
-    border-left: 1.5px solid var(--dsw-alias-border-l3);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
 }
 
 /* ============================================================

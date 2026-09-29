@@ -240,7 +240,7 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
                        一份、展开区一份），两份可能不同步。
                     ⇒ 直接一个 `<span>`，内容即所见。 */}
                 {typeof c.body === 'string' && c.body !== '' && (
-                  <span className="dshr-compRowBody">{c.body}</span>
+                  <span className="dshr-compRowState">{c.body}</span>
                 )}
               </div>
               <Switch

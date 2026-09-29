@@ -75,21 +75,39 @@ function PromptPreview(): JSX.Element {
             {data === null ? '未读取' : `${data.chars} 字 · ${data.sections.length} 段`}
           </span>
         </div>
+        {/* ⚠️ 不用 Markdown 语法（`**…**` 在 React 里是字面量，页面上会显示成一排
+            星号 —— 上一版就犯了这个，截图里能看到）。强调靠结构，不靠符号。 */}
         <p className="dshr-compHint">
-          这是系统提示词的**真实装配结果**（含 Harness 身份、工具说明及其它插件的段落），
-          不是本页列出的那几行。关掉某条分类后，用它确认「真的没进去」。
+          系统提示词的真实装配结果，含 Harness 身份、工具说明及本扩展之外的其它段落。
+          用来确认「关掉某条分类后，它真的没进去」。
         </p>
         <button type="button" className="dshr-backLink" disabled={busy} onClick={() => { void load() }}>
           {busy ? '读取中…' : data === null ? '读取' : '重新读取'}
         </button>
         {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
         {data !== null && (
-          <details>
-            <summary className="dshr-compRowName" style={{ cursor: 'pointer', padding: '10px 0 4px' }}>
-              展开全文（{data.chars} 字）
-            </summary>
-            <pre className="dshr-compRowBody" style={{ whiteSpace: 'pre-wrap' }}>{data.text}</pre>
-          </details>
+          <>
+            {/* 段落来源：一眼看出「谁贡献了这段」。本扩展的段落会高亮。 */}
+            <ul className="dshr-compRows" style={{ marginTop: 10 }}>
+              {data.sections.map((s) => (
+                <li key={s.name} className="dshr-compRow" style={{ padding: '6px 2px' }}>
+                  <div className="dshr-compRowMain">
+                    <span className="dshr-compRowName" style={{ fontSize: 12 }}>
+                      {s.name}
+                    </span>
+                  </div>
+                  <span className="dshr-compRowState">{s.chars} 字</span>
+                </li>
+              ))}
+            </ul>
+            <details>
+              <summary className="dshr-compRowName" style={{ cursor: 'pointer', padding: '10px 0 4px' }}>
+                展开全文（{data.chars} 字）
+              </summary>
+              {/* 提示词是**代码**不是散文 ⇒ 等宽字体 + 保留换行，与上面的散文行区分开。 */}
+              <pre className="dshr-promptDump">{data.text}</pre>
+            </details>
+          </>
         )}
       </div>
     </section>

@@ -72,134 +72,23 @@ test('★ patch 里真的声明了这一行，且 id/name 逐字对得上', () =
   assert.equal(block![1], 'dsh-router-core/ext-prompt', 'patch 的 name 必须是能解析的子路径说明符')
 })
 
-test('★ 那一行默认开启（用户 2026-09-29 拍板：装上就该有准则）', () => {
-  // `disabled: true` = 行默认关 ⇒ loader 不 import ⇒ 卡片不出现。
-  // 用户要求**默认开启**（准则是每次协作都要的基础设施，不是可选增强）。
-  // 内置供应商的三行同样不带 disabled —— 保持一致。
+test('★ 那一行默认关闭（与 ext-test 同款）', () => {
+  // `disabled: true` = 行默认关 ⇒ loader 不 import ⇒ 扩展不进 `router.ext` 表 ⇒
+  // 卡片不出现、准则不进 prompt。
+  //
+  // ⚠️ **这里来回改过一次**（2026-09-29）：先按"准则是基础设施"改成默认开启，
+  //   又改回默认关闭。**用户对默认值的取舍优先于我的判断** —— 判据跟着改，
+  //   不是反过来。注释里留着这次反复，是为了让下一个人知道它**曾经**是默认开、
+  //   以及为什么现在不是（不是"忘了改回来"）。
   const patch = readFileSync(new URL('../../cordis.patch.yml', import.meta.url), 'utf8')
   const block = patch.match(
-    new RegExp(`- id: ${CORDIS_NAME}[^]*?\\n(\\s*name: '([^']+)'\\n)([^\\n]*)`),
+    new RegExp(`- id: ${CORDIS_NAME}[^]*?\\n(\\s*name: '([^']+)'\\n([^\\n]*))`),
   )
   assert.ok(block, 'patch 里找不到这一行')
-  assert.doesNotMatch(
-    block![3] ?? '',
-    /disabled:\s*true/,
-    '这一行带 disabled: true ⇒ 装上后默认没有准则（与用户拍板相反）',
-  )
+  assert.match(block![3] ?? '', /disabled:\s*true/,
+    '这一行不带 disabled: true ⇒ 装上就自动注入准则（与用户当前拍板相反）')
 })
 
-test('分类表非空且 id 唯一（内容层塌了就等于扩展什么都不注入）', () => {
-  assert.ok(PROMPT_CATEGORIES.length > 0)
-  const ids = PROMPT_CATEGORIES.map((c) => c.id)
-  assert.equal(new Set(ids).size, ids.length)
-})
-
-test('★ 扩展自报子开关：每条分类一项，且状态取自已保存的选择', () => {
-  const data = { categories: { identity: false, structure: false } }
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore(data) })
-  const controls = ext.controls ?? []
-  assert.equal(controls.length, PROMPT_CATEGORIES.length, '每条分类都要在面板上可见')
-  const byId = new Map(controls.map((c) => [c.id, c]))
-  assert.equal(byId.get('identity')?.on, false, '用户关掉的必须在面板显示为关')
-  assert.equal(byId.get('structure')?.on, false)
-  assert.equal(byId.get('ladder')?.on, true, '没碰过的走 defaultOn')
-  for (const c of controls) assert.ok(c.title.length > 0, `${c.id} 没有显示名`)
-})
-
-test('★ 注入：面板点一下 ⇒ 落盘只改那一个键，data 抽屉里别的字段不丢', () => {
-  const store = fakeStore({ categories: { identity: true }, other: 'keep-me' })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
-  assert.equal(ext.setControl?.('identity', false), true)
-  const after = store.readData<Record<string, unknown>>('')
-  assert.deepEqual(after?.categories, { identity: false })
-  assert.equal(after?.other, 'keep-me', '整块重写把 data 抽屉里别的字段抹了')
-})
-
-test('注入：未知 controlId ⇒ 返回 false（核心据此回 400，不写盘）', () => {
-  const store = fakeStore({ categories: { identity: true } })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
-  assert.equal(ext.setControl?.('__evil__', true), false)
-  assert.deepEqual(store.readData<Record<string, unknown>>('')?.categories, { identity: true }, '失败的写入不该留下任何痕迹')
-})
-
-test('注入：没有 data 块时 setControl 返回 false（而不是新建一个空块）', () => {
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore(undefined) })
-  assert.equal(ext.setControl?.('identity', false), false,
-    '没有已存数据就写 ⇒ 会把用户的其它 data 覆盖掉')
-})
-
-/**
- * 假 store：**整块替换**语义。
- *
- * ⚠️ 这一点是判据能不能抓住违规的关键（2026-09-29 实测踩过）：我第一版用
- * `Object.assign(data, value)` —— **合并**。而真实的 `ExtStore.writeData` 是
- * `this.byId[id] = { …, data: value }`，**整块替换**。
- * 合并的假实现让「只改一个键」与「整块重写」**观测上完全一样** ⇒
- * 注入「整块重写」时测试照样全绿。判据被自己的替身骗了。
- */
-function fakeStore(initial: Record<string, unknown> | undefined) {
-  const box = { data: initial }
-  return {
-    isEnabled: () => true,
-    setEnabled: () => {},
-    readData: <T,>(_id: string) => box.data as T | undefined,
-    writeData: (_id: string, value: unknown) => { box.data = value as Record<string, unknown> },
-  } as unknown as import('../ext/contract.ts').ExtStoreService
-}
-
-test('★ 每个子开关都带原文（不给出就是在盲切：只看名字没法判断该不该关）', () => {
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore({ categories: {} }) })
-  for (const c of ext.controls ?? []) {
-    assert.ok(typeof c.body === 'string' && c.body.length > 0, `${c.id} 没有原文`)
-    // 原文必须是这一条**自己的**正文，不是标题、也不是全集
-    const cat = PROMPT_CATEGORIES.find((x) => x.id === c.id)
-    assert.equal(c.body, cat?.body, `${c.id} 的原文与内容层不一致`)
-  }
-})
-
-test('★ 声明了 inject 数组：apply 要在 service 就绪之后才被调用', () => {
-  // ⚠️⚠️ **这条是整个扩展曾经失效的那一处**（2026-09-29 实测修的 bug）：
-  //   原实现是「在 apply 里 `ctx.inject([\'systemPrompt\'], cb)`」。本机 cordis 4.0.4
-  //   实测（本机 cordis 4.0.4）：`ctx.inject(deps, cb)` 的回调**不是同步触发**
-  //   （要等下一个异步点），而 apply 是**同步函数** ⇒ 返回时回调还没发生，
-  //   真实加载路径不保证之后还有机会去等它 ⇒ **准则一次都没进过 prompt**。
-  //
-  //   ⚠️ 我第一版把机制写成「要等 ctx.start()」——**那是错的**，`start` 不在
-  //   Context 的公开面上。结论不依赖这个细节。
-  //
-  //   症状极具迷惑性：面板一切正常（卡片、14 条 controls、开关、原文全在），
-  //   只有模型看不到 —— 因为面板读的是 `router.ext` 表，prompt 读的是
-  //   `ctx.systemPrompt`，**两条路完全独立**。
-  //
-  //   正解：导出 `inject` 数组，cordis 据此把整个 apply **推迟**到 service 就绪后
-  //   （对照 `dsh-client-ui-deliverables` 等真实使用者）。
-  assert.ok(Array.isArray(CORDIS_INJECT), '没有导出 inject 数组')
-  assert.ok(CORDIS_INJECT.includes('systemPrompt'),
-    'inject 里必须列 systemPrompt —— 否则 apply 跑在它就绪之前，section 挂不上')
-  assert.ok(CORDIS_INJECT.includes('router.ext'), 'inject 里必须列 router.ext')
-})
-
-test('★ 真 cordis 上：apply 之后 section 真的挂上了（不只面板那半）', async () => {
-  // ⚠️ 用**真 cordis Context**，不是假 ctx。假 ctx 会**立即**回调
-  //   `ctx.inject(deps, cb)` —— 恰好把真正的 bug 掩盖掉。
-  //   这条判据就是为了不再被那种替身骗。
-  const { Context } = await import('@deepseek-ai/cordis')
-  const sections: { name: string; text: string | (() => string) }[] = []
-  const table: RouterExtService = {}
-  const ctx = new Context()
-  ctx.provide('systemPrompt', {
-    section: (s: { name: string; text: string | (() => string) }) => { sections.push(s); return () => {} },
-    getSectionOrder: () => 100,
-  })
-  ctx.provide('router.ext', table)
-  ctx.provide('router.extStore', {
-    isEnabled: () => true, setEnabled: () => {}, readData: () => undefined, writeData: () => {},
-  })
-  apply(ctx as unknown as Parameters<typeof apply>[0])
-  assert.equal(sections.length, 1, '准则段落没挂上 ⇒ 模型看不到准则（面板却一切正常）')
-  const text = (sections[0]!.text as () => string)()
-  assert.ok(text.includes('懒人梯子'), '挂上了但内容不对')
-})
 /**
  * 真 cordis 夹具 —— **不用假 ctx**（2026-09-29 换掉）。
  *

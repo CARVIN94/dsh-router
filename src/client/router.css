@@ -3428,6 +3428,26 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
    所以**直接展开、不折叠**（2026-09-29 用户拍板）—— 多一次点击就打断了
    「看内容 → 决定」这个动作。颜色/字号沿用 compRowState 那一套 CSS 变量
    （深浅色两套值由变量负责，这里不写死颜色）。 */
+/* 提示词全文（`ExtDetail` 的「实际生效的提示词」区）。
+   提示词是**代码不是散文** ⇒ 等宽字体 + 保留换行（`pre-wrap`），
+   与上面 `-compRowState` 那些散文行区分开；否则 15 条规则在窄栏里
+   密排成一块，看不出是分开的（2026-09-29 用户报「全都跑成一行」）。 */
+.dshr-promptDump {
+    margin: 0;
+    padding: 10px 12px;
+    border: 0.5px solid var(--dsw-alias-border-l3);
+    border-radius: 8px;
+    background: var(--dsw-alias-layer-1);
+    color: var(--dsw-alias-label-secondary);
+    font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 11.5px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
 .dshr-compRowBody {
     color: var(--dsw-alias-label-tertiary);
     font-size: 11.5px;

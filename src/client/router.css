@@ -3378,10 +3378,12 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-wrap: anywhere;
 }
 
-/* 扩展子开关的**原文**（`ExtDetail` 的子开关区）。用户照着它决定开不开，
-   所以**直接展开、不折叠**（2026-09-29 用户拍板）—— 多一次点击就打断了
-   「看内容 → 决定」这个动作。颜色/字号沿用 compRowState 那一套 CSS 变量
-   （深浅色两套值由变量负责，这里不写死颜色）。 */
+/* 扩展子开关的**原文**（`ExtDetail` 的子开关区）。
+   刻意**直接全文展示：不折叠、不限高**（2026-09-29 用户拍板）。
+   中间那版试过 `<details>` + `line-clamp: 2`，撤掉了 —— 折叠让"照着原文决定
+   开不开"这个动作被多点一次打断，同一份 body 还要渲染两份（可能不同步）。
+   颜色/字号沿用 compRowState 那一套 CSS 变量（深浅色两套值由变量负责，
+   这里不写死颜色）。 */
 /* 提示词全文（`ExtDetail` 的「实际生效的提示词」区）。
    提示词是**代码不是散文** ⇒ 等宽字体 + 保留换行（`pre-wrap`），
    与上面 `-compRowState` 那些散文行区分开；否则 15 条规则在窄栏里
@@ -3434,29 +3436,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 .dshr-compEditBtn:hover {
     color: var(--dsw-alias-label-primary);
     border-color: var(--dsw-alias-border-l3);
-}
-
-/* 原文的容器：默认限两行（`dshr-clamp2` 落在 summary 上），点击展开全文。
-   2026-09-29 用户先要「直接展示」、后嫌「布局太多」——这两个诉求的交汇点
-   就是**默认可见 + 有上限**：多数规则一眼看完，长的（收口/底线/交付）点开。 */
-.dshr-compRowBodyWrap {
-    margin-top: 3px;
-    cursor: pointer;
-}
-
-.dshr-clamp2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-/* 收起时给一点"还有下文"的暗示；展开后不再需要。 */
-.dshr-clamp2::after {
-    content: ' …';
-    color: var(--dsw-alias-label-tertiary);
-    opacity: 0.7;
 }
 
 .dshr-compRowBody {

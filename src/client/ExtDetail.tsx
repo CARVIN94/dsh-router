@@ -207,12 +207,9 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
     //   唯一的详情页，不该长成另一个样子。
     <section className="dshr-card">
       <div className="dshr-compGroup">
-        {/* ⚠️ **只有标题、没有「N / M 生效」计数**（2026-09-29 用户要求去掉）。
-            计数原本是我加的"点完能立刻核对"，但它每次都占一行常驻显示，而
-            **每个开关右边就在说同一件事** —— 一眼扫过去即是，计数是重复。 */}
-        <div className="dshr-compHead">
-          <h4 className="dshr-compTitle">子开关</h4>
-        </div>
+        {/* ⚠️ **连「子开关」这个标题一起去掉了**（2026-09-29）。上一轮去掉计数后
+            它只剩两个字，却仍占一行 —— 页面进来第一眼是「子开关」这三个字而不是
+            那些规则本身。列表自带每条的标题与开关，不需要再套一层说明。 */}
         {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
         <ul className="dshr-compRows">
           {controls.map((c) => (
@@ -234,18 +231,16 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
                     修改
                   </button>
                 )}
-                {/* ⚠️ 原文**默认显示、限两行**，点它才展开全文。
-                    用户 2026-09-29 先要「直接展示不折叠」、随后嫌「布局太多」——
-                    两个诉求的交汇点就是**给原文一个上限**：默认看得见（不折叠），
-                    但不无限撑高（`line-clamp`）。特别长的（收口 / 底线 / 交付）
-                    点一下看全。
-                    ⚠️ 限高必须落在 **summary** 上、展开内容另放一份：整个正文塞进
-                    summary 的话点击不会展开任何东西（`<summary>` 的内容一直显示）。 */}
+                {/* ⚠️ **原文直接全文展示，不折叠也不限高**（2026-09-29）。
+                    中间那版是 `<details>` + `line-clamp: 2`（默认两行、点击展开），
+                    理由是"14 条全展开太长" —— 但那是在**替用户决定什么算长**。
+                    折叠 + 限高叠在一起还带来两个真问题：
+                    ① 要看全文得**多点一次**，而"照着原文决定开不开"这个动作
+                       被这一步打断；② 同一个 `body` 要渲染**两份**（summary 里
+                       一份、展开区一份），两份可能不同步。
+                    ⇒ 直接一个 `<span>`，内容即所见。 */}
                 {typeof c.body === 'string' && c.body !== '' && (
-                  <details className="dshr-compRowBodyWrap">
-                    <summary className="dshr-compRowBody dshr-clamp2">{c.body}</summary>
-                    <div className="dshr-compRowBody">{c.body}</div>
-                  </details>
+                  <span className="dshr-compRowBody">{c.body}</span>
                 )}
               </div>
               <Switch

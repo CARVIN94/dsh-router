@@ -22,6 +22,20 @@ import { ROUTER_API_BASE, type ExtControlItem, type RouterExtItem, type RouterEx
 import { extPanel } from './ext-panels.ts'
 import { Modal } from './Modal.tsx'
 
+/**
+ * 服务端的 `error` 是**给调试看的**（`'controlId must be a non-empty string'`、
+ * `'reorder failed'`…），直接摆到页面上等于把 API 内部话漏给用户。
+ *
+ * 做法：**先认自己那几个已知中文错误**（核心对"为什么拒"给的是中文），其余一律
+ * 回落到调用方给的兜底文案。宁可少说一句，也不要给一句看不懂的。
+ */
+function friendly(serverError: string | undefined, fallback: string): string {
+  if (serverError === undefined || serverError === '') return fallback
+  // 服务端已经写了中文（面向用户的拒绝理由）⇒ 原样透出。
+  if (/[\u4e00-\u9fa5]/.test(serverError)) return serverError
+  return fallback
+}
+
 /** 行内图标按钮里的图标（照 `CombosTab` 的同款路径与线宽，1.8px 描边）。 */
 function RowIcon({ d, size = 15 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -196,6 +210,8 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
   const controls = rows
   const [state, setState] = useState<Record<string, boolean>>(() => Object.fromEntries(controls.map((c) => [c.id, c.on])))
   const [busy, setBusy] = useState('')
+  // ⚠️ 错误走**浮动提示**（`dshr-toast`，与 `SupplierDetail` 同款），不再是列表
+  //   上方常驻的一行 —— 失败是**瞬时**事件，常驻行会一直占着位置。
   const [error, setError] = useState('')
 
   // 扩展重算 controls 后（例如用户在别处改了总开关）同步过来。
@@ -253,6 +269,14 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
   const [adding, setAdding] = useState(false)
   // 拖动排序：正在被拖的那一项的下标。
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+
+  // 浮动提示 2.5s 后自动消失（同 `SupplierDetail.showToast` 的时长）。
+  // ⚠️ 不自动消失就会**一直浮在页面上**遮内容 —— 失败是瞬时事件，提示也是。
+  useEffect(() => {
+    if (error === '') return undefined
+    const t = window.setTimeout(() => { setError('') }, 2500)
+    return () => { window.clearTimeout(t) }
+  }, [error])
   // 标题单独存一份：开关的 `state` 只记 on/off，改标题后列表要立刻跟着变。
   const [titles, setTitles] = useState<Record<string, string>>(() =>
     Object.fromEntries((item.controls ?? []).map((c) => [c.id, c.title])))
@@ -274,7 +298,7 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
       })
       const data = await response.json() as RouterExtResponse
       if (data.ok !== true) {
-        setError(data.error ?? '操作失败')
+        setError(friendly(data.error, '操作失败'))
         return
       }
       const self = data.enhancers?.find((e) => e.id === item.id)
@@ -303,7 +327,7 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
       })
       const data = await response.json() as RouterExtResponse
       if (data.ok !== true) {
-        setError(data.error ?? '排序保存失败')
+        setError(friendly(data.error, '排序保存失败'))
       }
       const self = data.enhancers?.find((e) => e.id === item.id)
       if (self?.controls) setRows(self.controls)
@@ -334,7 +358,7 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
       })
       const data = await response.json() as RouterExtResponse
       if (data.ok !== true) {
-        setError(data.error ?? '保存失败')
+        setError(friendly(data.error, '保存失败'))
         return
       }
       // 核心 PATCH 后会回发整张表 —— 直接用它对齐，省一次往返。
@@ -376,7 +400,6 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
         {/* ⚠️ **连「子开关」这个标题一起去掉了**（2026-09-29）。上一轮去掉计数后
             它只剩两个字，却仍占一行 —— 页面进来第一眼是「子开关」这三个字而不是
             那些规则本身。列表自带每条的标题与开关，不需要再套一层说明。 */}
-        {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
         <ul className="dshr-compRows">
           {controls.map((c, index) => (
             <li
@@ -535,6 +558,7 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
           )
         })()}
       </div>
+      {error !== '' && <div className="dshr-toastWrap" role="status">{error}</div>}
     </section>
   )
 }

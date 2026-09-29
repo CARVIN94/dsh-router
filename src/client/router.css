@@ -3371,6 +3371,32 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-wrap: anywhere;
 }
 
+/* 扩展子开关的浮动提示：`dshr-toast` 的**窄范围覆盖**。
+   ⚠️ 不去改 `.dshr-toast` 本身 —— 它被 `SupplierDetail` 也在用（那边全是
+   「连接池顺序已保存」这种 9 字短句，所以从没暴露过宽度问题）。
+   本处的错误文案更长（「只能删除自定义准则（内置条目请用开关关掉）」19 字），
+   而 `.dshr-toast` 是 `white-space: nowrap` **且没有 `max-width`** ⇒ 会横向溢出屏幕。
+   ⇒ 只加**换行 + 上限 + 居中**，定位用绝对定位挂在提示自身，**不影响既有调用方**。 */
+.dshr-toastWrap {
+    position: fixed;
+    z-index: 2000;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    max-width: min(420px, calc(100vw - 32px));
+    padding: 8px 16px;
+    border-radius: 8px;
+    color: var(--rs-text);
+    background: var(--rs-layer-2);
+    border: 1px solid var(--rs-line-strong);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: pre-wrap;   /* 允许换行，不再 nowrap 溢出 */
+    text-align: center;
+    animation: dshrToastIn 0.18s ease;
+}
+
 /* 标题 + 「修改」按钮的**同一行**（`ExtDetail` 的子开关区）。
    ⚠️ 单独一个类而不改 `.dshr-compRowName`：那个类 `RouterComponentsSection` /
    `ExtTestPanel` 也在用，给它加 `display:flex` 会把**那些页面的标题**也变成

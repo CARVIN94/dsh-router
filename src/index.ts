@@ -46,6 +46,7 @@ import { dataDirOf, profileDirOf } from './data-dir.ts'
 import { loopbackBaseURL } from './host-base-url.ts'
 import { detectHostVersion, isHostSupported } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
+import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { ExtControl, ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
 
 /**
@@ -572,6 +573,40 @@ export function apply(rawContext: unknown): void {
   })
 
   // ---- 扩展 (Ext)：扩展器列表 + 开关 ----
+
+  // ⚠️ `GET /ext/prompt`：**真实装配结果**的只读预览（2026-09-29）。
+  //
+  // 为什么需要：子开关关掉某条分类后，「到底还剩什么在 prompt 里」在界面上
+  // 看不见 —— 面板只显示本扩展的 14 行，不显示**其它插件也贡献了内容**
+  // （Harness 身份 / 工具说明 / …）。用户于是无法确认「我关掉的真的没进去」。
+  //
+  // ⚠️ **现算而不是拼字符串**：直接调 `ctx.systemPrompt.assemble()` + 官方
+  //   `renderPrompt()` —— 看到的是**真实结果**，包含本扩展看不到的其它 section。
+  //   自己拼 `content.ts` 的话，看到的只是「我这个扩展认为自己发了什么」，
+  //   两者可能不同（漏了别的插件、或渲染规则有差异）⇒ 那就不是真相。
+  //
+  // **只读**：这个端点不改变任何状态。真正的开关走 `PATCH /ext`。
+  route(`${ROUTER_API_BASE}/ext/prompt`, async (req, res) => {
+    if (req.method !== 'GET') {
+      writeJson(res, 405, { ok: false, error: 'method not allowed' })
+      return
+    }
+    const sp = (ctx as unknown as { systemPrompt?: { assemble?: (c?: unknown) => Promise<unknown> } }).systemPrompt
+    if (!sp || typeof sp.assemble !== 'function') {
+      // 显式报「装不上」而不是返回空串 —— 空串会被读成「没有 prompt」。
+      writeJson(res, 503, { ok: false, error: 'systemPrompt service unavailable' })
+      return
+    }
+    try {
+      const assembly = await sp.assemble({}) as Parameters<typeof renderPrompt>[0]
+      const text = renderPrompt(assembly)
+      const sections = assembly.sections.map((s) => ({ name: s.name, chars: s.text.length }))
+      writeJson(res, 200, { ok: true, chars: text.length, sections, text })
+    } catch (err) {
+      writeJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) })
+    }
+  })
+
   route(`${ROUTER_API_BASE}/ext`, async (req, res) => {
     if (req.method === 'PATCH') {
       // ⚠️ `on` 与 `enabled` **都声明为 unknown**：请求体不可信，真正判类型的地方

@@ -35,6 +35,68 @@ const I = {
 }
 
 /**
+ * 「查看真实装配结果」—— 面板上直接读 `GET /ext/prompt`。
+ *
+ * 为什么不看轨迹（2026-09-29 用户提的）：准则经 `ctx.systemPrompt.section()`
+ * 进的是 **system message 本身**，轨迹里不会单列；而若改成像 mnemon 那样发一条
+ * 真 user 消息，它就从「系统规定」降级成「有人说的一句话」，**权威性被改变**，
+ * 还会污染输入历史与 fork 分支。⇒ 可见性用**只读端点**解决，不动注入通道。
+ *
+ * ⚠️ 它给的是 `assemble()` 的**真实结果**（含 Harness 身份、工具说明、以及
+ *   其它插件贡献的段落），不是本扩展自己拼的字符串 —— 后者只是「我以为我发了
+ *   什么」，两者可能不同。关掉某条分类后能不能确认「它真的没进去」，只有这里
+ *   能回答。
+ */
+function PromptPreview(): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const [data, setData] = useState<{ chars: number; sections: { name: string; chars: number }[]; text: string } | null>(null)
+  const [error, setError] = useState('')
+
+  const load = async (): Promise<void> => {
+    setBusy(true); setError('')
+    try {
+      const res = await fetch(`${ROUTER_API_BASE}/ext/prompt`, { cache: 'no-store' })
+      const body = await res.json() as { ok: boolean; error?: string } & Record<string, unknown>
+      if (body.ok === true) setData(body as never)
+      else setError(body.error ?? `读取失败（HTTP ${res.status}）`)
+    } catch {
+      setError('读取失败（网络）')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="dshr-card">
+      <div className="dshr-compGroup">
+        <div className="dshr-compHead">
+          <h4 className="dshr-compTitle">实际生效的提示词</h4>
+          <span className="dshr-compCount">
+            {data === null ? '未读取' : `${data.chars} 字 · ${data.sections.length} 段`}
+          </span>
+        </div>
+        <p className="dshr-compHint">
+          这是系统提示词的**真实装配结果**（含 Harness 身份、工具说明及其它插件的段落），
+          不是本页列出的那几行。关掉某条分类后，用它确认「真的没进去」。
+        </p>
+        <button type="button" className="dshr-backLink" disabled={busy} onClick={() => { void load() }}>
+          {busy ? '读取中…' : data === null ? '读取' : '重新读取'}
+        </button>
+        {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
+        {data !== null && (
+          <details>
+            <summary className="dshr-compRowName" style={{ cursor: 'pointer', padding: '10px 0 4px' }}>
+              展开全文（{data.chars} 字）
+            </summary>
+            <pre className="dshr-compRowBody" style={{ whiteSpace: 'pre-wrap' }}>{data.text}</pre>
+          </details>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/**
  * 扩展自带的子开关（如准则的每一条）。
  *
  * ⚠️ **失败时回读真值，不留乐观假象**（与 `RouterComponentsSection.toggle` 同款
@@ -189,6 +251,9 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
         <>
       {/* 子开关（扩展自己的行为细节；没有 controls 就不渲染这一块） */}
       {item.controls !== undefined && item.controls.length > 0 && <ExtControls item={item} />}
+
+      {/* 实际生效的提示词（只读预览；回答「关掉的真的没进去吗」） */}
+      {item.controls !== undefined && item.controls.length > 0 && <PromptPreview />}
 
       {/* 扩展说明 */}
       {item.description !== undefined && item.description !== '' && (

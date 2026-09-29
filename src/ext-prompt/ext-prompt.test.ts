@@ -151,3 +151,56 @@ test('分类表非空且 id 唯一（内容层塌了就等于扩展什么都不�
   const ids = PROMPT_CATEGORIES.map((c) => c.id)
   assert.equal(new Set(ids).size, ids.length)
 })
+
+test('★ 扩展自报子开关：每条分类一项，且状态取自已保存的选择', () => {
+  const data = { categories: { identity: false, structure: false } }
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore(data) })
+  const controls = ext.controls ?? []
+  assert.equal(controls.length, PROMPT_CATEGORIES.length, '每条分类都要在面板上可见')
+  const byId = new Map(controls.map((c) => [c.id, c]))
+  assert.equal(byId.get('identity')?.on, false, '用户关掉的必须在面板显示为关')
+  assert.equal(byId.get('structure')?.on, false)
+  assert.equal(byId.get('ladder')?.on, true, '没碰过的走 defaultOn')
+  for (const c of controls) assert.ok(c.title.length > 0, `${c.id} 没有显示名`)
+})
+
+test('★ 注入：面板点一下 ⇒ 落盘只改那一个键，data 抽屉里别的字段不丢', () => {
+  const store = fakeStore({ categories: { identity: true }, other: 'keep-me' })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControl?.('identity', false), true)
+  const after = store.readData<Record<string, unknown>>('')
+  assert.deepEqual(after?.categories, { identity: false })
+  assert.equal(after?.other, 'keep-me', '整块重写把 data 抽屉里别的字段抹了')
+})
+
+test('注入：未知 controlId ⇒ 返回 false（核心据此回 400，不写盘）', () => {
+  const store = fakeStore({ categories: { identity: true } })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControl?.('__evil__', true), false)
+  assert.deepEqual(store.readData<Record<string, unknown>>('')?.categories, { identity: true }, '失败的写入不该留下任何痕迹')
+})
+
+test('注入：没有 data 块时 setControl 返回 false（而不是新建一个空块）', () => {
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore(undefined) })
+  assert.equal(ext.setControl?.('identity', false), false,
+    '没有已存数据就写 ⇒ 会把用户的其它 data 覆盖掉')
+})
+
+/**
+ * 假 store：**整块替换**语义。
+ *
+ * ⚠️ 这一点是判据能不能抓住违规的关键（2026-09-29 实测踩过）：我第一版用
+ * `Object.assign(data, value)` —— **合并**。而真实的 `ExtStore.writeData` 是
+ * `this.byId[id] = { …, data: value }`，**整块替换**。
+ * 合并的假实现让「只改一个键」与「整块重写」**观测上完全一样** ⇒
+ * 注入「整块重写」时测试照样全绿。判据被自己的替身骗了。
+ */
+function fakeStore(initial: Record<string, unknown> | undefined) {
+  const box = { data: initial }
+  return {
+    isEnabled: () => true,
+    setEnabled: () => {},
+    readData: <T,>(_id: string) => box.data as T | undefined,
+    writeData: (_id: string, value: unknown) => { box.data = value as Record<string, unknown> },
+  } as unknown as import('../ext/contract.ts').ExtStoreService
+}

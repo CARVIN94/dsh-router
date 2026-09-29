@@ -54,7 +54,13 @@ export function apply(ctx: Context): void {
     const table = currentExts(sctx)
     if (table === undefined) return undefined
     if (table[EXT_PROMPT_ID] !== undefined) return undefined
-    table[EXT_PROMPT_ID] = createPromptExt({ isSystemPromptReady: () => !!systemPromptOf(sctx) })
+    table[EXT_PROMPT_ID] = createPromptExt({
+      isSystemPromptReady: () => !!systemPromptOf(sctx),
+      // ⚠️ **store 必须在这一步就能拿到**（`router.ext` 与 `router.extStore` 由核心
+      //   同一个 provide 段落给出），否则面板上的分类开关显示可点、点了 400 ——
+      //   「看起来能用但不能用」比「不显示」更难查。
+      store: currentExtStore(sctx),
+    })
     currentExtStore(sctx)?.setEnabled(EXT_PROMPT_ID, true)
     // 核心持有的是**同一个 live 对象**（它 provide 的空表），且 `/ext` 每次请求都
     // 现读这张表 —— 所以往里 append 就够了，不需要（也不存在）广播事件。

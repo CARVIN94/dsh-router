@@ -5,7 +5,7 @@
  * 直接跑。DSH 侧的注册/挂载（ext.ts / inject.ts）只是薄壳；所有会出错的判断
  * 都在这里，且这里能注入违规用例证明它们会变红。
  */
-import { PROMPT_CATEGORIES, defaultToggles, type PromptCategory } from './content.ts'
+import { PROMPT_CATEGORIES, PROMPT_TITLE, type PromptCategory } from './content.ts'
 
 /** 落盘在 `router.extStore` 数据块里的形状。 */
 export interface PromptExtData {
@@ -66,7 +66,16 @@ export function renderCategories(
     if (!enabled.has(c.id)) continue
     lines.push(c.body)
   }
-  return lines.join('\n')
+  // ⚠️ **标题放在最后 join 之前**：它不属于任何分类（见 PROMPT_TITLE 的注释），
+  //   且只在**至少有一条规则开启**时才出现 —— 全关时整段返回空串被平台丢弃，
+  //   留着标题就变成"有一套叫准则 v5 的东西"却一条规则都没有。
+  //   标题放在**前面**：它要解释后面这些规则是什么。
+  // ⚠️ **只对默认分类表加标题**：传外部分类表（可扩展性用例）时调用者有自己的一组
+  //   规则，硬塞本扩展的标题是错的 —— 「不加」比「加错」对。
+  if (lines.length === 0) return ''
+  return categories === PROMPT_CATEGORIES
+    ? [PROMPT_TITLE, ...lines].join('\n')
+    : lines.join('\n')
 }
 
 /**

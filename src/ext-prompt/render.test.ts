@@ -13,7 +13,7 @@ import {
   knownCategoryIds,
   type PromptExtData,
 } from './render.ts'
-import { PROMPT_CATEGORIES, defaultToggles } from './content.ts'
+import { PROMPT_CATEGORIES, PROMPT_TITLE, defaultToggles } from './content.ts'
 
 // ── 分类表本身 ────────────────────────────────────────────────
 test('分类 id 唯一（重名会让开关互相覆盖）', () => {
@@ -133,4 +133,21 @@ test('注入：renderCategories 传外部分类表时只渲染其中启用的（
   ]
   const out = renderCategories(new Set(['y']), custom)
   assert.equal(out, 'Y-BODY')
+})
+
+test('★ 渲染出来的第一行是整段标题（拆分时差点丢的就是它）', () => {
+  // ⚠️ 原文是 `[准则 v5 · 懒人梯子 + 全局收口 + 固化] ·身份气质：…`，
+  //   标题在方括号里、**不属于任何单条分类** ⇒ 按分隔符切分时天然被丢掉
+  //   （它只出现在 content.ts 头注，没进任何 body）。
+  //   丢了的后果：模型看到 14 条**没有名字**的规则，不知道这套东西是什么。
+  const text = renderPromptText(true, undefined)
+  assert.ok(text.startsWith(PROMPT_TITLE), `第一行不是标题；开头是：${text.slice(0, 30)}`)
+  assert.equal(text.split('\n')[0], PROMPT_TITLE, '标题必须在最前面 —— 它要解释后面的规则')
+})
+
+test('全关时标题也不出现（不能有一套叫准则 v5 的东西却一条规则都没有）', () => {
+  const off: Record<string, boolean> = {}
+  for (const id of knownCategoryIds()) off[id] = false
+  const text = renderPromptText(true, { categories: off })
+  assert.equal(text, '', '只剩标题 = 一套空准则，比没有更糟')
 })

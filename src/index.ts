@@ -46,7 +46,7 @@ import { dataDirOf, profileDirOf } from './data-dir.ts'
 import { loopbackBaseURL } from './host-base-url.ts'
 import { detectHostVersion, isHostSupported } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
-import type { ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
+import type { ExtControl, ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
 
 /**
  * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
@@ -574,9 +574,11 @@ export function apply(rawContext: unknown): void {
   // ---- 扩展 (Ext)：扩展器列表 + 开关 ----
   route(`${ROUTER_API_BASE}/ext`, async (req, res) => {
     if (req.method === 'PATCH') {
-      let body: { id?: unknown; enabled?: unknown }
+      // ⚠️ `on` 与 `enabled` **都声明为 unknown**：请求体不可信，真正判类型的地方
+      //   在下面（`typeof … !== 'boolean'` ⇒ 400）。这里只是让它在类型上可访问。
+      let body: { id?: unknown; enabled?: unknown; controlId?: unknown; on?: unknown }
       try {
-        body = JSON.parse(await readBody(req, 64 << 10)) as { id?: unknown; enabled?: unknown }
+        body = JSON.parse(await readBody(req, 64 << 10)) as typeof body
       } catch {
         writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
         return
@@ -586,6 +588,32 @@ export function apply(rawContext: unknown): void {
         writeJson(res, 404, { ok: false, error: 'extension not found' })
         return
       }
+      // ---- 子开关（`{ controlId, on }`）----
+      //
+      // 与总开关**分开判**：总开关管「这个扩展在不在」，子开关管「它自己的行为细节」。
+      // 混在一个 PATCH 里会让面板多问一句「这次到底改的是哪个」—— 那是两个独立动作。
+      if (body.controlId !== undefined) {
+        if (typeof body.controlId !== 'string' || body.controlId === '') {
+          writeJson(res, 400, { ok: false, error: 'controlId must be a non-empty string' })
+          return
+        }
+        if (typeof body.on !== 'boolean') {
+          writeJson(res, 400, { ok: false, error: 'on must be a boolean' })
+          return
+        }
+        if (typeof ext.setControl !== 'function') {
+          writeJson(res, 400, { ok: false, error: 'extension has no controls' })
+          return
+        }
+        // 扩展自写（落盘形状归它，核心不代劳 —— 见 ExtControl.setControl 注释）。
+        // 写失败**如实回错**且不改盘：面板据此把开关弹回去，而不是假装成功。
+        if (!ext.setControl(body.controlId, body.on)) {
+          writeJson(res, 400, { ok: false, error: 'unknown controlId' })
+          return
+        }
+        return
+      }
+
       if (typeof body.enabled !== 'boolean') {
         writeJson(res, 400, { ok: false, error: 'enabled must be a boolean' })
         return
@@ -617,6 +645,17 @@ export function apply(rawContext: unknown): void {
           ready: st?.ready === true,
           // 随核心分发的扩展带这个标记（插件页自绘节据此不重复列它：它已经有原生行）
           ...(raw.source === 'builtin' ? { source: 'builtin' as const } : {}),
+          // 子开关：扩展自报，核心只搬运（形状归扩展，见 ExtControl 的注释）。
+          // ⚠️ **必须过滤掉形状不对的条目**：落盘的 controls 不可信，一条
+          // `undefined` 的 title 会让面板渲染出空行且**不报错**（假绿）。
+          ...(Array.isArray(e.controls) && e.controls.length > 0
+            ? {
+                controls: e.controls
+                  .filter((c): c is ExtControl =>
+                    !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
+                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}) })),
+              }
+            : {}),
           ...(st?.detail !== undefined ? { detail: st.detail } : {}),
         }
       })

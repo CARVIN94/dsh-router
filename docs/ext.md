@@ -3,7 +3,8 @@
 扩展插件是**独立的 DSH 插件(npm 包)**,只提供**差异化能力** —— 目前是改写一条
 bash 命令。装好后出现在「设置 → 路由 → 扩展」,**开关不在那里** —— 启停的唯一入口是
 官方插件页「设置 → 插件 → dsh-router-core」详情页的「路由组件」一节;面板这一页只列
-已启用的扩展,只读。
+已启用的扩展。**总开关**在这一层只读;但扩展自报的**子开关**(见下「子开关」一节)
+在这一层可点。
 
 **dsh-router 核心只做管理面,不做拦截。** 扩展插件自己挂监听、自己裁决、自己短路
 (2026-09 重构,见下)。
@@ -27,6 +28,40 @@ bash 命令。装好后出现在「设置 → 路由 → 扩展」,**开关不�
 
 参考实现:[dsh-router-ext-rtk](https://github.com/CARVIN94/dsh-router-ext-rtk)
 (把命令改写成 `rtk <cmd>` 压缩输出)。
+
+## 子开关:一个扩展里有几件独立的事
+
+有些扩展的「开/关」不是一件事而是**几件独立的事** —— 例如 `分层提示词` 有 14 个
+准则分类,每条都该能单独关。硬塞进一个总开关 = 要么全给、要么全不给。
+
+扩展可在 `RouterExt` 上声明 `controls`(子开关列表)与 `setControl`(改一个):
+
+```ts
+export function createPromptExt(deps): RouterExt {
+  return {
+    id: 'prompt',
+    // ... name / description / source / getState
+    controls: PROMPT_CATEGORIES.map((c) => ({ id: c.id, title: c.title, on: resolve(c.id) })),
+    setControl: (controlId, on) => { /* 写进 data 抽屉;返回 false = 失败 */ },
+  }
+}
+```
+
+面板:扩展详情页(设置 → 路由 → 扩展 → 点开卡片)逐条渲染,走同一个
+`PATCH /router/api/ext`,body 是 `{ id, controlId, on }`。
+
+⚠️ 三条约定:
+
+1. **落盘形状归扩展,核心不代劳。** 核心只把 `{controlId, on}` 递进来并如实回传
+   成功/失败 —— 它**不认识** `data.categories` 长什么样。核心一旦代写,就会变成
+   「认识所有扩展私有数据格式」的地方。
+2. **总开关关 ⇒ 子开关一并失效,但不清零。** 面板显示为**禁用**而不是隐藏
+   (隐藏会让用户以为它们不存在),重新打开总开关就恢复原样。
+3. **`control.id` 是持久化键**,改名会让用户已保存的选择丢失 —— 同 `ExtId`。
+
+⚠️ **不适用于外部插件包(暂时)**:与下面的 `registerExtPanel` 一样,
+`controls` 的读写经 `dsh-router-core/client` 才能到达外部 bundle,而该入口不导出
+这些能力。要让外部扩展用上,需要给它加一条真正的导出路径。这是已知的升级路径。
 
 ## 分工:管理归核心,执行归插件
 

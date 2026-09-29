@@ -164,6 +164,24 @@ export interface RouterExtItem {
    * 「包含的组件」里占一行了，两处都列就是同一个东西显示两遍（与内置供应商同理）。
    */
   source?: 'builtin'
+  /**
+   * 扩展自带的子开关（如准则的每一条）。**由扩展自报**，核心只搬运。
+   *
+   * ⚠️ 与 `enabled`（总开关）不同：子开关**不改变扩展是否被加载**，只改它
+   *   自己的行为。总开关关时这些子开关一并失效（面板上禁用，不隐藏）。
+   */
+  controls?: ExtControlItem[]
+}
+
+/** `/router/api/ext` 里的一条子开关（与 `router.ext` 契约的 `ExtControl` 对应）。 */
+export interface ExtControlItem {
+  /** 稳定 id（持久化键；改名会丢用户已保存的选择）。 */
+  id: string
+  title: string
+  /** 当前是否开启（扩展自算：默认值 + 用户已存选择）。 */
+  on: boolean
+  /** 一句话说明（面板副行，可选）。 */
+  detail?: string
 }
 
 /** `/router/api/ext` response（扩展插件列表 + 开关）。 */

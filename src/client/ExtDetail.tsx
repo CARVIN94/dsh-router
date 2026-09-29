@@ -67,50 +67,36 @@ function PromptPreview(): JSX.Element {
   }
 
   return (
-    <section className="dshr-card">
-      <div className="dshr-compGroup">
-        <div className="dshr-compHead">
-          <h4 className="dshr-compTitle">实际生效的提示词</h4>
-          <span className="dshr-compCount">
-            {data === null ? '未读取' : `${data.chars} 字 · ${data.sections.length} 段`}
-          </span>
-        </div>
-        {/* ⚠️ 不用 Markdown 语法（`**…**` 在 React 里是字面量，页面上会显示成一排
-            星号 —— 上一版就犯了这个，截图里能看到）。强调靠结构，不靠符号。 */}
-        <p className="dshr-compHint">
-          系统提示词的真实装配结果，含 Harness 身份、工具说明及本扩展之外的其它段落。
-          用来确认「关掉某条分类后，它真的没进去」。
-        </p>
-        <button type="button" className="dshr-backLink" disabled={busy} onClick={() => { void load() }}>
-          {busy ? '读取中…' : data === null ? '读取' : '重新读取'}
-        </button>
-        {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
-        {data !== null && (
-          <>
-            {/* 段落来源：一眼看出「谁贡献了这段」。本扩展的段落会高亮。 */}
-            <ul className="dshr-compRows" style={{ marginTop: 10 }}>
-              {data.sections.map((s) => (
-                <li key={s.name} className="dshr-compRow" style={{ padding: '6px 2px' }}>
-                  <div className="dshr-compRowMain">
-                    <span className="dshr-compRowName" style={{ fontSize: 12 }}>
-                      {s.name}
-                    </span>
-                  </div>
-                  <span className="dshr-compRowState">{s.chars} 字</span>
-                </li>
-              ))}
-            </ul>
+    <>
+      <div className="dshr-compFoot">
+        <span className="dshr-compRowState">实际生效的提示词</span>
+        <span className="dshr-compCount">
+          {data === null ? '未读取' : `${data.chars} 字 · ${data.sections.length} 段`}
+        </span>
+        {/* ⚠️ **这一整块默认收起，且不再常驻说明文字**（2026-09-29 用户两次嫌
+             「布局太多」「太丑」）。它是**低频核对面**（「我关掉的真的没进去吗」），
+             不是每次都要看的东西 —— 摆在主视图里只是噪音。摘要行自带
+             「多少字 / 多少段」，够判断要不要展开。
+             ⚠️ 也**删掉了原来的「段落来源列表」**：它列的段落与上面那 14 条控制
+             **是同一批东西**，两个列表挨着是纯粹的重复占位。 */}
+        {data === null
+          ? (
+            <button type="button" className="dshr-backLink" disabled={busy} onClick={() => { void load() }}>
+              {busy ? '读取中…' : '读取'}
+            </button>
+          )
+          : (
             <details>
-              <summary className="dshr-compRowName" style={{ cursor: 'pointer', padding: '10px 0 4px' }}>
-                展开全文（{data.chars} 字）
+              <summary className="dshr-compRowName" style={{ cursor: 'pointer', padding: '8px 0 2px' }}>
+                展开全文
               </summary>
-              {/* 提示词是**代码**不是散文 ⇒ 等宽字体 + 保留换行，与上面的散文行区分开。 */}
+              {/* 提示词是代码不是散文 ⇒ 等宽字体 + 保留换行，与散文行区分开。 */}
               <pre className="dshr-promptDump">{data.text}</pre>
             </details>
-          </>
-        )}
+          )}
+        {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
       </div>
-    </section>
+    </>
   )
 }
 
@@ -190,16 +176,21 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
           {controls.map((c) => (
             <li key={c.id} className="dshr-compRow">
               <div className="dshr-compRowMain">
+                {/* 标题与开关**同一行**（`.dshr-compRow` 本来就是 flex 行），
+                    原文接在下面缩进 —— 这样一个开关占一行、一眼扫完 14 条。 */}
                 <span className="dshr-compRowName">{c.title}</span>
-                <span className="dshr-compRowState">
-                  {c.detail ?? (state[c.id] === true ? '生效中' : '不生效')}
-                </span>
-                {/* ⚠️ **原文直接展开，不折叠**（用户 2026-09-29 拍板）：折叠是
-                    「先点一下才知道这一条写了什么」，而这里的用途恰恰是
-                    **照着原文决定开不开** —— 多一次点击就打断了这个动作。
-                    14 条全展开仍在一屏内（原生行高 + 无额外按钮）。 */}
+                {/* ⚠️ 原文**默认显示、限两行**，点它才展开全文。
+                    用户 2026-09-29 先要「直接展示不折叠」、随后嫌「布局太多」——
+                    两个诉求的交汇点就是**给原文一个上限**：默认看得见（不折叠），
+                    但不无限撑高（`line-clamp`）。特别长的（收口 / 底线 / 交付）
+                    点一下看全。
+                    ⚠️ 限高必须落在 **summary** 上、展开内容另放一份：整个正文塞进
+                    summary 的话点击不会展开任何东西（`<summary>` 的内容一直显示）。 */}
                 {typeof c.body === 'string' && c.body !== '' && (
-                  <span className="dshr-compRowBody">{c.body}</span>
+                  <details className="dshr-compRowBodyWrap">
+                    <summary className="dshr-compRowBody dshr-clamp2">{c.body}</summary>
+                    <div className="dshr-compRowBody">{c.body}</div>
+                  </details>
                 )}
               </div>
               <Switch
@@ -217,6 +208,8 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
         {withBody.length === 0 && (
           <p className="dshr-compHint">本扩展没有提供原文。</p>
         )}
+        {/* 脚注，不另起一张卡：它是「核对面」而不是第二个功能区。 */}
+        <PromptPreview />
       </div>
     </section>
   )
@@ -271,8 +264,6 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
       {item.controls !== undefined && item.controls.length > 0 && <ExtControls item={item} />}
 
       {/* 实际生效的提示词（只读预览；回答「关掉的真的没进去吗」） */}
-      {item.controls !== undefined && item.controls.length > 0 && <PromptPreview />}
-
       {/* 扩展说明 */}
       {item.description !== undefined && item.description !== '' && (
         <section className="dshr-card">

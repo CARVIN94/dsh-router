@@ -3448,6 +3448,42 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-y: auto;
 }
 
+/* 子开关卡底部的脚注（`ExtDetail` 的「实际生效的提示词」）。
+   刻意**不是另一张卡**：它是核对面，不是第二个功能区 ——
+   拆成两张卡会让这页变成"控制一份 + 预览一份"的错觉，
+   而实际上预览读的是上面那份开关的**结果**（2026-09-29 用户嫌布局太多）。 */
+.dshr-compFoot {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* 原文的容器：默认限两行（`dshr-clamp2` 落在 summary 上），点击展开全文。
+   2026-09-29 用户先要「直接展示」、后嫌「布局太多」——这两个诉求的交汇点
+   就是**默认可见 + 有上限**：多数规则一眼看完，长的（收口/底线/交付）点开。 */
+.dshr-compRowBodyWrap {
+    margin-top: 3px;
+    cursor: pointer;
+}
+
+.dshr-clamp2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* 收起时给一点"还有下文"的暗示；展开后不再需要。 */
+.dshr-clamp2::after {
+    content: ' …';
+    color: var(--dsw-alias-label-tertiary);
+    opacity: 0.7;
+}
+
 .dshr-compRowBody {
     color: var(--dsw-alias-label-tertiary);
     font-size: 11.5px;

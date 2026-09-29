@@ -13,7 +13,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createPromptExt, EXT_PROMPT_ID } from './plugin.ts'
-import { apply, name as CORDIS_NAME } from './index.ts'
+import { apply, name as CORDIS_NAME, inject as CORDIS_INJECT } from './index.ts'
 import { PROMPT_SECTION_NAME } from './mount.ts'
 import { PROMPT_CATEGORIES } from './content.ts'
 import type { RouterExtService } from '../ext/contract.ts'
@@ -88,87 +88,6 @@ test('★ 那一行默认开启（用户 2026-09-29 拍板：装上就该有准�
   )
 })
 
-/** 最小 ctx：inject 立刻回调，systemPrompt 假件记录挂了什么。 */
-function fakeCtx(opts: { table?: RouterExtService; ready?: boolean; data?: unknown; enabled?: boolean } = {}) {
-  const table: RouterExtService = opts.table ?? {}
-  const enabled = new Set<string>()
-  const sections: { name: string; order: number; text: string | (() => string) }[] = []
-  let disposed = 0
-  const ctx = {
-    inject: (deps: string[], cb: (sctx: unknown) => void) => {
-      for (const d of deps) {
-        const sctx = {
-          get: (key: string) => {
-            if (key === 'router.ext') return table
-            if (key === 'systemPrompt') {
-              return opts.ready === false
-                ? undefined
-                : {
-                    section: (s: { name: string; order: number; text: string | (() => string) }) => {
-                      sections.push(s)
-                      return () => {
-                        disposed++
-                      }
-                    },
-                  }
-            }
-            if (key === 'router.extStore') {
-              return {
-                // opts.enabled 显式给了就用它，否则模拟"登记时置开、之后可被读"的常态。
-                isEnabled: (id: string) => (opts.enabled ?? enabled.has(id)),
-                setEnabled: (id: string) => enabled.add(id),
-                readData: () => opts.data,
-                writeData: () => {},
-              }
-            }
-            return undefined
-          },
-        }
-        cb(sctx)
-      }
-    },
-    emit: () => {},
-  } as unknown as Parameters<typeof apply>[0]
-  return { ctx, table, sections, get disposed() { return disposed } }
-}
-
-test('apply 把扩展登记进 router.ext 表（这张表就是「卡片出现」的唯一依据）', () => {
-  const { ctx, table } = fakeCtx()
-  apply(ctx)
-  assert.equal(table[EXT_PROMPT_ID]?.name, '分层提示词')
-})
-
-test('幂等：同一个 id 已在表里时不顶掉别人的登记', () => {
-  const { ctx, table } = fakeCtx()
-  apply(ctx)
-  const first = table[EXT_PROMPT_ID]
-  apply(ctx)
-  assert.equal(table[EXT_PROMPT_ID], first, '重复登记不该换成一个新对象')
-})
-
-test('★ apply 把准则挂成了 system prompt 段落（ext-test 没这层，必须单独验）', () => {
-  const { ctx, sections } = fakeCtx()
-  apply(ctx)
-  assert.equal(sections.length, 1, '准则没挂上 = 卡片亮着但 prompt 里没有准则')
-  assert.equal(sections[0]!.name, PROMPT_SECTION_NAME)
-  assert.equal(typeof sections[0]!.text, 'function', '静态文本 ⇒ 分类开关永远不生效')
-})
-
-test('注入：总开关关时段落文本为空（平台据此丢弃该段）', () => {
-  const { ctx, sections } = fakeCtx({ enabled: false })
-  apply(ctx)
-  const text = (sections[0]!.text as () => string)()
-  assert.equal(text, '', '总开关关时必须返回空串，而不是注入一段空白')
-})
-
-test('注入：用户关掉某分类 ⇒ 该分类不进 prompt（可开关的正向判据）', () => {
-  const { ctx, sections } = fakeCtx({ enabled: true, data: { categories: { identity: false } } })
-  apply(ctx)
-  const text = (sections[0]!.text as () => string)()
-  assert.equal(text.includes('大肥鱼'), false, 'identity 关了就不该出现')
-  assert.ok(text.includes('视野'), '其他分类照常')
-})
-
 test('分类表非空且 id 唯一（内容层塌了就等于扩展什么都不注入）', () => {
   assert.ok(PROMPT_CATEGORIES.length > 0)
   const ids = PROMPT_CATEGORIES.map((c) => c.id)
@@ -236,4 +155,116 @@ test('★ 每个子开关都带原文（不给出就是在盲切：只看名字�
     const cat = PROMPT_CATEGORIES.find((x) => x.id === c.id)
     assert.equal(c.body, cat?.body, `${c.id} 的原文与内容层不一致`)
   }
+})
+
+test('★ 声明了 inject 数组：apply 要在 service 就绪之后才被调用', () => {
+  // ⚠️⚠️ **这条是整个扩展曾经失效的那一处**（2026-09-29 实测修的 bug）：
+  //   原实现是「在 apply 里 `ctx.inject([\'systemPrompt\'], cb)`」。本机 cordis 4.0.4
+  //   实测（本机 cordis 4.0.4）：`ctx.inject(deps, cb)` 的回调**不是同步触发**
+  //   （要等下一个异步点），而 apply 是**同步函数** ⇒ 返回时回调还没发生，
+  //   真实加载路径不保证之后还有机会去等它 ⇒ **准则一次都没进过 prompt**。
+  //
+  //   ⚠️ 我第一版把机制写成「要等 ctx.start()」——**那是错的**，`start` 不在
+  //   Context 的公开面上。结论不依赖这个细节。
+  //
+  //   症状极具迷惑性：面板一切正常（卡片、14 条 controls、开关、原文全在），
+  //   只有模型看不到 —— 因为面板读的是 `router.ext` 表，prompt 读的是
+  //   `ctx.systemPrompt`，**两条路完全独立**。
+  //
+  //   正解：导出 `inject` 数组，cordis 据此把整个 apply **推迟**到 service 就绪后
+  //   （对照 `dsh-client-ui-deliverables` 等真实使用者）。
+  assert.ok(Array.isArray(CORDIS_INJECT), '没有导出 inject 数组')
+  assert.ok(CORDIS_INJECT.includes('systemPrompt'),
+    'inject 里必须列 systemPrompt —— 否则 apply 跑在它就绪之前，section 挂不上')
+  assert.ok(CORDIS_INJECT.includes('router.ext'), 'inject 里必须列 router.ext')
+})
+
+test('★ 真 cordis 上：apply 之后 section 真的挂上了（不只面板那半）', async () => {
+  // ⚠️ 用**真 cordis Context**，不是假 ctx。假 ctx 会**立即**回调
+  //   `ctx.inject(deps, cb)` —— 恰好把真正的 bug 掩盖掉。
+  //   这条判据就是为了不再被那种替身骗。
+  const { Context } = await import('@deepseek-ai/cordis')
+  const sections: { name: string; text: string | (() => string) }[] = []
+  const table: RouterExtService = {}
+  const ctx = new Context()
+  ctx.provide('systemPrompt', {
+    section: (s: { name: string; text: string | (() => string) }) => { sections.push(s); return () => {} },
+    getSectionOrder: () => 100,
+  })
+  ctx.provide('router.ext', table)
+  ctx.provide('router.extStore', {
+    isEnabled: () => true, setEnabled: () => {}, readData: () => undefined, writeData: () => {},
+  })
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  assert.equal(sections.length, 1, '准则段落没挂上 ⇒ 模型看不到准则（面板却一切正常）')
+  const text = (sections[0]!.text as () => string)()
+  assert.ok(text.includes('懒人梯子'), '挂上了但内容不对')
+})
+/**
+ * 真 cordis 夹具 —— **不用假 ctx**（2026-09-29 换掉）。
+ *
+ * ⚠️ 上一版的假 ctx `inject` 会**立即**回调 apply 里注册的回调。那恰好把真正的
+ *   bug 掩盖掉了：`ctx.inject(deps, cb)` 对已就绪的 service 其实要等
+ *   `ctx.start()` 之后才回调，所以旧实现里准则一次都没挂上，而假 ctx 全绿。
+ *   ⇒ 判据的替身比被守的东西更宽容 = 判据无效。
+ *   真 cordis 会如实复现时序（本机 4.0.4 实测：provide 后 inject 不触发，
+ *   start() 之后才触发）。
+ */
+async function realCtx(opts: { enabled?: boolean; data?: unknown } = {}) {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const table: RouterExtService = {}
+  const sections: { name: string; order: number; text: string | (() => string) }[] = []
+  const ctx = new Context()
+  ctx.provide('systemPrompt', {
+    section: (s: { name: string; order: number; text: string | (() => string) }) => {
+      sections.push(s)
+      return () => {}
+    },
+    getSectionOrder: () => 100,
+  })
+  ctx.provide('router.ext', table)
+  ctx.provide('router.extStore', {
+    isEnabled: () => opts.enabled ?? true,
+    setEnabled: () => {},
+    readData: () => opts.data,
+    writeData: () => {},
+  })
+  return { ctx, table, sections }
+}
+
+test('apply 把扩展登记进 router.ext 表（这张表就是「卡片出现」的唯一依据）', async () => {
+  const { ctx, table } = await realCtx()
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  assert.equal(table[EXT_PROMPT_ID]?.name, '分层提示词')
+})
+
+test('幂等：同一个 id 已在表里时不顶掉别人的登记', async () => {
+  const { ctx, table } = await realCtx()
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  const first = table[EXT_PROMPT_ID]
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  assert.equal(table[EXT_PROMPT_ID], first, '重复登记不该换成一个新对象')
+})
+
+test('★ apply 把准则挂成了 system prompt 段落（ext-test 没这层，必须单独验）', async () => {
+  const { ctx, sections } = await realCtx()
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  assert.equal(sections.length, 1, '准则没挂上 = 卡片亮着但 prompt 里没有准则')
+  assert.equal(sections[0]!.name, PROMPT_SECTION_NAME)
+  assert.equal(typeof sections[0]!.text, 'function', '静态文本 ⇒ 分类开关永远不生效')
+})
+
+test('注入：总开关关时段落文本为空（平台据此丢弃该段）', async () => {
+  const { ctx, sections } = await realCtx({ enabled: false })
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  const text = (sections[0]!.text as () => string)()
+  assert.equal(text, '', '总开关关时必须返回空串，而不是注入一段空白')
+})
+
+test('注入：用户关掉某分类 ⇒ 该分类不进 prompt（可开关的正向判据）', async () => {
+  const { ctx, sections } = await realCtx({ enabled: true, data: { categories: { identity: false } } })
+  apply(ctx as unknown as Parameters<typeof apply>[0])
+  const text = (sections[0]!.text as () => string)()
+  assert.equal(text.includes('大肥鱼'), false, 'identity 关了就不该出现')
+  assert.ok(text.includes('视野'), '其他分类照常')
 })

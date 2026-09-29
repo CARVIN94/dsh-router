@@ -15,9 +15,14 @@
  * （宿主管的那个）。不置上的话，用户开了行还要再点一次，两级开关说同一件事。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { currentExts, currentExtStore } from '../ext/contract.ts'
+import {
+  currentExts,
+  currentExtStore,
+  type ExtStoreService,
+  type RouterExtService,
+} from '../ext/contract.ts'
 import { createPromptExt, EXT_PROMPT_ID } from './plugin.ts'
-import { mountPromptSection, type MountPromptDeps, type SystemPromptFace } from './mount.ts'
+import { mountPromptSection, type SystemPromptFace } from './mount.ts'
 import type { PromptExtData } from './render.ts'
 
 /** cordis 插件身份（配置树里这一行的技术名；显示名走同目录的 locale）。 */
@@ -33,36 +38,67 @@ function systemPromptOf(sctx: Context): SystemPromptFace | undefined {
   return sp && typeof sp.section === 'function' ? sp : undefined
 }
 
-/** 登记本扩展**并**挂载准则段落。幂等：同一个 id 已在表里就直接返回。 */
+/**
+ * 声明本扩展依赖的 service。
+ *
+ * ⚠️⚠️ **必须导出这个数组，且 `apply` 里直接用 `ctx.systemPrompt`**（2026-09-29 修）
+ * ——我原先写成「在 apply 里 `ctx.inject(['systemPrompt'], cb)`」，**准则一直不进
+ * prompt**：面板上卡片、开关、原文全都正常（`GET /router/api/ext` 实测有 14 条
+ * controls），但模型看到的 system prompt 里没有它。
+ *
+ * 根因（本机 cordis 4.0.4 实测）：`ctx.inject(deps, cb)` 的回调**不是同步触发** ——
+ * provide 之后立刻 `inject`，回调要等到下一个异步点才跑。插件的 `apply` 是**同步
+ * 函数**，返回时那次回调还没发生；而真实加载路径不保证之后还有机会去等它，
+ * 于是 `mountPromptSection` 从没被执行 ⇒ **准则一次都没进过 prompt**。
+ *
+ * ⚠️ 我第一版把这个机制写成「要等 `ctx.start()`」——**那是错的**：`start` 根本不在
+ *   Context 的公开面上（原型只有 extend/isolate/intercept）。准确说法是「下一个
+ *   异步点」，具体机制随版本变。**结论不依赖这个细节**，只依赖「apply 里手动
+ *   inject 不可靠」这一事实。
+ *
+ * 正确形状（对照 `dsh-client-ui-deliverables` 等真实使用者）：导出 `inject` 数组，
+ * cordis 看到它就**把整个 apply 推迟到这些 service 就绪之后**再调用 ——
+ * 于是 `ctx.systemPrompt` 一定是活的，`section()` 可以直接调。
+ *
+ * ⚠️ `router.ext` 也要列：那一半（面板登记）此前"碰巧"能用，是因为
+ * `dsh-router` 核心先 provide 了它、`apply` 又跑在它之后。**那是时序上的运气，
+ * 不是保证** —— 一并列进 `inject`，两种 service 都由 cordis 编排。
+ */
+export const inject = ['systemPrompt', 'router.ext', 'router.extStore']
+
+/**
+ * 登记本扩展**并**挂载准则段落。
+ *
+ * 此刻 `ctx.systemPrompt` / `ctx.router.ext` / `ctx.router.extStore` **必定已就绪**
+ * （见上面 `inject` 的注释），所以下面**直接用**，不再做二次判空。
+ */
 export function apply(ctx: Context): void {
-  // ① 准则段落：等 systemPrompt 就绪就挂。与加载顺序解耦（谁后到都能补挂）。
-  //
-  // ⚠️ **不在这里判就绪**：段落挂不上时 `getState()` 会红字报 not ready，
-  //    面板上看得见。一个"卡片亮着但准则没进 prompt"的静默失败比报错难查得多。
-  ctx.inject(['systemPrompt'], (sctx) => {
-    const store = currentExtStore(sctx)
-    const deps: MountPromptDeps = {
-      getSystemPrompt: () => systemPromptOf(sctx),
-      isEnabled: () => store?.isEnabled(EXT_PROMPT_ID) === true,
-      readData: () => store?.readData<PromptExtData>(EXT_PROMPT_ID),
-    }
-    return mountPromptSection(deps)
+  const table = currentExts(ctx)
+  const store = currentExtStore(ctx)
+
+  // ① 准则段落。`section()` 注册一个**provider 函数**作为 text ——
+  //    每次装配现算，所以改开关立即生效，无需重注册。
+  const dispose = mountPromptSection({
+    getSystemPrompt: () => systemPromptOf(ctx),
+    isEnabled: () => store?.isEnabled(EXT_PROMPT_ID) === true,
+    readData: () => store?.readData<PromptExtData>(EXT_PROMPT_ID),
   })
 
-  // ② 面板登记：等 router.ext 就绪就登记（同 ext-test）。
-  ctx.inject(['router.ext'], (sctx) => {
-    const table = currentExts(sctx)
-    if (table === undefined) return undefined
-    if (table[EXT_PROMPT_ID] !== undefined) return undefined
+  // ② 面板登记。幂等：同一个 id 已在表里就不顶掉别人的登记。
+  if (table !== undefined && table[EXT_PROMPT_ID] === undefined) {
     table[EXT_PROMPT_ID] = createPromptExt({
-      isSystemPromptReady: () => !!systemPromptOf(sctx),
-      // ⚠️ **store 必须在这一步就能拿到**（`router.ext` 与 `router.extStore` 由核心
-      //   同一个 provide 段落给出），否则面板上的分类开关显示可点、点了 400 ——
-      //   「看起来能用但不能用」比「不显示」更难查。
-      store: currentExtStore(sctx),
+      isSystemPromptReady: () => !!systemPromptOf(ctx),
+      // ⚠️ **store 必须在这时就能拿到**：拿不到的话面板上的分类开关显示可点、
+      //   点了 400 —— 「看起来能用但不能用」比「不显示」更难查。
+      store,
     })
-    currentExtStore(sctx)?.setEnabled(EXT_PROMPT_ID, true)
+    store?.setEnabled(EXT_PROMPT_ID, true)
     // 核心持有的是**同一个 live 对象**（它 provide 的空表），且 `/ext` 每次请求都
     // 现读这张表 —— 所以往里 append 就够了，不需要（也不存在）广播事件。
+  }
+
+  ctx.effect(() => () => {
+    dispose()
+    if (table !== undefined) delete table[EXT_PROMPT_ID]
   })
 }

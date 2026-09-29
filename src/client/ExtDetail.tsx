@@ -91,24 +91,58 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
   }
 
   const disabled = busy !== ''
+  const withBody = controls.filter((c) => typeof c.body === 'string' && c.body !== '')
   return (
     <section className="dshr-card">
-      <div className="dshr-muted" style={{ padding: '12px 14px 4px' }}>子开关</div>
+      <div className="dshr-muted" style={{ padding: '12px 14px 4px' }}>
+        子开关
+        {withBody.length > 0 && ` · 点标题看原文（${withBody.length} 条）`}
+      </div>
       {error !== '' && <div className="dshr-alert" style={{ margin: '8px 14px' }}><strong>切换失败</strong><span>{error}</span></div>}
       <ul style={{ listStyle: 'none', margin: 0, padding: '4px 0' }}>
         {controls.map((c) => (
-          <li key={c.id} className="dshr-compRow">
-            <div className="dshr-compRowMain">
-              <span className="dshr-compRowName">{c.title}</span>
-              <span className="dshr-compRowState">{c.detail ?? (state[c.id] === true ? '生效中' : '不生效')}</span>
-            </div>
-            <Switch
-              checked={state[c.id] === true}
-              disabled={disabled || item.enabled !== true}
-              label={`${c.title} 开关`}
-              title={item.enabled !== true ? '扩展总开关已关闭，子开关暂不生效' : (state[c.id] === true ? `关闭 ${c.title}` : `开启 ${c.title}`)}
-              onChange={(next) => { void toggle(c.id, next) }}
-            />
+          <li key={c.id}>
+            {/* ⚠️ **原生 `<details>`** 而不是自造折叠：展开/收起、键盘可达、
+                aria 都由浏览器负责。这个仓不引新依赖去重做它（懒人梯子④平台原生）。 */}
+            <details>
+              <summary style={{ cursor: 'pointer', listStyle: 'none' }}>
+                <div className="dshr-compRow" style={{ paddingLeft: 0, paddingRight: 0 }}>
+                  {/* 标题本身是「展开/收起」的触发点（summary 的原生行为）。 */}
+                  <div className="dshr-compRowMain">
+                    <span className="dshr-compRowName">{c.title}</span>
+                    <span className="dshr-compRowState">
+                      {c.detail ?? (state[c.id] === true ? '生效中' : '不生效')}
+                      {typeof c.body === 'string' && c.body !== '' && ' · 原文'}
+                    </span>
+                  </div>
+                  {/* ⚠️ **开关留在收起态也可见**（不能只放进展开区 —— 那要求用户
+                      先展开才关得掉）。summary 里的交互元素需要 `preventDefault`
+                      才不会连带触发展开；`stopPropagation` 单独用**不够**
+                      （原生 summary 的激活行为是默认行为，不是冒泡）。 */}
+                  <span
+                    role="presentation"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+                  >
+                    <Switch
+                      checked={state[c.id] === true}
+                      disabled={disabled || item.enabled !== true}
+                      label={`${c.title} 开关`}
+                      title={item.enabled !== true ? '扩展总开关已关闭，子开关暂不生效' : (state[c.id] === true ? `关闭 ${c.title}` : `开启 ${c.title}`)}
+                      onChange={(next) => { void toggle(c.id, next) }}
+                    />
+                  </span>
+                </div>
+              </summary>
+              {typeof c.body === 'string' && c.body !== '' && (
+                <pre
+                  className="dshr-muted"
+                  style={{
+                    margin: '0 14px 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    font: 'inherit', fontSize: '12px', lineHeight: 1.6,
+                  }}
+                >{c.body}</pre>
+              )}
+            </details>
           </li>
         ))}
       </ul>

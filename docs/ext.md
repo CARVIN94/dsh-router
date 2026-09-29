@@ -41,7 +41,11 @@ export function createPromptExt(deps): RouterExt {
   return {
     id: 'prompt',
     // ... name / description / source / getState
-    controls: PROMPT_CATEGORIES.map((c) => ({ id: c.id, title: c.title, on: resolve(c.id) })),
+    controls: PROMPT_CATEGORIES.map((c) => ({
+      id: c.id, title: c.title,
+      body: c.body,                       // ← 原文:面板点标题就能读
+      on: resolve(c.id),
+    })),
     setControl: (controlId, on) => { /* 写进 data 抽屉;返回 false = 失败 */ },
   }
 }
@@ -49,6 +53,11 @@ export function createPromptExt(deps): RouterExt {
 
 面板:扩展详情页(设置 → 路由 → 扩展 → 点开卡片)逐条渲染,走同一个
 `PATCH /router/api/ext`,body 是 `{ id, controlId, on }`。
+
+⚠️ **`controls[].body` 要给原文**,不只是标题。不给的话用户是在**盲切** ——
+只看到「结构」「交付」这样的名字,不知道这一条到底写了什么,也无从判断该不该
+关掉它。面板用原生 `<details>` 折叠展示(默认收起,点标题展开),**开关留在收起
+态也可见** —— 不能要求先展开才关得掉。
 
 ⚠️ 三条约定:
 

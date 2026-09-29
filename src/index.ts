@@ -653,7 +653,7 @@ export function apply(rawContext: unknown): void {
                 controls: e.controls
                   .filter((c): c is ExtControl =>
                     !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
-                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}) })),
+                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}) })),
               }
             : {}),
           ...(st?.detail !== undefined ? { detail: st.detail } : {}),

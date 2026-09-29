@@ -204,3 +204,13 @@ function fakeStore(initial: Record<string, unknown> | undefined) {
     writeData: (_id: string, value: unknown) => { box.data = value as Record<string, unknown> },
   } as unknown as import('../ext/contract.ts').ExtStoreService
 }
+
+test('★ 每个子开关都带原文（不给出就是在盲切：只看名字没法判断该不该关）', () => {
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore({ categories: {} }) })
+  for (const c of ext.controls ?? []) {
+    assert.ok(typeof c.body === 'string' && c.body.length > 0, `${c.id} 没有原文`)
+    // 原文必须是这一条**自己的**正文，不是标题、也不是全集
+    const cat = PROMPT_CATEGORIES.find((x) => x.id === c.id)
+    assert.equal(c.body, cat?.body, `${c.id} 的原文与内容层不一致`)
+  }
+})

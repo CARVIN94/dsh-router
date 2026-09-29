@@ -182,6 +182,8 @@ export interface ExtControlItem {
   on: boolean
   /** 一句话说明（面板副行，可选）。 */
   detail?: string
+  /** 原文（面板点开即可读到；不给出就是在盲切，见 `ExtControl.body`）。 */
+  body?: string
 }
 
 /** `/router/api/ext` response（扩展插件列表 + 开关）。 */

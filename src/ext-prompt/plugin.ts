@@ -49,6 +49,10 @@ export function createPromptExt(deps: {
     controls: PROMPT_CATEGORIES.map((c) => ({
       id: c.id,
       title: c.title,
+      // ⚠️ **带上原文**：不给出原文的话用户是在**盲切** —— 只看到「结构」「交付」
+      //   这样的名字，不知道这一条到底写了什么，也无从判断该不该关掉它。
+      //   「看内容 → 决定开关」这个动作必须能在一处完成。
+      body: c.body,
       on: resolveEnabledCategories(true, readData()).has(c.id),
     })),
     setControl: (controlId, on) => {

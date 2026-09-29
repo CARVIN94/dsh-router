@@ -3424,6 +3424,21 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-wrap: anywhere;
 }
 
+/* 扩展子开关的**原文**（`ExtDetail` 的子开关区）。用户照着它决定开不开，
+   所以**直接展开、不折叠**（2026-09-29 用户拍板）—— 多一次点击就打断了
+   「看内容 → 决定」这个动作。颜色/字号沿用 compRowState 那一套 CSS 变量
+   （深浅色两套值由变量负责，这里不写死颜色）。 */
+.dshr-compRowBody {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 11.5px;
+    line-height: 17px;
+    margin-top: 4px;
+    padding-left: 8px;
+    border-left: 1.5px solid var(--dsw-alias-border-l3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 /* ============================================================
    dsh-router — 插件自检面板（设置 → 路由 → 扩展 → 插件自检）
    ------------------------------------------------------------

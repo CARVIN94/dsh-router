@@ -93,59 +93,51 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
   const disabled = busy !== ''
   const withBody = controls.filter((c) => typeof c.body === 'string' && c.body !== '')
   return (
+    // ⚠️ **类名全用 DSH 原生的**（`dshr-comp*`，见 `router.css` 与
+    //   `RouterComponentsSection` 的同款用法）：内联 style 会跟着主题走丢
+    //   （颜色/间距/字号在本仓有 CSS 变量，深浅色两套值），而这一页是设置里
+    //   唯一的详情页，不该长成另一个样子。
     <section className="dshr-card">
-      <div className="dshr-muted" style={{ padding: '12px 14px 4px' }}>
-        子开关
-        {withBody.length > 0 && ` · 点标题看原文（${withBody.length} 条）`}
+      <div className="dshr-compGroup">
+        <div className="dshr-compHead">
+          <h4 className="dshr-compTitle">子开关</h4>
+          <span className="dshr-compCount">
+            {Object.values(state).filter(Boolean).length} / {controls.length} 生效
+          </span>
+        </div>
+        {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
+        <ul className="dshr-compRows">
+          {controls.map((c) => (
+            <li key={c.id} className="dshr-compRow">
+              <div className="dshr-compRowMain">
+                <span className="dshr-compRowName">{c.title}</span>
+                <span className="dshr-compRowState">
+                  {c.detail ?? (state[c.id] === true ? '生效中' : '不生效')}
+                </span>
+                {/* ⚠️ **原文直接展开，不折叠**（用户 2026-09-29 拍板）：折叠是
+                    「先点一下才知道这一条写了什么」，而这里的用途恰恰是
+                    **照着原文决定开不开** —— 多一次点击就打断了这个动作。
+                    14 条全展开仍在一屏内（原生行高 + 无额外按钮）。 */}
+                {typeof c.body === 'string' && c.body !== '' && (
+                  <span className="dshr-compRowBody">{c.body}</span>
+                )}
+              </div>
+              <Switch
+                checked={state[c.id] === true}
+                disabled={disabled || item.enabled !== true}
+                label={`${c.title} 开关`}
+                title={item.enabled !== true
+                  ? '扩展总开关已关闭，子开关暂不生效'
+                  : (state[c.id] === true ? `关闭 ${c.title}` : `开启 ${c.title}`)}
+                onChange={(next) => { void toggle(c.id, next) }}
+              />
+            </li>
+          ))}
+        </ul>
+        {withBody.length === 0 && (
+          <p className="dshr-compHint">本扩展没有提供原文。</p>
+        )}
       </div>
-      {error !== '' && <div className="dshr-alert" style={{ margin: '8px 14px' }}><strong>切换失败</strong><span>{error}</span></div>}
-      <ul style={{ listStyle: 'none', margin: 0, padding: '4px 0' }}>
-        {controls.map((c) => (
-          <li key={c.id}>
-            {/* ⚠️ **原生 `<details>`** 而不是自造折叠：展开/收起、键盘可达、
-                aria 都由浏览器负责。这个仓不引新依赖去重做它（懒人梯子④平台原生）。 */}
-            <details>
-              <summary style={{ cursor: 'pointer', listStyle: 'none' }}>
-                <div className="dshr-compRow" style={{ paddingLeft: 0, paddingRight: 0 }}>
-                  {/* 标题本身是「展开/收起」的触发点（summary 的原生行为）。 */}
-                  <div className="dshr-compRowMain">
-                    <span className="dshr-compRowName">{c.title}</span>
-                    <span className="dshr-compRowState">
-                      {c.detail ?? (state[c.id] === true ? '生效中' : '不生效')}
-                      {typeof c.body === 'string' && c.body !== '' && ' · 原文'}
-                    </span>
-                  </div>
-                  {/* ⚠️ **开关留在收起态也可见**（不能只放进展开区 —— 那要求用户
-                      先展开才关得掉）。summary 里的交互元素需要 `preventDefault`
-                      才不会连带触发展开；`stopPropagation` 单独用**不够**
-                      （原生 summary 的激活行为是默认行为，不是冒泡）。 */}
-                  <span
-                    role="presentation"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
-                  >
-                    <Switch
-                      checked={state[c.id] === true}
-                      disabled={disabled || item.enabled !== true}
-                      label={`${c.title} 开关`}
-                      title={item.enabled !== true ? '扩展总开关已关闭，子开关暂不生效' : (state[c.id] === true ? `关闭 ${c.title}` : `开启 ${c.title}`)}
-                      onChange={(next) => { void toggle(c.id, next) }}
-                    />
-                  </span>
-                </div>
-              </summary>
-              {typeof c.body === 'string' && c.body !== '' && (
-                <pre
-                  className="dshr-muted"
-                  style={{
-                    margin: '0 14px 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    font: 'inherit', fontSize: '12px', lineHeight: 1.6,
-                  }}
-                >{c.body}</pre>
-              )}
-            </details>
-          </li>
-        ))}
-      </ul>
     </section>
   )
 }

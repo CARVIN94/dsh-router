@@ -159,3 +159,97 @@ test('注入：用户关掉某分类 ⇒ 该分类不进 prompt（可开关的�
   assert.equal(text.includes('大肥鱼'), false, 'identity 关了就不该出现')
   assert.ok(text.includes('视野'), '其他分类照常')
 })
+
+// ── 面板编辑文本（2026-09-29）────────────────────────────────
+test('★ 每条都标 editable，面板才知道该不该给「修改」按钮', () => {
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore({ categories: {} }) })
+  for (const c of ext.controls ?? []) assert.equal(c.editable, true, `${c.id} 没标 editable`)
+  assert.equal(typeof ext.setControlText, 'function', '没有 setControlText ⇒ 面板点了必然 400')
+})
+
+test('★ 编辑后 controls 立刻反映新标题/新正文（每次读都重算）', () => {
+  const store = fakeStore({ categories: {}, text: { identity: { title: '我是谁', body: '我是一个测试。' } } })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const c = (ext.controls ?? []).find((x) => x.id === 'identity')!
+  assert.equal(c.title, '我是谁')
+  assert.equal(c.body, '我是一个测试。')
+})
+
+test('★ controls 不是快照：改完之后**再读一次**要看到新值', () => {
+  // ⚠️ 2026-09-29 实测踩的 bug：`controls: CATEGORIES.map(...)` 那个 map 在
+  //   `createPromptExt()` 时就跑完了 ⇒ 编辑落盘后 prompt 变了、**面板拿到的还是
+  //   旧标题**（用户看到"保存了又变回去"）。而我当时注释写着"现算不缓存"。
+  //   ⇒ 判据必须**跨两次读**才抓得住（只读一次的写法抓不到）。
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const before = (ext.controls ?? []).find((x) => x.id === 'ladder')!
+  assert.equal(before.title, '懒人梯子')
+  ext.setControlText?.('ladder', { title: '我的梯子' })
+  const after = (ext.controls ?? []).find((x) => x.id === 'ladder')!
+  assert.equal(after.title, '我的梯子', 'controls 是快照 ⇒ 面板刷新后编辑内容会「变回去」')
+})
+
+test('setControlText 只写覆盖值，且不碰 categories（同块的另一种数据）', () => {
+  const store = fakeStore({ categories: { identity: false }, keep: 'me' })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControlText?.('identity', { title: '新标题' }), true)
+  const after = store.readData<Record<string, unknown>>('')
+  assert.deepEqual(after?.categories, { identity: false }, '改标题把开关状态冲掉了')
+  assert.equal(after?.keep, 'me', '把 data 抽屉里别的字段抹了')
+  assert.deepEqual(after?.text, { identity: { title: '新标题' } }, '只该存改过的字段')
+})
+
+test('★ 改一条**不碰其它条**的覆盖（整块重写 text 会静默丢别人的）', () => {
+  // ⚠️ 注入验证过：`text: { [id]: patch }` 这种写法**全绿** —— 它的破坏
+  //   只在"用户改过两条以上"时显形，而单人单条测试看不出来。
+  const store = fakeStore({
+    categories: {},
+    text: { identity: { title: 'A' }, scope: { body: 'B' } },
+  })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  ext.setControlText?.('ladder', { body: '新内容' })
+  assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {
+    identity: { title: 'A' },
+    scope: { body: 'B' },
+    ladder: { body: '新内容' },
+  }, '改一条把别人覆盖的抹了')
+})
+
+test('改同一条的第二个字段 ⇒ 第一个字段仍在（部分更新，不是替换）', () => {
+  const store = fakeStore({ categories: {}, text: { identity: { title: 'A' } } })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  ext.setControlText?.('identity', { body: 'B' })
+  assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {
+    identity: { title: 'A', body: 'B' },
+  })
+})
+
+test('注入：空标题/空正文返回 false（不写盘）', () => {
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  for (const bad of [{ title: '  ' }, { title: '' }, { body: '' }]) {
+    assert.equal(ext.setControlText?.('identity', bad), false, `空串被接受了：${JSON.stringify(bad)}`)
+  }
+  assert.equal(store.readData<Record<string, unknown>>('')?.text, undefined, '失败的写入留下了痕迹')
+})
+
+test('注入：未知 controlId 返回 false', () => {
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControlText?.('__evil__', { title: 'x' }), false)
+})
+
+/**
+ * 假 store：**整块替换**语义，与真实的 `ExtStore.writeData` 一致
+ * （`this.byId[id] = { …, data: value }`）。合并的替身会让「只改一个键」与
+ * 「整块重写」观测上完全一样 ⇒ 注入违规时测试照样全绿（2026-09-29 栽过）。
+ */
+function fakeStore(initial: Record<string, unknown> | undefined) {
+  const box = { data: initial }
+  return {
+    isEnabled: () => true,
+    setEnabled: () => {},
+    readData: <T,>(_id: string) => box.data as T | undefined,
+    writeData: (_id: string, value: unknown) => { box.data = value as Record<string, unknown> },
+  } as unknown as import('../ext/contract.ts').ExtStoreService
+}

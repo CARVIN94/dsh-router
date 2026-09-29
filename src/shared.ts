@@ -184,6 +184,8 @@ export interface ExtControlItem {
   detail?: string
   /** 原文（面板点开即可读到；不给出就是在盲切，见 `ExtControl.body`）。 */
   body?: string
+  /** 文本可编辑（缺省 = 只读；见 `ExtControl.editable`）。 */
+  editable?: boolean
 }
 
 /** `/router/api/ext` response（扩展插件列表 + 开关）。 */

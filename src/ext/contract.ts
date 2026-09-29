@@ -79,6 +79,15 @@ export interface RouterExt {
    *   `ExtStoreService.writeData`（`data` 抽屉），由扩展自己读回。核心不替扩展
    *   存一份 —— 那样会变成两份可能漂移的真相。
    */
+  /**
+   * 扩展自报的**子开关**列表。
+   *
+   * ⚠️ **实现方应当每次读都重算**（getter），而不是在构造时算好一个数组快照：
+   *   核心每次 `GET /ext` 都读它，面板也靠它刷新。若它是快照，改完文本再刷新
+   *   面板拿到的仍是**旧值** —— 用户会看到"保存了、又变回去了"
+   *   （实测踩过：2026-09-29 第一版用 `CATEGORIES.map(...)`，编辑生效但列表
+   *   不跟着变，而注释里还写着"现算不缓存"——**注释与事实不符**，比没写更坏）。
+   */
   readonly controls?: ExtControl[]
   /**
    * 改一个子开关（面板调用；可选 —— 没有 `controls` 就不需要）。
@@ -93,6 +102,22 @@ export interface RouterExt {
    * @returns 落盘结果。返回 false 时核心回 400，且**不写盘**。
    */
   setControl?(controlId: string, on: boolean): boolean
+  /**
+   * 改一个子开关的**文本**（标题 / 正文），可选 —— 不实现就是不可编辑。
+   *
+   * ⚠️ **与 `setControl` 分开而不是合并**：开关是**布尔**、文本是**字符串**，
+   *   合成一个方法就得在里面判类型，面板那边也要问"这次改的是哪个" ——
+   *   那是两个独立动作、两种失败原因（未知 id / 空标题）。
+   *
+   * ⚠️ 落盘形状仍归扩展（本仓是 `data.text[id]`，与开关的 `data.categories[id]`
+   *   **分开两个键**）：开关是"开不开"，文本是"写成什么样"，混在一个键里
+   *   改标题会顺手碰到开关状态。
+   *
+   * @param controlId - 要改的子开关 id。
+   * @param patch - 要覆盖的字段；**未出现的字段保持原样**（部分更新）。
+   * @returns 落盘结果。返回 false 时核心回 400，且**不写盘**。
+   */
+  setControlText?(controlId: string, patch: { title?: string; body?: string }): boolean
   /** 当前运行时状态（ready + 不就绪时的说明）。 */
   getState(): ExtState
   /** 卸载清理（表删除时由 dsh-router 调用，可选）。 */
@@ -121,6 +146,14 @@ export interface ExtControl {
    * ⇒「看内容 → 决定开关」这个动作才成立。
    */
   readonly body?: string
+  /**
+   * 这一条的**文本可被编辑**（可选；缺省 = 只读）。
+   *
+   * ⚠️ 为什么要显式声明而不是「有 `setControlText` 就可编辑」：扩展实现了写入
+   *   能力但某些条目**刻意锁住**（例如标题是分类 id 的可读形式，改了会和
+   *   `data` 里的键失去对应关系）。由扩展逐条说了算。
+   */
+  readonly editable?: boolean
 }
 
 /** 面板/API 用的一条扩展器信息 = 核心存的开关 + 插件报的运行时事实。 */

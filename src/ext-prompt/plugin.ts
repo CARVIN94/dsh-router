@@ -14,7 +14,7 @@
  */
 import type { ExtStoreService, RouterExt } from '../ext/contract.ts'
 import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
-import { resolveEnabledCategories, type PromptExtData } from './render.ts'
+import { effectiveText, resolveEnabledCategories, type PromptExtData } from './render.ts'
 
 /** 扩展开关表里的注册键。 */
 export const EXT_PROMPT_ID = 'prompt'
@@ -54,15 +54,32 @@ export function createPromptExt(deps: {
     source: 'builtin' as const,
     // ⚠️ 每次 `controls` 被读都现算（不缓存）：用户在面板点一下立刻要看到新状态，
     //   而核心每次 GET /ext 都重新取一次。缓存会显示"点了没反应"。
-    controls: PROMPT_CATEGORIES.map((c) => ({
-      id: c.id,
-      title: c.title,
-      // ⚠️ **带上原文**：不给出原文的话用户是在**盲切** —— 只看到「结构」「交付」
-      //   这样的名字，不知道这一条到底写了什么，也无从判断该不该关掉它。
-      //   「看内容 → 决定开关」这个动作必须能在一处完成。
-      body: c.body,
-      on: resolveEnabledCategories(true, readData()).has(c.id),
-    })),
+    /**
+     * ⚠️ **用 getter，每次读都重算**（2026-09-29 实测修的 bug）。
+     *   原来写的是 `PROMPT_CATEGORIES.map(...)` —— 那个 map 在
+     *   `createPromptExt()` 调用时就跑完了，是个**快照**。于是编辑落盘后：
+     *   prompt 变了（渲染层每次现算），但面板再读 `controls` 拿到的还是**旧标题**
+     *   ⇒ 用户看到「保存了、又变回去了」。而我当时的注释还写着"现算不缓存"——
+     *   **注释与事实不符，比没注释更坏**。
+     *
+     * getter 让「面板显示的」与「prompt 里的」永远来自同一次 `readData()`。
+     */
+    get controls() {
+      const data = readData()
+      return PROMPT_CATEGORIES.map((c) => {
+        const t = effectiveText(c.id, data?.text?.[c.id], c)
+        return {
+          id: c.id,
+          title: t.title,
+          // ⚠️ **带上原文**：不给出原文的话用户是在**盲切** —— 只看到「结构」「交付」
+          //   这样的名字，不知道这一条到底写了什么，也无从判断该不该关掉它。
+          //   「看内容 → 决定开关」这个动作必须能在一处完成。
+          body: t.body,
+          editable: true,
+          on: resolveEnabledCategories(true, data).has(c.id),
+        }
+      })
+    },
     setControl: (controlId, on) => {
       if (!store) return false
       // ⚠️ **只改这一个键，不重写整块**：整块重写会顺手把 data 抽屉里的其它字段
@@ -72,6 +89,28 @@ export function createPromptExt(deps: {
       const known = PROMPT_CATEGORIES.some((c) => c.id === controlId)
       if (!known) return false
       store.writeData(EXT_PROMPT_ID, { ...data, categories: { ...data.categories, [controlId]: on } })
+      return true
+    },
+    // ⚠️ **只存覆盖值，不存全文**（见 PromptExtData.text）：没改过的分类不出现在
+    //   落盘里 ⇒ 内置内容仍是唯一事实源，升级内置文案时它们会跟着更新。
+    //   存全文的话，用户改一个字就永久冻结整段，之后内置更新对它们完全失效。
+    setControlText: (controlId, patch) => {
+      if (!store) return false
+      const data = readData()
+      if (data === undefined) return false
+      const known = PROMPT_CATEGORIES.some((c) => c.id === controlId)
+      if (!known) return false
+      // ⚠️ **空串直接拒绝**（返回 false ⇒ 核心回 400）：空标题会让这一行没名字，
+      //   空正文会让规则凭空消失 —— 两者都像"被关了"而不是"被改坏了"。
+      if (patch.title !== undefined && patch.title.trim() === '') return false
+      if (patch.body !== undefined && patch.body.trim() === '') return false
+      // ⚠️ **只并这一个键**：writeData 是整块替换，漏一个键就是丢一份数据
+      //   （`store.test.ts` 有同款纪律：置开关不能把 data 冲掉）。
+      const prev = data.text?.[controlId] ?? {}
+      store.writeData(EXT_PROMPT_ID, {
+        ...data,
+        text: { ...data.text, [controlId]: { ...prev, ...patch } },
+      })
       return true
     },
     getState: () =>

@@ -18,8 +18,9 @@
  */
 import { useEffect, useState } from 'react'
 import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ROUTER_API_BASE, type RouterExtItem, type RouterExtResponse } from '../shared.ts'
+import { ROUTER_API_BASE, type ExtControlItem, type RouterExtItem, type RouterExtResponse } from '../shared.ts'
 import { extPanel } from './ext-panels.ts'
+import { Modal } from './Modal.tsx'
 
 function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -32,6 +33,79 @@ function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
 const I = {
   back: 'M19 12H5M12 19l-7-7 7-7',
   bolt: 'M13 2L4 14h6l-1 8 9-12h-6z',
+}
+
+/**
+ * 「修改」弹窗 —— 改一个子开关的标题与正文（2026-09-29）。
+ *
+ * ⚠️ **改完必须真的进 prompt**，否则这就是"只改了显示"的假编辑
+ * （服务端 `setControlText` + 渲染层的 `effectiveText` 是这件事的另一半）。
+ *
+ * ⚠️ **空标题 / 空正文不允许提交**（按钮禁用 + 服务端也拒）：空标题让这一行没
+ *   名字，空正文让这条规则凭空消失 —— 两者都像"被关了"而不是"被改坏了"。
+ */
+function EditControlModal({
+  control,
+  onClose,
+  onSave,
+  busy,
+}: {
+  control: ExtControlItem
+  onClose: () => void
+  onSave: (patch: { title?: string; body?: string }) => void
+  busy: boolean
+}): JSX.Element {
+  const [title, setTitle] = useState(control.title)
+  const [body, setBody] = useState(control.body ?? '')
+  const trimmedTitle = title.trim()
+  const trimmedBody = body.trim()
+  const valid = trimmedTitle !== '' && trimmedBody !== ''
+
+  return (
+    <Modal title={`修改：${control.title}`} onClose={onClose}>
+      <div className="dshr-modalForm">
+        <label className="dshr-requireTitle" htmlFor={`dshr-ctl-title-${control.id}`}>标题</label>
+        <input
+          id={`dshr-ctl-title-${control.id}`}
+          className="dshr-input"
+          value={title}
+          onChange={(e) => { setTitle(e.target.value) }}
+          autoFocus
+        />
+        <label className="dshr-requireTitle" htmlFor={`dshr-ctl-body-${control.id}`}>内容</label>
+        {/* 正文用 textarea：`input` 单行，长准则（收口/底线）没法编辑。 */}
+        <textarea
+          id={`dshr-ctl-body-${control.id}`}
+          className="dshr-input"
+          style={{ minHeight: 160, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+          value={body}
+          onChange={(e) => { setBody(e.target.value) }}
+        />
+        <p className="dshr-compHint">
+          改完立刻生效于 system prompt。此处只存**改过的部分**；未改的分类仍随内置版本更新。
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" className="dshr-cardAction" onClick={onClose} disabled={busy}>取消</button>
+          <button
+            type="button"
+            className="dshr-primaryButton"
+            disabled={busy || !valid}
+            title={valid ? '保存' : '标题与内容都不能为空'}
+            onClick={() => {
+              // 只提交**真的变了**的字段：省一次写盘，也让"部分更新"这条契约在
+              // UI 侧也成立（服务端是 `patch` 合并，不是整条替换）。
+              const patch: { title?: string; body?: string } = {}
+              if (trimmedTitle !== control.title) patch.title = trimmedTitle
+              if (trimmedBody !== control.body) patch.body = trimmedBody
+              onSave(patch)
+            }}
+          >
+            {busy ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
 }
 
 /**
@@ -92,6 +166,40 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
 
   const disabled = busy !== ''
   const withBody = controls.filter((c) => typeof c.body === 'string' && c.body !== '')
+  // 正在编辑的分类 id（null = 没开弹窗）。
+  const [editing, setEditing] = useState<string | null>(null)
+  // 标题单独存一份：开关的 `state` 只记 on/off，改标题后列表要立刻跟着变。
+  const [titles, setTitles] = useState<Record<string, string>>(() =>
+    Object.fromEntries((item.controls ?? []).map((c) => [c.id, c.title])))
+  // 保存编辑。**成功与失败都回读真值**（同 `toggle` 的纪律）：乐观更新看着顺，
+  // 但服务端拒了（未知 id / 空串）时面板会停在"改了却没生效"的状态。
+  const save = async (controlId: string, patch: { title?: string; body?: string }): Promise<void> => {
+    setBusy(controlId)
+    setError('')
+    try {
+      const response = await fetch(`${ROUTER_API_BASE}/ext`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, controlId, ...patch }),
+        cache: 'no-store',
+      })
+      const data = await response.json() as RouterExtResponse
+      if (data.ok !== true) {
+        setError(data.error ?? '保存失败')
+        return
+      }
+      // 核心 PATCH 后会回发整张表 —— 直接用它对齐，省一次往返。
+      const self = data.enhancers?.find((e) => e.id === item.id)
+      if (self?.controls) setState(Object.fromEntries(self.controls.map((c) => [c.id, c.on])))
+      if (self?.controls) setTitles(Object.fromEntries(self.controls.map((c) => [c.id, c.title])))
+      setEditing(null)
+    } catch {
+      setError('保存失败（网络）')
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     // ⚠️ **类名全用 DSH 原生的**（`dshr-comp*`，见 `router.css` 与
     //   `RouterComponentsSection` 的同款用法）：内联 style 会跟着主题走丢
@@ -112,7 +220,20 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
               <div className="dshr-compRowMain">
                 {/* 标题与开关**同一行**（`.dshr-compRow` 本来就是 flex 行），
                     原文接在下面缩进 —— 这样一个开关占一行、一眼扫完 14 条。 */}
-                <span className="dshr-compRowName">{c.title}</span>
+                <span className="dshr-compRowName">{titles[c.id] ?? c.title}</span>
+                {/* ⚠️ **按钮在标题右侧**（用户 2026-09-29 指定的位），且**只对
+                    `editable` 的条目出现** —— 扩展没说可编辑就不给，
+                    免得点开一个必然 400 的弹窗。 */}
+                {c.editable === true && (
+                  <button
+                    type="button"
+                    className="dshr-compEditBtn"
+                    onClick={() => { setEditing(c.id) }}
+                    title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
+                  >
+                    修改
+                  </button>
+                )}
                 {/* ⚠️ 原文**默认显示、限两行**，点它才展开全文。
                     用户 2026-09-29 先要「直接展示不折叠」、随后嫌「布局太多」——
                     两个诉求的交汇点就是**给原文一个上限**：默认看得见（不折叠），
@@ -142,6 +263,19 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
         {withBody.length === 0 && (
           <p className="dshr-compHint">本扩展没有提供原文。</p>
         )}
+        {/* 编辑弹窗（在列表之外，避免嵌在 <li> 里影响排版） */}
+        {editing !== null && (() => {
+          const target = controls.find((c) => c.id === editing)
+          if (target === undefined) return null
+          return (
+            <EditControlModal
+              control={{ ...target, title: titles[target.id] ?? target.title }}
+              busy={busy === editing}
+              onClose={() => { setEditing(null) }}
+              onSave={(patch) => { void save(editing, patch) }}
+            />
+          )
+        })()}
       </div>
     </section>
   )

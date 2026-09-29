@@ -151,3 +151,40 @@ test('全关时标题也不出现（不能有一套叫准则 v5 的东西却一�
   const text = renderPromptText(true, { categories: off })
   assert.equal(text, '', '只剩标题 = 一套空准则，比没有更糟')
 })
+
+// ── 面板编辑文本（2026-09-29）────────────────────────────────
+test('★ 改过的正文真的进 prompt（不是只改了显示）', () => {
+  // ⚠️ 这是"编辑"这件事的**全部意义所在**：漏了这一步，面板改了字、prompt
+  //   里还是旧的，而用户会以为成功了 —— 最坏的"看起来成功"。
+  const data: PromptExtData = { text: { ladder: { body: '梯子：只走第一档。' } } }
+  const text = renderPromptText(true, data)
+  assert.ok(text.includes('梯子：只走第一档。'), '编辑后的正文没进 prompt')
+  assert.equal(text.includes('停在第一个成立的档'), false, '旧的正文还在')
+})
+
+test('改过的标题不影响正文（两个字段各管各的）', () => {
+  const data: PromptExtData = { text: { identity: { title: '我是谁' } } }
+  const text = renderPromptText(true, data)
+  assert.ok(text.includes('大肥鱼'), '只改标题不该动正文')
+})
+
+test('注入：空串覆盖被忽略（不能把一条规则"变成空的"）', () => {
+  const data: PromptExtData = { text: { ladder: { body: '' } } }
+  const text = renderPromptText(true, data)
+  assert.ok(text.includes('停在第一个成立的档'), '空串把这条规则清空了 —— 看起来像被关了')
+})
+
+test('未改过的分类不出现在 text 里（内置内容仍是唯一事实源）', () => {
+  // 只存覆盖值：用户改一个字就永久冻结整段是反效果，内置更新要能继续生效
+  const data: PromptExtData = { text: { identity: { body: '我是谁。' } } }
+  const text = renderPromptText(true, data)
+  assert.ok(text.includes('停在第一个成立的档'), '只改了一条，其余应仍跟内置走')
+})
+
+test('注入：text 不是对象时不炸（脏数据不该让整段准则消失）', () => {
+  for (const bad of ['x', 42, []] as unknown[]) {
+    const data = { text: bad } as unknown as PromptExtData
+    const text = renderPromptText(true, data)
+    assert.ok(text.includes('停在第一个成立的档'), `text=${JSON.stringify(bad)} 把准则弄没了`)
+  }
+})

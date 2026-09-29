@@ -11,6 +11,38 @@ import { PROMPT_CATEGORIES, PROMPT_TITLE, type PromptCategory } from './content.
 export interface PromptExtData {
   /** 分类开关：`{ [categoryId]: boolean }`。缺项走 `defaultOn`。 */
   categories?: Record<string, boolean>
+  /**
+   * 用户在面板里改过的文本：`{ [categoryId]: { title?, body? } }`。
+   *
+   * ⚠️ **与 `categories` 分开两个键**：开关是"开不开"、文本是"写成什么样"。
+   *   挤在一个键里，改标题会顺手碰到开关状态（`writeData` 是**整块替换**，
+   *   少一个键就是少一份数据）。
+   *
+   * ⚠️ **只存覆盖值，不存全文**：没改过的分类不出现在这里 ⇒ 内置内容仍是唯一
+   *   事实源，升级内置文案时没改过的那几条会跟着更新。存全文 = 用户改一个字
+   *   就永久冻结了整段，之后内置更新对它们完全失效。
+   */
+  text?: Record<string, PromptCategoryOverride>
+}
+
+/** 一条分类上用户改过的字段（只记改了的那些）。 */
+export interface PromptCategoryOverride {
+  title?: string
+  body?: string
+}
+
+/** 解出某分类**生效用**的文本：用户覆盖优先，否则用内置的。 */
+export function effectiveText(
+  id: string,
+  override: PromptCategoryOverride | undefined,
+  base: PromptCategory,
+): { title: string; body: string } {
+  return {
+    // ⚠️ 空串是**非法**覆盖（写入端已挡），万一脏数据进来了也不能让它把
+    //   分类"变成空的" —— 那会让那条规则凭空消失，看起来像被关了。
+    title: override?.title !== undefined && override.title !== '' ? override.title : base.title,
+    body: override?.body !== undefined && override.body !== '' ? override.body : base.body,
+  }
 }
 
 /** 分类 id 的全集（校验用）。 */
@@ -60,11 +92,15 @@ export function resolveEnabledCategories(
 export function renderCategories(
   enabled: ReadonlySet<string>,
   categories: readonly PromptCategory[] = PROMPT_CATEGORIES,
+  overrides?: PromptExtData['text'],
 ): string {
   const lines: string[] = []
   for (const c of categories) {
     if (!enabled.has(c.id)) continue
-    lines.push(c.body)
+    // ⚠️ **这里用覆盖后的 body** —— 面板改的内容必须真的进 prompt。
+    //   漏了这一行，编辑就只是改了**显示**（用户会以为改了却没生效，
+    //   而 prompt 里还是旧的 ⇒ 最坏的一种"看起来成功了"）。
+    lines.push(effectiveText(c.id, overrides?.[c.id], c).body)
   }
   // ⚠️ **标题放在最后 join 之前**：它不属于任何分类（见 PROMPT_TITLE 的注释），
   //   且只在**至少有一条规则开启**时才出现 —— 全关时整段返回空串被平台丢弃，
@@ -90,5 +126,5 @@ export function renderCategories(
  */
 export function renderPromptText(masterOn: boolean, data: PromptExtData | undefined): string {
   if (!masterOn) return ''
-  return renderCategories(resolveEnabledCategories(masterOn, data))
+  return renderCategories(resolveEnabledCategories(masterOn, data), PROMPT_CATEGORIES, data?.text)
 }

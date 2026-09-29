@@ -3415,6 +3415,27 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
+/* 子开关标题右侧的「修改」按钮（2026-09-29）。
+   刻意小而淡：它是**次要动作**（多数时候只是开关），不该和标题抢注意力；
+   但也不能藏到 hover 才出现 —— 移动端没有 hover。 */
+.dshr-compEditBtn {
+    flex: none;
+    margin-left: auto;
+    padding: 2px 8px;
+    border: 0.5px solid var(--dsw-alias-border-l2);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 11px;
+    line-height: 16px;
+    cursor: pointer;
+}
+
+.dshr-compEditBtn:hover {
+    color: var(--dsw-alias-label-primary);
+    border-color: var(--dsw-alias-border-l3);
+}
+
 /* 原文的容器：默认限两行（`dshr-clamp2` 落在 summary 上），点击展开全文。
    2026-09-29 用户先要「直接展示」、后嫌「布局太多」——这两个诉求的交汇点
    就是**默认可见 + 有上限**：多数规则一眼看完，长的（收口/底线/交付）点开。 */

@@ -576,7 +576,7 @@ export function apply(rawContext: unknown): void {
     if (req.method === 'PATCH') {
       // ⚠️ `on` 与 `enabled` **都声明为 unknown**：请求体不可信，真正判类型的地方
       //   在下面（`typeof … !== 'boolean'` ⇒ 400）。这里只是让它在类型上可访问。
-      let body: { id?: unknown; enabled?: unknown; controlId?: unknown; on?: unknown }
+      let body: { id?: unknown; enabled?: unknown; controlId?: unknown; on?: unknown; title?: unknown; body?: unknown }
       try {
         body = JSON.parse(await readBody(req, 64 << 10)) as typeof body
       } catch {
@@ -588,6 +588,38 @@ export function apply(rawContext: unknown): void {
         writeJson(res, 404, { ok: false, error: 'extension not found' })
         return
       }
+      // ---- 子开关文本（`{ controlId, title?, body? }`）----
+      //
+      // 与下面的开关**分开判**：一个是字符串、一个是布尔，面板问的也是两个问题。
+      // 判据是**有没有带 title/body**，而不是「controlId 在不在」——后者两个
+      // 分支都会满足，分不开。
+      if (body.title !== undefined || body.body !== undefined) {
+        if (typeof body.controlId !== 'string' || body.controlId === '') {
+          writeJson(res, 400, { ok: false, error: 'controlId must be a non-empty string' })
+          return
+        }
+        if (typeof body.title !== 'undefined' && typeof body.title !== 'string') {
+          writeJson(res, 400, { ok: false, error: 'title must be a string' })
+          return
+        }
+        if (typeof body.body !== 'undefined' && typeof body.body !== 'string') {
+          writeJson(res, 400, { ok: false, error: 'body must be a string' })
+          return
+        }
+        if (typeof ext.setControlText !== 'function') {
+          writeJson(res, 400, { ok: false, error: 'extension controls are not editable' })
+          return
+        }
+        const patch: { title?: string; body?: string } = {}
+        if (typeof body.title === 'string') patch.title = body.title
+        if (typeof body.body === 'string') patch.body = body.body
+        if (!ext.setControlText(body.controlId, patch)) {
+          writeJson(res, 400, { ok: false, error: 'unknown controlId' })
+          return
+        }
+        return
+      }
+
       // ---- 子开关（`{ controlId, on }`）----
       //
       // 与总开关**分开判**：总开关管「这个扩展在不在」，子开关管「它自己的行为细节」。
@@ -653,7 +685,7 @@ export function apply(rawContext: unknown): void {
                 controls: e.controls
                   .filter((c): c is ExtControl =>
                     !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
-                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}) })),
+                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}) })),
               }
             : {}),
           ...(st?.detail !== undefined ? { detail: st.detail } : {}),

@@ -230,27 +230,30 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
           {controls.map((c) => (
             <li key={c.id} className="dshr-compRow">
               <div className="dshr-compRowMain">
-                {/* 标题与开关**同一行**（`.dshr-compRow` 本来就是 flex 行），
-                    原文接在下面缩进 —— 这样一个开关占一行、一眼扫完 14 条。 */}
-                <span className="dshr-compRowName">{titles[c.id] ?? c.title}</span>
-                {/* ⚠️ **按钮在标题右侧**（用户 2026-09-29 指定的位），且**只对
-                    `editable` 的条目出现** —— 扩展没说可编辑就不给，
-                    免得点开一个必然 400 的弹窗。 */}
-                {/* ⚠️ 用 `dshr-iconBtn` + 铅笔图标，**与 `CombosTab` 的「编辑」按钮
-                    同一套**（2026-09-29 用户指出太丑）。原先自造了一个带文字的
-                    `dshr-compEditBtn` —— 同一页里出现第二种按钮长相。
-                    `aria-label` 不能省：图标按钮没有可见文字，读屏只认它。 */}
-                {c.editable === true && (
-                  <button
-                    type="button"
-                    className="dshr-iconBtn dshr-iconBtn-sm"
-                    aria-label={`修改「${titles[c.id] ?? c.title}」`}
-                    title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
-                    onClick={() => { setEditing(c.id) }}
-                  >
-                    <RowIcon d={I_EDIT} />
-                  </button>
-                )}
+                {/* ⚠️ 标题与「修改」按钮**必须包在同一个 flex 行里**（2026-09-29）。
+                    `.dshr-compRowMain` 是 `flex-direction: column`，而
+                    `.dshr-compRowName` 是**行内**元素、标题一长就换行 ⇒ 直接把
+                    按钮放在 span 后面会掉到**下一行**，看着像"标题下面挂了个东西"。
+                    ⇒ 用一个 `display:flex` 的行把两者并在一起，且 `min-width:0`
+                    让长标题在**这一行内**省略号，而不是把按钮顶下去。 */}
+                <div className="dshr-compRowTitleLine">
+                  <span className="dshr-compRowName">{titles[c.id] ?? c.title}</span>
+                  {/* ⚠️ 用 `dshr-iconBtn` + 铅笔图标，**与 `CombosTab` 的「编辑」按钮
+                      同一套**（2026-09-29 用户指出太丑）。原先自造了一个带文字的
+                      `dshr-compEditBtn` —— 同一页里出现第二种按钮长相。
+                      `aria-label` 不能省：图标按钮没有可见文字，读屏只认它。 */}
+                  {c.editable === true && (
+                    <button
+                      type="button"
+                      className="dshr-iconBtn dshr-iconBtn-sm"
+                      aria-label={`修改「${titles[c.id] ?? c.title}」`}
+                      title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
+                      onClick={() => { setEditing(c.id) }}
+                    >
+                      <RowIcon d={I_EDIT} />
+                    </button>
+                  )}
+                </div>
                 {/* ⚠️ **原文直接全文展示，不折叠也不限高**（2026-09-29）。
                     中间那版是 `<details>` + `line-clamp: 2`（默认两行、点击展开），
                     理由是"14 条全展开太长" —— 但那是在**替用户决定什么算长**。

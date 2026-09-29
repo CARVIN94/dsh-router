@@ -3371,6 +3371,19 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-wrap: anywhere;
 }
 
+/* 标题 + 「修改」按钮的**同一行**（`ExtDetail` 的子开关区）。
+   ⚠️ 单独一个类而不改 `.dshr-compRowName`：那个类 `RouterComponentsSection` /
+   `ExtTestPanel` 也在用，给它加 `display:flex` 会把**那些页面的标题**也变成
+   flex 盒子（它们标题后面没有按钮，平白多一层）。
+   没有这层时按钮会掉到**下一行**：`.dshr-compRowMain` 是 column，而
+   `.dshr-compRowName` 是行内元素、标题一长就折行（2026-09-29 用户报）。 */
+.dshr-compRowTitleLine {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
 .dshr-compRowState {
     color: var(--dsw-alias-label-tertiary);
     font-size: 11.5px;

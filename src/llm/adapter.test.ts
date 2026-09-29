@@ -473,17 +473,17 @@ test('wire：reasoningEffort 为 none/off 时删字段，且无请求时不硬�
 test('wire：空工具结果发空串，不伪造 (no output) 字面量', async () => {
   // 模型会以为工具真打印了那句话 —— 对「bash 无输出」是误导。
   const body = await captureBody({
-    messages: [{ role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }] }],
+    messages: [{ role: 'tool', toolCallId: 'c1', content: [] }],
   })
   const tool = (body.messages as Array<{ role: string; content: string }>).find((m) => m.role === 'tool')
   assert.equal(tool?.content, '', '空结果就该是空串')
 })
 
-// 0.1.7+ 消息模型：tool 结果是**独立 role:"tool" 消息**、toolCallId 挂消息级，
-// ContentBlockMap 已无 'tool-result' 块。必须原样发 role:"tool"，否则工具结果被
+// 0.2.0 消息模型：tool 结果是**独立 role:"tool" 消息**、toolCallId 挂消息级，
+// ContentBlockMap 里**没有** 'tool-result' 块。必须原样发 role:"tool"，否则工具结果被
 // 序列化成 role:"user"、夹在 assistant(tool_calls) 与 tool 之间，上游判定失配 → 400
-// code=11148。下面几条锁死新分支；老的 'tool-result' 块路径（≤0.1.6）仍有各自的用例。
-test('wire：0.1.7+ 独立 role:"tool" 消息序列化为 role:"tool"，正确带 tool_call_id', async () => {
+// code=11148。
+test('wire：独立 role:"tool" 消息序列化为 role:"tool"，正确带 tool_call_id', async () => {
   const body = await captureBody({
     messages: [
       { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
@@ -492,13 +492,13 @@ test('wire：0.1.7+ 独立 role:"tool" 消息序列化为 role:"tool"，正确�
   })
   const messages = body.messages as Array<{ role: string; tool_call_id?: string; content: unknown }>
   const tool = messages.find((m) => m.role === 'tool')
-  assert.ok(tool, '0.1.7 tool 消息必须原样发 role:"tool"')
+  assert.ok(tool, 'tool 消息必须原样发 role:"tool"')
   assert.equal(tool.tool_call_id, 'c1', 'tool_call_id 取自消息级 toolCallId')
   assert.equal(tool.content, 'out', '纯文本重组为字符串')
   assert.equal(messages.filter((m) => m.role === 'user').length, 0, '不容许被误序列化成 user 消息')
 })
 
-test('wire：0.1.7+ 独立 role:"tool" 消息不带图时不在其后插 user(图)', async () => {
+test('wire：独立 role:"tool" 消息不带图时不在其后插 user(图)', async () => {
   // 图片才攒批补 user(图)；纯文本 tool 后面绝不能冒出 user，配对接续必须完整。
   const body = await captureBody({
     messages: [
@@ -516,7 +516,7 @@ test('wire：0.1.7+ 独立 role:"tool" 消息不带图时不在其后插 user(�
   }
 })
 
-test('wire：0.1.7+ 空 tool 结果发空串（不伪造字面量）', async () => {
+test('wire：空 tool 结果发空串（不伪造字面量）', async () => {
   const body = await captureBody({
     messages: [{ role: 'tool', toolCallId: 'c2', content: [] }],
   })
@@ -524,34 +524,11 @@ test('wire：0.1.7+ 空 tool 结果发空串（不伪造字面量）', async () 
   assert.equal(tool?.content, '', '空结果该是空串')
 })
 
-/**
- * tool 结果的两种形态**都必须序列化成 role:'tool'**，且分派只看消息形状、与宿主版本无关。
- *
- * 背景（实测）：同一宿主内两种形态都合法 —— 0.1.7 loop-built 走新形态
- * （独立 role:'tool' 消息），而老会话历史经 session-format 迁移/重放时仍是旧形态
- * （user 消息里的 'tool-result' 块）。所以 adapter 不能按版本号判形态对错，
- * 只能按形状分派；这条锁死两种形状在**同一份 adapter**下产物一致。
- */
-test('wire：tool-result 新/旧两种形态都序列化为 role:"tool"（按形状分派，与版本无关）', async () => {
-  const newShapeMsgs = [
-    { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
-    { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] },
-  ]
-  const oldShapeMsgs = [
-    { role: 'assistant', content: [{ type: 'text', text: '' }, { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
-    { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] }] },
-  ]
-  // 新形态：原样发 role:'tool'
-  const n = await captureBody({ messages: newShapeMsgs })
-  const nt = (n.messages as Array<{ role: string; tool_call_id?: string }>).find((m) => m.role === 'tool')
-  assert.ok(nt, '新形态应发 role:"tool"')
-  assert.equal(nt.tool_call_id, 'c1')
-  // 旧形态：由 'tool-result' 块转出 role:'tool'（同样带 tool_call_id）
-  const o = await captureBody({ messages: oldShapeMsgs })
-  const ot = (o.messages as Array<{ role: string; tool_call_id?: string }>).find((m) => m.role === 'tool')
-  assert.ok(ot, '旧形态也应转出 role:"tool"')
-  assert.equal(ot.tool_call_id, 'c1')
-})
+// 这里曾有一条「tool-result 新/旧两种形态都序列化成 role:tool」的用例，随 0.1.x
+// 兼容一起删除：0.2.0 的 ContentBlockMap 里已无 'tool-result' 块，且 v3→v4 会话迁移
+// 主动拒绝该包装（老会话要么被迁移展开、要么拒绝打开），这条形态到不了 adapter。
+// 剩下的新形态已由上面「独立 role:"tool" 消息…」那条锁死。删它的理由与事实出处见
+// src/llm/adapter.ts 的对应注释与 src/host-version.ts。
 
 /**
  * 为什么要有这一条：只不发 `block-end` **并不能**拦住残缺调用。
@@ -878,8 +855,8 @@ test('wire：一步两个 read_image（每条一个 user 消息，同现场）�
           { type: 'tool-call', id: 'c2', name: 'read_image', arguments: '{}' },
         ],
       },
-      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'tree_assembly.png' }, { type: 'image', attachment: ref }] }] },
-      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c2', content: [{ type: 'text', text: 'tree_part.png' }, { type: 'image', attachment: ref }] }] },
+      { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'tree_assembly.png' }, { type: 'image', attachment: ref }] },
+      { role: 'tool', toolCallId: 'c2', content: [{ type: 'text', text: 'tree_part.png' }, { type: 'image', attachment: ref }] },
     ],
   }, fakeAttachments())
   const messages = body.messages as Array<{ role: string; tool_call_id?: string; tool_calls?: Array<{ id: string }>; content: unknown }>
@@ -905,7 +882,7 @@ test('wire：一步两个 read_image（每条一个 user 消息，同现场）�
 })
 
 /**
- * 为什么要有这一组：`read_image` 的结果是**带图的 tool-result**。适配器曾把
+ * 为什么要有这一组：`read_image` 的结果是**带图的 tool 消息**。适配器曾把
  * 图片和文本一起提成一条 `user` 消息、排在 `tool` 消息**之前**，于是 wire 里
  * 出现 `assistant(tool_calls) → user(image) → tool`。上游判定 tool_call 与
  * tool_result 失配，回 400 网关码 11148「tool calls and tool results do not
@@ -946,17 +923,17 @@ function assertToolPairingIntact(messages: Array<{ role: string; tool_call_id?: 
   }
 }
 
-test('wire：纯文本 tool-result 不因图片逻辑改变顺序（tool 紧跟 assistant）', async () => {
+test('wire：纯文本 tool 消息不因图片逻辑改变顺序（tool 紧跟 assistant）', async () => {
   const body = await captureBodyWith({
     messages: [
       { role: 'user', content: [{ type: 'text', text: '跑一下' }] },
       { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' }] },
-      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] }] },
+      { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'out' }] },
     ],
   }, fakeAttachments())
   const messages = body.messages as Array<{ role: string; tool_call_id?: string; tool_calls?: Array<{ id: string }> }>
   assertToolPairingIntact(messages)
-  assert.deepEqual(messages.map((m) => m.role), ['user', 'assistant', 'tool'], '纯文本 tool 结果仍紧跟 assistant')
+  assert.deepEqual(messages.map((m) => m.role), ['user', 'assistant', 'tool'], '纯文本 tool 消息仍紧跟 assistant')
 })
 
 /* ---------------- 流空闲超时：上游停摆不能永久挂住（issue #6） ---------------- */

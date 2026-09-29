@@ -5,8 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/dsh-router-core"><img src="https://img.shields.io/npm/v/dsh-router-core?style=flat-square&logo=npm&label=npm" alt="npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT license"></a>
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.1.5" src="https://img.shields.io/badge/DSH-0.1.5-4d6bfe?style=flat-square" /></a>
-  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.1.7-alpha.2 支持" src="https://img.shields.io/badge/DSH-0.1.7--alpha.2-e400dd?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/@deepseek-ai/dsh?activeTab=versions"><img alt="DSH 0.2.0" src="https://img.shields.io/badge/DSH-0.2.0-4d6bfe?style=flat-square" /></a>
   <a href="#agent-team-支持"><img alt="Agent Team" src="https://img.shields.io/badge/Agent%20Team-%E2%9C%93-10b981?style=flat-square" /></a>
 </p>
 
@@ -33,7 +32,8 @@ dsh-router 按**会话身份**亲和选号:同会话固定落同一个连接(前
 
 ## 快速安装
 
-需要 **DSH `0.1.5-rc.1` 及以上**(支持 `dsh plugin` profile 插件机制)、Node.js `>= 20`,以及 `web` profile。
+需要 **DSH `0.2.0` 及以上**、Node.js `>= 20`,以及 `web` profile。0.1.x 宿主不再支持(设置注册、
+tool 消息形态都已按 0.2.0 单面实现)。
 
 ```bash
 dsh plugin --profile web add dsh-router-core
@@ -98,9 +98,9 @@ team 测试就是多个会话交错发请求。dsh-router 原生适配这个场�
 > **加连接**或**限制 team 并发成员数 ≤ 连接数**。详见
 > [`docs/pool-sticky-block.md`](docs/pool-sticky-block.md) §11。
 >
-> 版本适配:「路由」徽章只在 **DSH ≥ 0.1.7** 出现(0.1.5 的对应座位渲染位置
-> 不同);0.1.5 与 0.1.7 的兼容差异(设置注册、tool 消息形态)统一按宿主版本号
-> 判定。
+> 版本适配:插件按 **DSH 0.2.0 单面**实现(0.1.5/0.1.7 的兼容分叉已删除)。跑在
+> 低于 0.2.0 的宿主上仍会加载,但会在宿主日志里打一条警告 —— 那些症状与「插件坏了」
+> 无法区分,所以宁可出声。
 
 ## 面板(设置 → 路由)
 
@@ -346,7 +346,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
   │    │    ├─ SupplierDetail    供应商详情:链接池 + 加链接 + 可用模型 + 模型测试
   │    │    ├─ CombosTab / EndpointTab
   │    │    └─ ExtTab → ExtDetail  扩展列表(只列已启用)与详情(优先渲染扩展自带的面板)
-  │    └─ LastHitDock       「路由」徽章(composer.dock 座位,≥0.1.7;按会话显示最近命中)
+  │    └─ LastHitDock       「路由」徽章(composer.dock 座位;按会话显示最近命中)
   ├─ 设置 → 插件(官方 plugins.detail.section 座位)
   │    ├─ (原生「包含的组件」)  core patch 里声明的行:core 本体 + 内置供应商 + 内置扩展
   │    │                        宿主管的开关,关一行 = loader 不 import 它
@@ -359,7 +359,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
                  │    └─ RouterAdapter(src/llm/adapter.ts)  OpenAI SSE → DSH StreamChunk
                  │         (usage 经 toTokenUsage 转 DSH 契约,见 docs/suppliers.md)
                  │         (带 x-dsh-router-session 头:宿主 sessionId → 会话亲和)
-                 ├─ host-version(src/host-version.ts)  按宿主版本号适配 0.1.5 / 0.1.7
+                 ├─ host-version(src/host-version.ts)  报宿主版本 + 守 0.2.0 版本地板(低于则告警)
                  ├─ KeysStore(src/keys.ts)              密钥库 + requireApiKey
                  └─ Router(路由器) → suppliers[]
                       ├─ OpenCodeSupplier(lib/suppliers/opencode/index.js) 无账号直连(Zen 免费档,需 CLI 握手)
@@ -404,8 +404,7 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 
 ## 前提
 
-- **DSH 版本**:`0.1.5-rc.1` 及以上;插件内部按宿主版本号自动适配 0.1.5 / 0.1.7
-  差异(设置注册方式、tool 消息形态、底部徽章);「路由」徽章需 **≥ 0.1.7**;
+- **DSH 版本**:`0.2.0` 及以上(单面支持;低于此版本会在宿主日志里告警);
 - 凭证由 dsh-router 核心统一管(SQLite 库 `<dataDir>/auths/credentials.sqlite`);
 - 供应商接入与开发见 [`docs/suppliers.md`](docs/suppliers.md);
 - 重启 DSH 后 `/v1/*` 即生效;面板管理账号、模型与密钥。

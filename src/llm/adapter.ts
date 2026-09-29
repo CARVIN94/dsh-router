@@ -123,11 +123,10 @@ export interface RouterAdapterSource {
  * base64）。图片字节经 `resolveAttachments` 读取；读不到时回退为稳定的占位文本，
  * **绝不静默丢图**（丢图 = 模型看到一条没有图的消息却毫无提示）。
  *
- * 工具结果双模型兼容：0.1.5/0.1.6 里 tool result 是 user 消息里的 'tool-result' 块
- * （旧路径）；0.1.7+ 改成了独立 role:'tool' 消息、toolCallId 挂消息级（新分支）。
- * 两者在 wire 上统一序列化为 role:'tool'，产物一致。见主循环里的 role==='tool' 分支。
+ * 工具结果只有一种形态：独立 `role:'tool'` 消息、toolCallId 挂消息级，wire 上原样
+ * 发 `role:'tool'`。见主循环里的 `role === 'tool'` 分支。
  */
-/** tool-result 里图片挂到 user 消息时用的说明文字（与官方适配器一致）。 */
+/** tool 消息里的图片挂到 user 消息时用的说明文字（与官方适配器一致）。 */
 const TOOL_RESULT_IMAGE_TEXT = 'Tool result images'
 
 /**
@@ -144,7 +143,7 @@ const STREAM_IDLE_TIMEOUT_MS = 300_000
 async function wireMessages(options: GenerateOptions, system: string | undefined, attachments: RouterAttachmentStore | undefined, log?: (msg: string) => void): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = []
   /**
-   * 攒着「tool-result 里带出来的图片」，等这一串 tool 消息**发完**再合并成一条
+   * 攒着「tool 消息里带出来的图片」，等这一串 tool 消息**发完**再合并成一条
    * user 消息补在后面。
    *
    * 为什么必须跨消息攒、而不是各消息各发一条：harness 把**每个 tool 结果放
@@ -188,14 +187,13 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
       })
       continue
     }
-    // tool 结果的消息形态：**同一宿主内两种形态都合法**，按消息实际形状分派。
-    //   新形态：独立 role:'tool' 消息、toolCallId 挂消息级（0.1.7 loop-built）；
-    //   旧形态：user 消息里的 'tool-result' 块（0.1.5/0.1.6，以及 0.1.7 下经
-    //           session-format 迁移/重放的老会话历史——实测 0.1.7 仍会出现）。
-    // 所以**不能**用宿主版本号判断形态对错（0.1.7-alpha.2 也是 0.1.7，同样会出现
-    // 旧形态）——形状才是事实，按形状分派这一份 adapter 就同时吃两版。
-    const isToolRoleMessage = (message.role as string) === 'tool'
-    if (isToolRoleMessage) {
+    // tool 结果：0.2.0 起**只有一种形态** —— 独立 role:'tool' 消息、toolCallId 挂消息级。
+    // 旧的「user 消息内嵌 'tool-result' 块」（0.1.5/0.1.6 时代，0.1.7 起退役）**不再
+    // 支持**：0.2.0 的 v3→v4 会话迁移主动拒绝 tool-result 包装
+    // （`must not contain a released tool-result wrapper`），老会话要么被迁移展开成
+    // tool 消息、要么直接拒绝打开 —— 这条形态到不了 adapter（见 host-version.ts 的
+    // 版本地板）。
+    if ((message.role as string) === 'tool') {
       // tool 消息必须紧跟 assistant(tool_calls)：中间插进任何 user 消息，上游都会判定
       // tool_call 与 tool_result 失配 → codebuddy 直接 400 网关码 11148（bad_request
       // 按核心设计不罚账号，面板上看不到异常，易误判成额度/风控）。
@@ -214,35 +212,11 @@ async function wireMessages(options: GenerateOptions, system: string | undefined
       pendingToolImages.push(...imageParts)
       continue
     }
-    // user / tool-result
-    const toolResults = message.content.filter((b) => b.type === 'tool-result')
-    // 这条消息自己的（非 tool-result 的）user 部分：文本 + 图片。
-    const ownParts = await contentParts(
-      message.content.filter((b) => b.type !== 'tool-result'),
-      attachments,
-      options.signal,
-      log,
-    )
-    // 有实质 user 内容（或压根没有 tool 结果）就先发这条 user 消息；
-    // 只有 tool 结果的「纯工具」消息不发空 user，图片留到 pending 里合并。
-    if (ownParts.length > 0 || toolResults.length === 0) {
-      flushToolImages()
-      out.push({ role: 'user', content: compactUserContent(ownParts) })
-    }
-    for (const result of toolResults) {
-      // **tool 消息必须紧跟 assistant(tool_calls)**：中间插进任何 user 消息，
-      // 上游都会判定 tool_call 与 tool_result 失配 —— codebuddy 直接 400 网关码
-      // 11148「tool calls and tool results do not match」。
-      // 图片不能放进 tool 消息（实测模型会把两张不同的图认成同一张），
-      // 也不能插在两条 tool 之间（同样 400），所以先攒起来、发完整串再补一条 user。
-      const parts = await contentParts(result.content, attachments, options.signal, log)
-      const imageParts = parts.filter((p) => p.type !== 'text')
-      const text = parts.filter((p) => p.type === 'text').map((p) => (p as { text?: string }).text ?? '').join('')
-      // 空结果就发空串，不要替换成 '(no output)' 之类的字面量 —— 模型会
-      // 以为工具真的打印了那句话（9router 也是补 content: ""）。
-      out.push({ role: 'tool', tool_call_id: result.toolCallId, content: text })
-      pendingToolImages.push(...imageParts)
-    }
+    // user：文本 + 图片。**即使内容为空也照发** —— 这条 user 消息在历史里存在过，
+    // 悄悄省掉等于让模型看到一段断掉的话轮。
+    const userParts = await contentParts(message.content, attachments, options.signal, log)
+    flushToolImages()
+    out.push({ role: 'user', content: compactUserContent(userParts) })
   }
   flushToolImages()
   return out
@@ -262,7 +236,7 @@ function compactUserContent(parts: Array<Record<string, unknown>>): string | Arr
 }
 
 /**
- * 一块 DSH user/tool-result 内容序列化成 OpenAI content parts（text + image_url）。
+ * 一条 DSH 消息的内容块序列化成 OpenAI content parts（text + image_url）。
  * 纯文本时返回空数组（上层走紧凑字符串路径）。图片转 base64 data URI；
  * attachments 缺失或读取失败时回退稳定占位文本（绝不静默丢图）。
  */
@@ -284,10 +258,9 @@ async function contentParts(
       parts.push(...(await imageParts(ref, attachments, signal, log)))
       continue
     }
-    if (block.type === 'tool-result') {
-      parts.push(...(await contentParts((block as unknown as { content: ReadonlyArray<{ type: string }> }).content, attachments, signal, log)))
-    }
-    // 其它块（reasoning/tool-call）不属于 user content，忽略
+    // 其它块（reasoning/tool-call/tool-addition/tool-removal/file）不属于发给上游的
+    // user/tool 内容，忽略。0.1.x 的 'tool-result' 块曾在这里递归展开，随 0.2.0
+    // 单面编写一并删除（该块在 0.2.0 的 ContentBlockMap 里已不存在，见主循环注释）。
   }
   return parts
 }

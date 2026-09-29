@@ -44,7 +44,7 @@ import { SupplierConfigStore } from './supplier-config.ts'
 import { CredentialStore } from './credential-store.ts'
 import { dataDirOf, profileDirOf } from './data-dir.ts'
 import { loopbackBaseURL } from './host-base-url.ts'
-import { detectHostVersion, isHost017Plus, supportsLastHitDock } from './host-version.ts'
+import { detectHostVersion, isHostSupported } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
 import type { ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
 
@@ -58,28 +58,25 @@ export const name = 'dsh-router-core'
 export const inject = ['webServer', 'llm']
 
 /**
- * `Config` 导出：让 Router 卡片进 0.1.7 的设置镜像。
+ * `Config` 导出：让 Router 卡片进设置-模型的镜像（0.2.0 的收录链是「插件导出的
+ * Config + 配置树行 id」）。
  *
- * **这处刻意保留能力检测，不用宿主版本号** —— 与另两处兼容点（installSection /
- * adapter 消息形态）不同。原因（已实测）：这是**模块顶层导出**，loader 一 import
- * 就求值；而 schemastery 是本插件的**普通依赖**（`^3.18.4`，见 package.json），
- * 解析到的是**插件自己 node_modules 里那一份**，跟宿主实际加载的版本无关
- * （实测：插件解析到 3.18.4，而 profile 里是 3.18.3、全局是 3.18.2）。既然这里
- * 拿不到宿主版本，就只剩「这份 Schema 实例到底有没有 `.volatile`」这个真问题 ——
- * 能力检测恰好就是**对**的判据。
+ * **这处保留能力检测，不看宿主版本号** —— 因为它是**模块顶层导出**，loader 一 import
+ * 就求值，那时还没有 `ctx.baseUrl`；而 schemastery 是本插件的**普通依赖**，解析到的
+ * 是插件自己 node_modules 里那一份，跟宿主实际加载的版本无关。既然这里拿不到宿主
+ * 版本，就只剩「这份 Schema 实例到底有没有 `.volatile`」这个真问题 —— 能力检测
+ * 恰好就是**对**的判据。
  *
- * 定位说明（非兼容分叉）：`.volatile()` 是 schemastery 3.18.4 才有的原型方法；
- * 老版本上直写 `Schema.object({}).volatile()` 会 `.volatile` 为 undefined →
- * 抛 TypeError → **整个插件加载失败**（不只是卡片，是 dsh-router 完全挂掉）。
- *   - 有 volatile：走 volatile，空 object 不被 volatileForm 过滤 → 卡片进镜像；
- *   - 无 volatile：回落普通空 schema，不抛；此时宿主必是 0.1.5，本就靠
- *     installSection 出卡片（见下方按版本分流的注册），这个 Config 无副作用。
+ * 为什么要 `.volatile()`：空 object 会被 volatileForm 过滤掉，顶层标 volatile 才能让
+ * 卡片进镜像。`.volatile()` 是 schemastery 3.18.4 才有的原型方法，直写
+ * `Schema.object({}).volatile()` 在没有它的版本上会抛 TypeError → **整个插件加载
+ * 失败**。所以：无 volatile 就回落普通空 schema（不抛，代价是卡片不出现，并有日志）。
  */
 const emptySchema = Schema.object({})
 const hasVolatile = typeof (emptySchema as { volatile?: unknown }).volatile === 'function'
 
 /**
- * 0.1.7 的设置镜像只认「插件导出的 Config + 配置树行 id」这条收录链，且空 object
+ * 设置镜像只认「插件导出的 Config + 配置树行 id」这条收录链，且空 object
  * 会被 volatileForm 过滤掉 —— 顶层 `.volatile()` 才能让 Router 卡片出现在设置-模型。
  * Router 的真配置在自己的 state.json（路由系统面板），这里故意不暴露任何字段。
  */
@@ -132,29 +129,6 @@ interface Llm {
   registerAdapter: (providers: readonly string[], adapter: unknown) => () => void
 }
 
-/**
- * 设置服务（`ctx.settings`，dsh-settings）的最小切面。0.1.5 用 `installSection`
- * 注册命名空间；0.1.7 已移除该方法、改由插件导出的 Config 驱动 —— 故声明为可选，
- * 调用处做能力检测（不是版本分支）。dsh-settings 是宿主注入的 peer service，不深绑类型。
- */
-interface SettingsServiceFace {
-  installSection?: (
-    owner: CordisContext,
-    ns: string,
-    schema: unknown,
-    entry: unknown,
-    hooks: { setSource: (current: () => unknown) => void; onChange: () => void },
-  ) => void
-}
-
-/**
- * cordis Context 的最小切面。`installSection(owner)` 只会对 owner 调
- * `ctx.effect(...)` 并在卸载时读 `fiber.state`，所以这里只声明 `effect`。
- */
-interface CordisContext {
-  effect: (fn: () => () => void, label?: string) => unknown
-}
-
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body)
   res.writeHead(status, {
@@ -205,12 +179,18 @@ export function apply(rawContext: unknown): void {
   const dataDir = dataDirOf(ctx.baseUrl)
   const stateFile = join(dataDir, 'state.json')
   log(`data dir: ${dataDir}`)
-  // 宿主版本探测：三处 0.1.5/0.1.7 兼容分叉共用这一个判据（徽章 / 设置命名空间 /
-  // adapter 的 tool-result 消息形态）。探测失败按老版本处理，不影响其它功能。
+  // 宿主版本：只用于**报版本**与**守地板**（不再是兼容分叉的判据，见 host-version.ts）。
+  // 低于 0.2.0 的宿主上本插件会静默走错路径，所以这里必须出声，把「插件坏了」和
+  // 「宿主太老」区分开 —— 否则用户只能对着症状猜。
   const hostVersion = detectHostVersion(ctx.baseUrl)
-  const host017Plus = isHost017Plus(ctx.baseUrl)
-  const lastHitDock = supportsLastHitDock(ctx.baseUrl)
-  log(`host version: ${hostVersion ?? '未知'} (>=0.1.7: ${host017Plus ? 'yes' : 'no'}, last-hit dock: ${lastHitDock ? 'on' : 'off'})`)
+  const hostSupported = isHostSupported(ctx.baseUrl)
+  log(`host version: ${hostVersion ?? '未知'} (>=0.2.0: ${hostSupported ? 'yes' : 'no'})`)
+  if (!hostSupported) {
+    ctx.logger.warn(
+      `[dsh-router] 宿主版本 ${hostVersion ?? '未知'} 低于本插件支持的 0.2.0 —— 插件仍会加载，` +
+      '但设置卡片、「最近命中」徽章与工具结果转发会走错路径。请把宿主升到 0.2.0 及以上。',
+    )
+  }
   const store = new SupplierConfigStore(stateFile)
   const credentials = new CredentialStore(join(dataDir, 'auths'))
   const router = new Router(stateFile, store, log)
@@ -403,10 +383,11 @@ export function apply(rawContext: unknown): void {
     const { suppliers } = router.status()
     writeJson(res, 200, {
       ok: true,
-      // 宿主版本 + 徽章支持位：客户端据此决定是否挂「最近命中」控件
-      // （composer.dock 在 0.1.5 渲染位置不对，只有 >= 0.1.7 才挂）。
+      // 宿主版本（客户端/排障用）。`lastHitDock` 是给 0.1.5→0.1.7 那个位置差异留的
+      // 能力位，0.2.0 起恒为 true —— 保留字段形状是为了不打断已有读取方，客户端
+      // 已不再依赖它做分支（见 client/index.tsx）。
       hostVersion: hostVersion ?? '',
-      lastHitDock: lastHitDock,
+      lastHitDock: true,
       suppliers: suppliers.map((s) => {
         const loaded = loadedSuppliers.find((l) => l.supplier.id === s.id)
         return {
@@ -720,32 +701,9 @@ export function apply(rawContext: unknown): void {
       // Router 的配置（组合/密钥/签到）存在 core 自己的 state.json，走插件自己的
       // 「路由系统」面板；设置-模型 这边必须让 settingsNs 在设置镜像里能解析出来
       // （见 dsh-client-ui-settings-models 的 configurable 过滤），否则卡片不出现。
-      // 按宿主版本分流（不再靠 installSection 能力检测）：
-      //   0.1.7+：镜像行来自顶部导出的 volatile Config（ns = 行 id），无需注册；
-      //   0.1.5 ：镜像行来自 settings.installSection。
-      // 空 schema = 卡片是入口/占位（该布局下不可提交），真正的配置在路由系统面板。
-      const routerSettingsSchema = Schema.object({})
-      if (isHost017Plus(ctx.baseUrl)) {
-        log(`settings section driven by exported Config (${settingsNs})`)
-      } else {
-        ctx.inject(['settings'], (sctx: unknown) => {
-          const settings = (sctx as { settings?: SettingsServiceFace }).settings
-          if (settings === undefined) {
-            log('settings service absent — skip Router settings-section registration')
-            return
-          }
-          if (settings.installSection === undefined) {
-            // 版本说该走 installSection 但它不在（异常宿主）：只记日志，不抛。
-            log(`settings.installSection absent despite 0.1.5 host (${settingsNs})`)
-            return
-          }
-          settings.installSection(rawContext as CordisContext, settingsNs, routerSettingsSchema, {}, {
-            setSource: () => {},
-            onChange: () => {},
-          })
-          log(`Router settings section registered (${settingsNs})`)
-        })
-      }
+      // 0.2.0 的镜像行来自**顶部导出的 Config**（空 object + `.volatile()`，ns = 行 id），
+      // 这里无需任何注册动作 —— 0.1.5 那条 `settings.installSection` 路径已随兼容分叉删除。
+      log(`settings section driven by exported Config (${settingsNs})`)
       // adapter：模型目录自动带出组合；对话转发到本插件 /v1（组合路由在 /v1 内完成）。
       // 带上组合的上下文窗口：没有它 dsh 的自动压缩算不出阈值、会静默关闭。
       // 图片序列化需要读附件字节：把 ctx.attachments 传给 adapter（dsh-attachment

@@ -39,9 +39,15 @@ export function createPromptExt(deps: {
   return {
     id: EXT_PROMPT_ID,
     name: '分层提示词',
-    description:
-      `把协作准则拆成 ${PROMPT_CATEGORIES.length} 个可独立开关的分类，注入 system prompt；` +
-      '关闭的分类不产出任何 prompt 文本',
+    // ⚠️ **故意不设 `description`**（2026-09-29 用户指出后删的）：
+    //   详情页现在逐条列出每个分类的标题、开关与原文，上面再写一句
+    //   「把协作准则拆成 14 个可独立开关的分类」是**纯冗余**——数字与清单
+    //   就摆在下面，写死一个 `PROMPT_CATEGORIES.length` 还会与真实数量漂移
+    //   （加减分类后文案不跟着变，正是「两份事实」）。
+    //
+    //   插件页「包含的组件」那一行**仍然有说明**（来自 `locale/zh.json`，宿主读的），
+    //   那一句是必要的：不开这一行，用户无从知道它是干什么的。
+    //
     // 随核心分发 -> 插件页的原生「包含的组件」里有它一行，自绘节里不再重复列。
     source: 'builtin' as const,
     // ⚠️ 每次 `controls` 被读都现算（不缓存）：用户在面板点一下立刻要看到新状态，

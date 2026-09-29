@@ -22,8 +22,31 @@ test('扩展器带上面板要用的身份', () => {
   const ext = createPromptExt({ isSystemPromptReady: () => true })
   assert.equal(ext.id, EXT_PROMPT_ID)
   assert.equal(ext.name, '分层提示词')
-  assert.ok((ext.description ?? '').length > 0, '没有说明，插件页那一行就没有副标题')
   assert.equal(ext.source, 'builtin', '随核心分发必须标 builtin，否则插件页会重复列它')
+})
+
+test('★ `description` 故意不设：详情页下面就是清单，再写一句是冗余', () => {
+  // ⚠️ 这条断言换过一次**理由**（2026-09-29）：原来它写的是
+  //   「没有说明，插件页那一行就没有副标题」——**那个前提是错的**。
+  //   插件页「包含的组件」那一行的副标题来自 `locale/*.json`（宿主 readPluginMeta
+  //   读的），**不是** `RouterExt.description`。所以那条断言在钉一个错误的事实。
+  //
+  //   真正要守的是：详情页已经逐条列出标题/开关/原文 ⇒ 上面的说明句是冗余，
+  //   且写死 `${PROMPT_CATEGORIES.length}` 会与真实分类数漂移。
+  //   `locale/*.json` 那条说明仍然必要（不开这一行，无从知道它是干什么的）——
+  //   由下面那条用例单独守。
+  const ext = createPromptExt({ isSystemPromptReady: () => true })
+  assert.equal(ext.description, undefined, '详情页有了逐条清单，说明句就是重复事实')
+})
+
+test('★ 插件页那一行的说明仍然在（来自 locale，不是 description）', () => {
+  // 「删 description」不等于「把说明也删了」：宿主读的是 locale 资源。
+  // 只写 host 半边的话，这一行会**没有副标题** —— 而不打开就不知道它是干什么的。
+  const locale = JSON.parse(
+    readFileSync(new URL('./locale/zh.json', import.meta.url), 'utf8'),
+  ) as { meta?: { title?: string; description?: string } }
+  assert.ok((locale.meta?.title ?? '').length > 0, 'locale 缺 title')
+  assert.ok((locale.meta?.description ?? '').length > 0, '插件页那一行没有副标题')
 })
 
 test('注入：systemPrompt 不可用 ⇒ 报 not ready（不能静默不生效）', () => {

@@ -43,7 +43,12 @@ test('★ 装配结果里真的有准则段落（不是「我以为我挂了」�
   const mine = a.sections.find((s) => s.name === PROMPT_SECTION_NAME)
   assert.ok(mine, `装配里没有 ${PROMPT_SECTION_NAME} 段落；现有：${a.sections.map((s) => s.name).join(', ')}`)
   const text = renderPrompt(a)
-  assert.ok(text.includes('懒人梯子'), '最终 prompt 文本里没有准则正文')
+  // ⚠️ 断言用**正文里真有的串**，不用分类的**显示名** ——
+  //   `懒人梯子` 只是分类的 title，它的 body 开头是「梯子：停在第一个成立的档」。
+  //   我原先断言 '懒人梯子'，而那个串**只存在于旧标题**里 ⇒
+  //   2026-09-29 把标题改成 `[准则 v5]` 后，这断言红了 —— 它一直在测标题，
+  //   从来没测过正文。判据钉错了东西，改成钉正文里稳定的片段。
+  assert.ok(text.includes('停在第一个成立的档'), '最终 prompt 文本里没有准则正文')
   assert.ok(text.includes('准则 v5'), '标题不在（拆分时最容易丢的就是它）')
 })
 

@@ -15,6 +15,7 @@
     "src/suppliers/opencode/index.ts",
     "src/suppliers/openrouter/index.ts",
     "src/suppliers/nvidia/index.ts",
-    "src/ext-test/index.ts"
+    "src/ext-test/index.ts",
+    "src/ext-prompt/index.ts"
   ]
 }

@@ -35,6 +35,9 @@ export default [
       'suppliers/nvidia/index': 'src/suppliers/nvidia/index.ts',
       // 连接自检扩展的行：与内置供应商同一套管道（子路径模块 + 自己的 row.json/locale）。
       'ext-test/index': 'src/ext-test/index.ts',
+      // 分层提示词扩展的行：同一套管道（子路径模块 + 自己的 row.json/locale）。
+      // 实现（content/render/mount）被 index.ts 内联进来，故这个子路径只有一个 js。
+      'ext-prompt/index': 'src/ext-prompt/index.ts',
     },
     outDir: 'lib',
     format: ['esm'],

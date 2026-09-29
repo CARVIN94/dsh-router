@@ -35,3 +35,9 @@
     - id: dsh-router-ext-test
       name: 'dsh-router-core/ext-test'
       disabled: true
+    # 分层提示词扩展。**同样默认关闭**，理由与上一行相同。
+    # 准则内容随核心分发（`src/ext-prompt/content.ts`）—— 改准则要发新版本；
+    # 若只想换内容不改机制，可直接改该文件后重建。
+    - id: dsh-router-ext-prompt
+      name: 'dsh-router-core/ext-prompt'
+      disabled: true

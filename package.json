@@ -42,6 +42,12 @@
     },
     "./ext-test/package.json": "./lib/ext-test/package.json",
     "./ext-test/locale/*.json": "./lib/ext-test/locale/*.json",
+    "./ext-prompt": {
+      "types": "./lib/types/ext-prompt/index.d.ts",
+      "default": "./lib/ext-prompt/index.js"
+    },
+    "./ext-prompt/package.json": "./lib/ext-prompt/package.json",
+    "./ext-prompt/locale/*.json": "./lib/ext-prompt/locale/*.json",
     "./client": "./lib/client.js",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
@@ -76,6 +82,9 @@
     "lib/ext-test/index.js",
     "lib/ext-test/package.json",
     "lib/ext-test/locale/*.json",
+    "lib/ext-prompt/index.js",
+    "lib/ext-prompt/package.json",
+    "lib/ext-prompt/locale/*.json",
     "lib/types/**/*.d.ts",
     "src",
     "cordis.patch.yml",

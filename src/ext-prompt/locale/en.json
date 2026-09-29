@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Layered prompt",
+    "description": "Split the working guidelines into individually switchable categories and inject them into the system prompt; disabled categories contribute no prompt text"
+  }
+}

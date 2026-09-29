@@ -1,0 +1,5 @@
+{
+  "name": "dsh-router-core-ext-prompt",
+  "type": "module",
+  "description": "分层提示词扩展（随 dsh-router 核心分发）"
+}

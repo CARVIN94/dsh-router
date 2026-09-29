@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "分层提示词",
+    "description": "把协作准则拆成可独立开关的分类，注入 system prompt；关闭的分类不产出任何 prompt 文本"
+  }
+}

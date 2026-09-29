@@ -576,7 +576,7 @@ export function apply(rawContext: unknown): void {
     if (req.method === 'PATCH') {
       // ⚠️ `on` 与 `enabled` **都声明为 unknown**：请求体不可信，真正判类型的地方
       //   在下面（`typeof … !== 'boolean'` ⇒ 400）。这里只是让它在类型上可访问。
-      let body: { id?: unknown; enabled?: unknown; controlId?: unknown; on?: unknown; title?: unknown; body?: unknown }
+      let body: { id?: unknown; enabled?: unknown; controlId?: unknown; on?: unknown; title?: unknown; body?: unknown; op?: unknown; ids?: unknown }
       try {
         body = JSON.parse(await readBody(req, 64 << 10)) as typeof body
       } catch {
@@ -588,6 +588,64 @@ export function apply(rawContext: unknown): void {
         writeJson(res, 404, { ok: false, error: 'extension not found' })
         return
       }
+      // ---- 子开关的四个列表级动作（`op`）----
+      //
+      // 与单条动作（开关/文本）**分开**：它们改的是**列表本身**（顺序、增、删），
+      // 不是一个字段。合在一起会让面板每次都得问"这次改的是哪一层"。
+      if (body.op !== undefined) {
+        const op = body.op
+        if (op === 'reorder') {
+          if (!Array.isArray(body.ids)) {
+            writeJson(res, 400, { ok: false, error: 'ids must be an array' })
+            return
+          }
+          if (typeof ext.setControlOrder !== 'function' || !ext.setControlOrder(body.ids as string[])) {
+            writeJson(res, 400, { ok: false, error: 'reorder failed' })
+            return
+          }
+          writeJson(res, 200, { ok: true })
+          return
+        }
+        if (op === 'remove' || op === 'reset') {
+          if (typeof body.controlId !== 'string' || body.controlId === '') {
+            writeJson(res, 400, { ok: false, error: 'controlId must be a non-empty string' })
+            return
+          }
+          const fn = op === 'remove' ? ext.removeCustomControl : ext.resetControlText
+          if (typeof fn !== 'function' || !fn.call(ext, body.controlId)) {
+            // ⚠️ **失败要说得清是哪个**：`remove` 拒的是内置条目、`reset` 拒的是
+            //   自建条目或没改过的 —— 一句 "op failed" 会让人以为是 bug。
+            writeJson(res, 400, {
+              ok: false,
+              error: op === 'remove'
+                ? '只能删除自定义准则（内置条目请用开关关掉）'
+                : '只能还原内置准则，且它得先被改过',
+            })
+            return
+          }
+          writeJson(res, 200, { ok: true })
+          return
+        }
+        if (op === 'add') {
+          if (typeof ext.addCustomControl !== 'function') {
+            writeJson(res, 400, { ok: false, error: 'extension does not support custom controls' })
+            return
+          }
+          const id = ext.addCustomControl(
+            typeof body.title === 'string' ? body.title : '',
+            typeof body.body === 'string' ? body.body : '',
+          )
+          if (id === null) {
+            writeJson(res, 400, { ok: false, error: 'title and body are required' })
+            return
+          }
+          writeJson(res, 200, { ok: true, id })
+          return
+        }
+        writeJson(res, 400, { ok: false, error: `unknown op: ${String(op)}` })
+        return
+      }
+
       // ---- 子开关文本（`{ controlId, title?, body? }`）----
       //
       // 与下面的开关**分开判**：一个是字符串、一个是布尔，面板问的也是两个问题。
@@ -685,7 +743,7 @@ export function apply(rawContext: unknown): void {
                 controls: e.controls
                   .filter((c): c is ExtControl =>
                     !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
-                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}) })),
+                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}), ...(c.custom === true ? { custom: true } : {}), ...(c.overridden === true ? { overridden: true } : {}) })),
               }
             : {}),
           ...(st?.detail !== undefined ? { detail: st.detail } : {}),

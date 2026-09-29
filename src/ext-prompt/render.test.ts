@@ -10,6 +10,7 @@ import {
   resolveEnabledCategories,
   renderCategories,
   renderPromptText,
+  resolveCategories,
   knownCategoryIds,
   type PromptExtData,
 } from './render.ts'
@@ -131,7 +132,10 @@ test('注入：renderCategories 传外部分类表时只渲染其中启用的（
     { id: 'x', title: 'X', defaultOn: true, body: 'X-BODY' },
     { id: 'y', title: 'Y', defaultOn: true, body: 'Y-BODY' },
   ]
-  const out = renderCategories(new Set(['y']), custom)
+  // ⚠️ `withTitle = false` 必须**显式**传：原先靠「传的不是 PROMPT_CATEGORIES
+  //   那个对象」来隐式决定加不加标题（`categories === PROMPT_CATEGORIES`）。
+  //   接入自建条目后调用方传的是合成列表，那个判定恒假 ⇒ 标题静默消失。
+  const out = renderCategories(new Set(['y']), custom, undefined, false)
   assert.equal(out, 'Y-BODY')
 })
 
@@ -187,4 +191,61 @@ test('注入：text 不是对象时不炸（脏数据不该让整段准则消失
     const text = renderPromptText(true, data)
     assert.ok(text.includes('停在第一个成立的档'), `text=${JSON.stringify(bad)} 把准则弄没了`)
   }
+})
+
+// ── 排序 / 自建 / 还原（2026-09-29）─────────────────────────
+test('★ 自建条目真的进 prompt（不是只出现在面板上）', () => {
+  const data: PromptExtData = { custom: [{ id: 'my-1', title: '我的准则', defaultOn: true, body: '我的准则：做完就修。' }] }
+  const text = renderPromptText(true, data)
+  assert.ok(text.includes('我的准则：做完就修。'), '自建条目没进 prompt')
+  assert.ok(text.indexOf('我的准则') > text.indexOf('执行：'), '自建条目应排在内置之后')
+})
+
+test('★ 拖动排序真的改变 prompt 里的顺序', () => {
+  const ids = PROMPT_CATEGORIES.map((c) => c.id)
+  const flipped = [...ids].reverse()
+  const text = renderPromptText(true, { order: flipped })
+  assert.ok(
+    text.indexOf('执行：') < text.indexOf('身份气质：'),
+    '倒序后 prompt 里顺序没变 ⇒ 拖动只改了面板',
+  )
+})
+
+test('★ 还原（删掉覆盖）后回到内置文本', () => {
+  const edited = renderPromptText(true, { text: { ladder: { body: '改过的' } } })
+  assert.ok(edited.includes('改过的'))
+  const restored = renderPromptText(true, {}) // 还原 = data.text 里没有该键
+  assert.ok(!restored.includes('改过的'))
+  assert.ok(restored.includes('停在第一个成立的档'))
+})
+
+test('注入：order 里的未知 id 被忽略，不影响其它条目', () => {
+  const text = renderPromptText(true, { order: ['__nope__', 'ladder', 'identity'] })
+  assert.ok(text.includes('停在第一个成立的档'), '合法条目被脏 id 连累掉了')
+  assert.equal(text.includes('__nope__'), false)
+})
+
+test('注入：order 漏掉的条目补在后面（丢一条 ≠ 它消失）', () => {
+  const text = renderPromptText(true, { order: ['ladder'] })
+  for (const c of PROMPT_CATEGORIES) {
+    assert.ok(text.includes(c.body.slice(0, 8)), `${c.id} 在 order 里缺席就消失了`)
+  }
+})
+
+test('注入：脏的 custom 条目（空 id / 空正文）被过滤', () => {
+  const data = { custom: [
+    { id: '', title: 'x', defaultOn: true, body: '空 id' },
+    { id: 'ok', title: 'y', defaultOn: true, body: '' },
+    { id: 'good', title: 'z', defaultOn: true, body: '好的' },
+  ] } as unknown as PromptExtData
+  const text = renderPromptText(true, data)
+  assert.ok(text.includes('好的'), '合法自建条目被脏数据连累')
+  assert.equal(text.includes('空 id'), false)
+})
+
+test('resolveCategories：内置在前、自建在后（代码顺序不被用户拖动改写）', () => {
+  const list = resolveCategories({ custom: [{ id: 'c1', title: 'C', defaultOn: true, body: 'B' }] })
+  assert.equal(list[list.length - 1]?.id, 'c1', '自建条目应排在最后')
+  assert.equal(list[0]?.custom, false)
+  assert.equal(list[list.length - 1]?.custom, true)
 })

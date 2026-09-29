@@ -253,3 +253,71 @@ function fakeStore(initial: Record<string, unknown> | undefined) {
     writeData: (_id: string, value: unknown) => { box.data = value as Record<string, unknown> },
   } as unknown as import('../ext/contract.ts').ExtStoreService
 }
+
+// ── 排序 / 自建 / 还原 / 删除（2026-09-29）──────────────────
+test('★ controls 走合成列表：自建条目出现、标 custom、内置标 overridden', () => {
+  const store = fakeStore({
+    categories: {},
+    custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }],
+    text: { ladder: { body: '改过的' } },
+  })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const list = ext.controls ?? []
+  assert.equal(list.length, PROMPT_CATEGORIES.length + 1, '自建条目没出现')
+  assert.equal(list.find((c) => c.id === 'cu-1')?.custom, true)
+  assert.equal(list.find((c) => c.id === 'ladder')?.overridden, true, '改过的内置条目要标 overridden（还原按钮可点）')
+  assert.equal(list.find((c) => c.id === 'identity')?.overridden, false, '没改过的不该标（还原按钮置灰）')
+})
+
+test('★ 新增自建条目 ⇒ 返回新 id，且落盘（id 不撞内置）', () => {
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const id = ext.addCustomControl?.('我的准则', '做完了就收。')
+  assert.ok(id !== null && typeof id === 'string', '没返回新 id')
+  assert.notEqual(id, 'identity', '新 id 撞上了内置条目')
+  assert.equal((ext.controls ?? []).some((c) => c.id === id), true, '落盘后没出现在 controls 里')
+})
+
+test('注入：空标题/空正文新增 ⇒ 返回 null（不写盘）', () => {
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.addCustomControl?.('  ', 'x'), null)
+  assert.equal(ext.addCustomControl?.('x', ''), null)
+  assert.equal(store.readData<Record<string, unknown>>('')?.custom, undefined, '失败的写入留下痕迹')
+})
+
+test('★ 删除只允许自定义：内置条目被拒、自建条目删掉并清干净关联数据', () => {
+  const store = fakeStore({
+    categories: { 'cu-1': true, identity: false },
+    text: { 'cu-1': { body: 'x' } },
+    order: ['cu-1', 'ladder'],
+    custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }],
+  })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.removeCustomControl?.('identity'), false, '内置条目不该被删（它是代码的一部分）')
+  assert.equal(ext.removeCustomControl?.('ladder'), false, '不存在的条目应被拒')
+  assert.equal(ext.removeCustomControl?.('cu-1'), true)
+  const after = store.readData<Record<string, unknown>>('') ?? {}
+  assert.deepEqual(after.custom, [], '自建条目没删掉')
+  assert.deepEqual(after.categories, { identity: false }, '删一条把别的开关状态弄丢了')
+  assert.deepEqual(after.order, ['ladder'], 'order 里留了幽灵 id')
+})
+
+test('★ 还原：只对被改过的内置条目成功，且回到内置文本', () => {
+  const store = fakeStore({ categories: {}, text: { ladder: { body: '改过的' } } })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.resetControlText?.('identity'), false, '没改过的内置条目不该「可还原」')
+  assert.equal(ext.resetControlText?.('cu-1'), false, '自建条目没有「内置版本」可回退')
+  assert.equal(ext.resetControlText?.('ladder'), true)
+  // ⚠️ 必须用 `deepEqual`：`assert.equal` 比的是**引用**，对象永远不等 ——
+  //   我第一版就写成这样，判据一直红而代码是对的。
+  assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {}, '覆盖没被丢掉')
+  assert.equal((ext.controls ?? []).find((c) => c.id === 'ladder')?.overridden, false)
+})
+
+test('★ 排序：只存 id，且过滤掉不存在的 id（脏数据不留幽灵）', () => {
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControlOrder?.(['__ghost__', 'ladder', 'ladder']), true)
+  assert.deepEqual(store.readData<Record<string, unknown>>('')?.order, ['ladder'], '幽灵/重复 id 没被过滤')
+})

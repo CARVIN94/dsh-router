@@ -14,7 +14,14 @@
  */
 import type { ExtStoreService, RouterExt } from '../ext/contract.ts'
 import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
-import { effectiveText, resolveEnabledCategories, type PromptExtData } from './render.ts'
+import { effectiveText, resolveCategories, resolveEnabledCategories, type PromptExtData } from './render.ts'
+
+/** 从对象里去掉某个键（不改原对象）。`writeData` 是整块替换 ⇒ 删一个键要重写。 */
+function omit<T extends Record<string, unknown>>(obj: T, key: string): Partial<T> {
+  const out = { ...obj } as Record<string, unknown>
+  delete out[key]
+  return out as Partial<T>
+}
 
 /** 扩展开关表里的注册键。 */
 export const EXT_PROMPT_ID = 'prompt'
@@ -66,17 +73,24 @@ export function createPromptExt(deps: {
      */
     get controls() {
       const data = readData()
-      return PROMPT_CATEGORIES.map((c) => {
+      const on = resolveEnabledCategories(true, data)
+      // ⚠️ 走 `resolveCategories`（内置 + 自建 + 排序），不是内置常量 ——
+      //   否则自建条目与拖动排序**只停在面板上**，不进 prompt。
+      return resolveCategories(data).map((c) => {
         const t = effectiveText(c.id, data?.text?.[c.id], c)
         return {
           id: c.id,
           title: t.title,
           // ⚠️ **带上原文**：不给出原文的话用户是在**盲切** —— 只看到「结构」「交付」
           //   这样的名字，不知道这一条到底写了什么，也无从判断该不该关掉它。
-          //   「看内容 → 决定开关」这个动作必须能在一处完成。
+          //   「看内容 → 决定开关」这个动作必须能一处完成。
           body: t.body,
           editable: true,
-          on: resolveEnabledCategories(true, data).has(c.id),
+          // 自定义 ⇒ 可删；内置 ⇒ 不可删（它是代码的一部分）。
+          custom: c.custom,
+          // 被改过 ⇒ 「还原」可点（丢掉覆盖回到内置）。
+          overridden: c.overridden,
+          on: on.has(c.id),
         }
       })
     },
@@ -111,6 +125,74 @@ export function createPromptExt(deps: {
         ...data,
         text: { ...data.text, [controlId]: { ...prev, ...patch } },
       })
+      return true
+    },
+    /** 改顺序（拖动）。落盘 id 列表；未知/重复 id 由 `resolveCategories` 兜住。 */
+    setControlOrder: (ids) => {
+      if (!store) return false
+      const data = readData()
+      if (data === undefined) return false
+      const known = new Set(resolveCategories(data).map((c) => c.id))
+      // ⚠️ 只接受**当前存在**的 id：脏数据（手改 ext.json / 别的扩展写的）会
+      //   让顺序里出现幽灵条目，而渲染时会静默忽略它 ⇒ 面板上「存了但没生效」。
+      const next = [...new Set(ids)].filter((id) => known.has(id))
+      store.writeData(EXT_PROMPT_ID, { ...data, order: next })
+      return true
+    },
+    /** 新增一条自定义准则。id 由**扩展**生成（`cu-<n>`），避免前端编 id 撞内置。 */
+    addCustomControl: (title, body) => {
+      if (!store) return null
+      if (typeof title !== 'string' || title.trim() === '') return null
+      if (typeof body !== 'string' || body.trim() === '') return null
+      const data = readData()
+      if (data === undefined) return null
+      const custom = Array.isArray(data.custom) ? [...data.custom] : []
+      // ⚠️ **id 必须避开内置**：撞了会让两条同 id，`resolveCategories` 的
+      //   `byId` Map 只留一条 ⇒ 另一条凭空消失（且不报错）。
+      const used = new Set([...PROMPT_CATEGORIES.map((c) => c.id), ...custom.map((c) => c.id)])
+      let n = custom.length + 1
+      while (used.has(`cu-${n}`)) n++
+      const id = `cu-${n}`
+      custom.push({ id, title: title.trim(), body: body.trim(), defaultOn: true })
+      store.writeData(EXT_PROMPT_ID, { ...data, custom })
+      return id // ⚠️ 返回新 id：面板据此高亮/滚到新条目
+    },
+    /**
+     * 删一条 —— **只允许自定义**。
+     *
+     * ⚠️ 内置条目返回 false（→ 核心回 400）：它是**代码的一部分**，
+     *   删掉就意味着下一次发版它又回来了；用户对内置的处置手段是**关开关**
+     *   与**还原文本**，不是删除。
+     */
+    removeCustomControl: (controlId) => {
+      if (!store) return false
+      const data = readData()
+      if (data === undefined) return false
+      const custom = Array.isArray(data.custom) ? data.custom : []
+      if (!custom.some((c) => c.id === controlId)) return false
+      store.writeData(EXT_PROMPT_ID, {
+        ...data,
+        custom: custom.filter((c) => c.id !== controlId),
+        // 顺带清掉它的开关与覆盖，否则留下孤儿数据
+        ...(data.categories ? { categories: omit(data.categories, controlId) } : {}),
+        ...(data.text ? { text: omit(data.text, controlId) } : {}),
+        ...(data.order ? { order: data.order.filter((id) => id !== controlId) } : {}),
+      })
+      return true
+    },
+    /**
+     * 还原一条的文本（丢掉覆盖，回到内置）。
+     *
+     * ⚠️ 自定义条目返回 false —— 它**没有"内置版本"**可回退；
+     *   它的对应手段是「删除」。
+     */
+    resetControlText: (controlId) => {
+      if (!store) return false
+      const data = readData()
+      if (data === undefined) return false
+      if (!PROMPT_CATEGORIES.some((c) => c.id === controlId)) return false
+      if (data.text?.[controlId] === undefined) return false // 没改过，无需写盘
+      store.writeData(EXT_PROMPT_ID, { ...data, text: omit(data.text, controlId) })
       return true
     },
     getState: () =>

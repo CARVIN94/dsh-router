@@ -118,6 +118,27 @@ export interface RouterExt {
    * @returns 落盘结果。返回 false 时核心回 400，且**不写盘**。
    */
   setControlText?(controlId: string, patch: { title?: string; body?: string }): boolean
+  /**
+   * 改**展示顺序**（拖动）。落盘一串 id；扩展负责过滤自己不认识的 id。
+   *
+   * ⚠️ 与前三者都不同：它改的是**列表本身**，不是某一条的内容。
+   */
+  setControlOrder?(ids: string[]): boolean
+  /**
+   * 新增一条**自建**条目，返回新 id（由扩展生成，避免前端编 id 撞内置）。
+   * @returns 新 id；失败（如空标题/空正文）返回 null。
+   */
+  addCustomControl?(title: string, body: string): string | null
+  /**
+   * 删一条 —— **扩展应当只允许删自建条目**（内置的删除手段是关开关）。
+   * @returns 落盘结果；false 时核心回 400 且不写盘。
+   */
+  removeCustomControl?(controlId: string): boolean
+  /**
+   * 还原一条的文本（丢掉覆盖，回到扩展自带的内容）。
+   * 自建条目**没有"自带内容"**可回退，扩展应当对它返回 false。
+   */
+  resetControlText?(controlId: string): boolean
   /** 当前运行时状态（ready + 不就绪时的说明）。 */
   getState(): ExtState
   /** 卸载清理（表删除时由 dsh-router 调用，可选）。 */
@@ -154,6 +175,10 @@ export interface ExtControl {
    *   `data` 里的键失去对应关系）。由扩展逐条说了算。
    */
   readonly editable?: boolean
+  /** 自建条目（可删除）。缺省 = 内置（不可删除，只有开关与还原）。 */
+  readonly custom?: boolean
+  /** 文本被用户改过（决定「还原」按钮是否可点）。 */
+  readonly overridden?: boolean
 }
 
 /** 面板/API 用的一条扩展器信息 = 核心存的开关 + 插件报的运行时事实。 */

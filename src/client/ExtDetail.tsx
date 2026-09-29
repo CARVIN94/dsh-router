@@ -33,6 +33,12 @@ function RowIcon({ d, size = 15 }: { d: string; size?: number }): JSX.Element {
 
 /** 铅笔图标 —— 与 `CombosTab.tsx` / `SupplierDetail.tsx` 的 `I.edit` **逐字相同**。 */
 const I_EDIT = 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3'
+/** 还原（逆时针回转）—— 丢掉覆盖、回到内置内容。 */
+const I_RESET = 'M3 5v5h5M3.5 10a8.5 8.5 0 1 1 2.2 6.4'
+/** 删除（垃圾桶）—— 与 `CombosTab` / `EndpointTab` 的 `I.delete` **逐字相同**。 */
+const I_DELETE = 'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6'
+/** 拖把（六点）—— 与 `SupplierDetail` 的 `dshr-linkGrip` **逐字相同**。 */
+const GRIP_PATH = 'M9 6a1.5 1.5 0 1 1 0-.01M15 6a1.5 1.5 0 1 1 0-.01M9 12a1.5 1.5 0 1 1 0-.01M15 12a1.5 1.5 0 1 1 0-.01M9 18a1.5 1.5 0 1 1 0-.01M15 18a1.5 1.5 0 1 1 0-.01'
 
 function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -45,6 +51,55 @@ function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
 const I = {
   back: 'M19 12H5M12 19l-7-7 7-7',
   bolt: 'M13 2L4 14h6l-1 8 9-12h-6z',
+}
+
+/** 「+ 添加准则」弹窗 —— 标题 + 正文，必填。 */
+function AddControlModal({
+  onClose,
+  onSave,
+  busy,
+}: {
+  onClose: () => void
+  onSave: (title: string, body: string) => void
+  busy: boolean
+}): JSX.Element {
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const valid = title.trim() !== '' && body.trim() !== ''
+  return (
+    <Modal title="添加准则" onClose={onClose}>
+      <div className="dshr-modalForm">
+        <label className="dshr-requireTitle" htmlFor="dshr-add-title">标题</label>
+        <input
+          id="dshr-add-title"
+          className="dshr-input"
+          value={title}
+          onChange={(e) => { setTitle(e.target.value) }}
+          autoFocus
+        />
+        <label className="dshr-requireTitle" htmlFor="dshr-add-body">内容</label>
+        <textarea
+          id="dshr-add-body"
+          className="dshr-input"
+          style={{ minHeight: 140, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+          value={body}
+          onChange={(e) => { setBody(e.target.value) }}
+        />
+        <div className="dshr-modalActions">
+          <button type="button" className="dshr-miniButton" onClick={onClose} disabled={busy}>取消</button>
+          <button
+            type="button"
+            className="dshr-primaryButton"
+            disabled={busy || !valid}
+            title={valid ? '添加' : '标题与内容都不能为空'}
+            onClick={() => { onSave(title.trim(), body.trim()) }}
+          >
+            {busy ? '添加中…' : '添加'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
 }
 
 /**
@@ -134,12 +189,21 @@ function EditControlModal({
  *   它们的值也没被清掉（总开关只叠加失效），所以重新打开总开关就恢复原样。
  */
 function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
-  const controls = item.controls ?? []
+  // ⚠️ `rows` 存**当前的显示列表**（含顺序）：拖动与新增/删除要立刻反映在界面上，
+  //   而它们只改服务端、只回一张新的 `controls`。用 props 直接渲染的话，
+  //   拖动后要等下一次 GET 才会重排 —— 手上还抓着就跳回去了。
+  const [rows, setRows] = useState<ExtControlItem[]>(() => [...(item.controls ?? [])])
+  const controls = rows
   const [state, setState] = useState<Record<string, boolean>>(() => Object.fromEntries(controls.map((c) => [c.id, c.on])))
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
   // 扩展重算 controls 后（例如用户在别处改了总开关）同步过来。
+  useEffect(() => {
+    setRows([...(item.controls ?? [])])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id, item.enabled, (item.controls ?? []).length])
+
   useEffect(() => {
     setState(Object.fromEntries(controls.map((c) => [c.id, c.on])))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,9 +247,79 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
   const withBody = controls.filter((c) => typeof c.body === 'string' && c.body !== '')
   // 正在编辑的分类 id（null = 没开弹窗）。
   const [editing, setEditing] = useState<string | null>(null)
+  // 正在删除确认的分类 id（null = 没开弹窗）。
+  const [removing, setRemoving] = useState<string | null>(null)
+  // 「+ 添加准则」弹窗开关。
+  const [adding, setAdding] = useState(false)
+  // 拖动排序：正在被拖的那一项的下标。
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
   // 标题单独存一份：开关的 `state` 只记 on/off，改标题后列表要立刻跟着变。
   const [titles, setTitles] = useState<Record<string, string>>(() =>
     Object.fromEntries((item.controls ?? []).map((c) => [c.id, c.title])))
+  /**
+   * 发一个 `op` 动作并**回读真值**。
+   *
+   * ⚠️ 成功与失败都回读：乐观更新看着顺，但服务端拒了（删内置条目 / 还原没改过的）
+   * 时，面板会停在「以为改了却没生效」的状态。
+   */
+  const act = async (payload: Record<string, unknown>, onDone?: () => void): Promise<void> => {
+    setBusy('op')
+    setError('')
+    try {
+      const response = await fetch(`${ROUTER_API_BASE}/ext`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, ...payload }),
+        cache: 'no-store',
+      })
+      const data = await response.json() as RouterExtResponse
+      if (data.ok !== true) {
+        setError(data.error ?? '操作失败')
+        return
+      }
+      const self = data.enhancers?.find((e) => e.id === item.id)
+      if (self?.controls) {
+        setState(Object.fromEntries(self.controls.map((c) => [c.id, c.on])))
+        setTitles(Object.fromEntries(self.controls.map((c) => [c.id, c.title])))
+        setRows(self.controls)
+      }
+      onDone?.()
+    } catch {
+      setError('操作失败（网络）')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /** 拖动后落盘顺序；失败回读真值。 */
+  const persist = async (ids: string[]): Promise<void> => {
+    setError('')
+    try {
+      const response = await fetch(`${ROUTER_API_BASE}/ext`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, op: 'reorder', ids }),
+        cache: 'no-store',
+      })
+      const data = await response.json() as RouterExtResponse
+      if (data.ok !== true) {
+        setError(data.error ?? '排序保存失败')
+      }
+      const self = data.enhancers?.find((e) => e.id === item.id)
+      if (self?.controls) setRows(self.controls)
+    } catch {
+      setError('排序保存失败（网络）')
+      // ⚠️ 失败**必须回读真值**：否则行还停在拖出来的顺序上，而落盘是旧的
+      // ⇒ 刷新一下就跳回去，用户以为没存上。
+      try {
+        const res = await fetch(`${ROUTER_API_BASE}/ext`, { cache: 'no-store' })
+        const data = await res.json() as RouterExtResponse
+        const self = data.enhancers?.find((e) => e.id === item.id)
+        if (self?.controls) setRows(self.controls)
+      } catch { /* 回读也失败就保留当前，错误已显示 */ }
+    }
+  }
+
   // 保存编辑。**成功与失败都回读真值**（同 `toggle` 的纪律）：乐观更新看着顺，
   // 但服务端拒了（未知 id / 空串）时面板会停在"改了却没生效"的状态。
   const save = async (controlId: string, patch: { title?: string; body?: string }): Promise<void> => {
@@ -222,13 +356,54 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
     //   唯一的详情页，不该长成另一个样子。
     <section className="dshr-card">
       <div className="dshr-compGroup">
+        {/* ⚠️ 页头 = `description`（[准则 v5]）+ 右侧「+ 添加准则」（2026-09-29）。
+            **不再单独占一块区域** —— 之前标题自己一个卡、列表另一个卡，
+            进来第一眼是"这块是什么"而不是准则本身。
+            「添加」放在这里而不是页面外层：它与这列表是同一件事
+            （增删改条目），而外层拿不到 `adding` 这个状态。 */}
+        {item.description !== undefined && item.description !== '' && (
+          <div className="dshr-compHead">
+            <h4 className="dshr-compTitle">{item.description}</h4>
+            <button
+              type="button"
+              className="dshr-primaryButton"
+              onClick={() => { setAdding(true) }}
+            >
+              + 添加准则
+            </button>
+          </div>
+        )}
         {/* ⚠️ **连「子开关」这个标题一起去掉了**（2026-09-29）。上一轮去掉计数后
             它只剩两个字，却仍占一行 —— 页面进来第一眼是「子开关」这三个字而不是
             那些规则本身。列表自带每条的标题与开关，不需要再套一层说明。 */}
         {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
         <ul className="dshr-compRows">
-          {controls.map((c) => (
-            <li key={c.id} className="dshr-compRow">
+          {controls.map((c, index) => (
+            <li
+              key={c.id}
+              className={`dshr-compRow${dragIndex === index ? ' dshr-linkRowDragging' : ''}`}
+              draggable
+              onDragStart={(e) => { setDragIndex(index); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragIndex === null || dragIndex === index) { setDragIndex(null); return }
+                const next = [...controls]
+                const [moved] = next.splice(dragIndex, 1)
+                if (moved !== undefined) next.splice(index, 0, moved)
+                setDragIndex(null)
+                void persist(next.map((x) => x.id))
+              }}
+              onDragEnd={() => { setDragIndex(null) }}
+            >
+              {/* 拖把 —— 与 `SupplierDetail` 连接池那一套**同一套**（2026-09-29）。 */}
+              <span className="dshr-linkGrip" title="拖动排序" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                  <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+                  <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                  <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                </svg>
+              </span>
               <div className="dshr-compRowMain">
                 {/* ⚠️ 标题与「修改」按钮**必须包在同一个 flex 行里**（2026-09-29）。
                     `.dshr-compRowMain` 是 `flex-direction: column`，而
@@ -243,15 +418,45 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
                       `dshr-compEditBtn` —— 同一页里出现第二种按钮长相。
                       `aria-label` 不能省：图标按钮没有可见文字，读屏只认它。 */}
                   {c.editable === true && (
-                    <button
-                      type="button"
-                      className="dshr-iconBtn dshr-iconBtn-sm"
-                      aria-label={`修改「${titles[c.id] ?? c.title}」`}
-                      title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
-                      onClick={() => { setEditing(c.id) }}
-                    >
-                      <RowIcon d={I_EDIT} />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="dshr-iconBtn dshr-iconBtn-sm"
+                        aria-label={`修改「${titles[c.id] ?? c.title}」`}
+                        title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
+                        onClick={() => { setEditing(c.id) }}
+                      >
+                        <RowIcon d={I_EDIT} />
+                      </button>
+                      {/* ⚠️ **自建 ⇒ 删除；内置且被改过 ⇒ 还原**（位置都在「修改」之后，
+                          2026-09-29 指定）。内置**没被改过**时还原**置灰**而不是隐藏 ——
+                          隐藏会让用户以为没有这个功能，而问「怎么退回默认」时找不到入口。
+                          自建条目没有「内置版本」可回退，所以给删除而不是还原。 */}
+                      {c.custom === true
+                        ? (
+                          <button
+                            type="button"
+                            className="dshr-iconBtn dshr-iconBtn-sm dshr-comboOpBtn-danger"
+                            aria-label={`删除「${titles[c.id] ?? c.title}」`}
+                            title="删除这条自定义准则"
+                            onClick={() => { setRemoving(c.id) }}
+                          >
+                            <RowIcon d={I_DELETE} />
+                          </button>
+                        )
+                        : (
+                          <button
+                            type="button"
+                            className="dshr-iconBtn dshr-iconBtn-sm"
+                            aria-label={`还原「${titles[c.id] ?? c.title}」`}
+                            title={c.overridden === true ? '还原成内置内容' : '这条没被改过，无需还原'}
+                            disabled={c.overridden !== true}
+                            onClick={() => { void act({ op: 'reset', controlId: c.id }) }}
+                          >
+                            <RowIcon d={I_RESET} />
+                          </button>
+                        )}
+                    </>
                   )}
                 </div>
                 {/* ⚠️ **原文直接全文展示，不折叠也不限高**（2026-09-29）。
@@ -281,6 +486,41 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
         {withBody.length === 0 && (
           <p className="dshr-compHint">本扩展没有提供原文。</p>
         )}
+        {/* 添加自定义准则 */}
+        {adding && (
+          <AddControlModal
+            busy={busy === 'add'}
+            onClose={() => { setAdding(false) }}
+            onSave={(t, b) => {
+              void act({ op: 'add', title: t, body: b }, () => { setAdding(false) })
+            }}
+          />
+        )}
+
+        {/* 删除确认 —— 删除不可撤销，且清掉开关/覆盖/顺序里的关联数据 */}
+        {removing !== null && (() => {
+          const target = controls.find((c) => c.id === removing)
+          if (target === undefined) return null
+          return (
+            <Modal title="删除自定义准则" onClose={() => { setRemoving(null) }}>
+              <div className="dshr-modalForm">
+                <p className="dshr-muted">确定删除「{titles[target.id] ?? target.title}」吗？此操作不可撤销。</p>
+                <div className="dshr-modalActions">
+                  <button type="button" className="dshr-miniButton" onClick={() => { setRemoving(null) }}>取消</button>
+                  <button
+                    type="button"
+                    className="dshr-dangerButton"
+                    disabled={busy !== ''}
+                    onClick={() => { void act({ op: 'remove', controlId: target.id }, () => { setRemoving(null) }) }}
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            </Modal>
+          )
+        })()}
+
         {/* 编辑弹窗（在列表之外，避免嵌在 <li> 里影响排版） */}
         {editing !== null && (() => {
           const target = controls.find((c) => c.id === editing)
@@ -344,13 +584,6 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
       {/* 扩展自带的面板优先（注册表命中时下面几块都不渲染） */}
       {Custom !== undefined ? <Custom /> : (
         <>
-      {/* 扩展说明 */}
-      {item.description !== undefined && item.description !== '' && (
-        <section className="dshr-card">
-          <div className="dshr-muted" style={{ padding: '12px 14px' }}>{item.description}</div>
-        </section>
-      )}
-
       {/* 子开关（扩展自己的行为细节；没有 controls 就不渲染这一块） */}
       {item.controls !== undefined && item.controls.length > 0 && <ExtControls item={item} />}
 

@@ -186,6 +186,10 @@ export interface ExtControlItem {
   body?: string
   /** 文本可编辑（缺省 = 只读；见 `ExtControl.editable`）。 */
   editable?: boolean
+  /** 自建条目（可删除）。缺省 = 内置。 */
+  custom?: boolean
+  /** 文本被改过（决定「还原」是否可点）。 */
+  overridden?: boolean
 }
 
 /** `/router/api/ext` response（扩展插件列表 + 开关）。 */

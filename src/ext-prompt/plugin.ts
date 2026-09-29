@@ -13,7 +13,7 @@
  * 真正的注入在 `mount.ts`。
  */
 import type { ExtStoreService, RouterExt } from '../ext/contract.ts'
-import { PROMPT_CATEGORIES } from './content.ts'
+import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
 import { resolveEnabledCategories, type PromptExtData } from './render.ts'
 
 /** 扩展开关表里的注册键。 */
@@ -39,14 +39,16 @@ export function createPromptExt(deps: {
   return {
     id: EXT_PROMPT_ID,
     name: '分层提示词',
-    // ⚠️ **故意不设 `description`**（2026-09-29 用户指出后删的）：
-    //   详情页现在逐条列出每个分类的标题、开关与原文，上面再写一句
-    //   「把协作准则拆成 14 个可独立开关的分类」是**纯冗余**——数字与清单
-    //   就摆在下面，写死一个 `PROMPT_CATEGORIES.length` 还会与真实数量漂移
-    //   （加减分类后文案不跟着变，正是「两份事实」）。
+    description: PROMPT_TITLE,
+    // ⚠️ `description` = 整段的**标题**（不是一句自我介绍）。2026-09-29 两次调整：
+    //   先是删掉它（详情页逐条列清单，「拆成 14 个分类」是纯冗余）；
+    //   后又加回来、但只放**标题** `[准则 v5]`，并让详情页把它渲染在**最上面** ——
+    //   逐条清单之前先说清「这是什么」，比任何自我介绍都直接。
+    //   ⚠️ **不再内插分类数量**（`${PROMPT_CATEGORIES.length}` 会与真实数量漂移）。
     //
-    //   插件页「包含的组件」那一行**仍然有说明**（来自 `locale/zh.json`，宿主读的），
-    //   那一句是必要的：不开这一行，用户无从知道它是干什么的。
+    //   插件页「包含的组件」那一行仍然有**另一句**说明（来自 `locale/zh.json`，
+    //   宿主读的）—— 两者不是同一处，别混：那一行回答「不开它行不行」，
+    //   这里回答「它是什么」。
     //
     // 随核心分发 -> 插件页的原生「包含的组件」里有它一行，自绘节里不再重复列。
     source: 'builtin' as const,

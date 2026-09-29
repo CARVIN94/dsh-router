@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { createPromptExt, EXT_PROMPT_ID } from './plugin.ts'
 import { apply, name as CORDIS_NAME, inject as CORDIS_INJECT } from './index.ts'
 import { PROMPT_SECTION_NAME } from './mount.ts'
-import { PROMPT_CATEGORIES } from './content.ts'
+import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
 import type { RouterExtService } from '../ext/contract.ts'
 
 test('扩展器带上面板要用的身份', () => {
@@ -25,18 +25,20 @@ test('扩展器带上面板要用的身份', () => {
   assert.equal(ext.source, 'builtin', '随核心分发必须标 builtin，否则插件页会重复列它')
 })
 
-test('★ `description` 故意不设：详情页下面就是清单，再写一句是冗余', () => {
-  // ⚠️ 这条断言换过一次**理由**（2026-09-29）：原来它写的是
-  //   「没有说明，插件页那一行就没有副标题」——**那个前提是错的**。
-  //   插件页「包含的组件」那一行的副标题来自 `locale/*.json`（宿主 readPluginMeta
-  //   读的），**不是** `RouterExt.description`。所以那条断言在钉一个错误的事实。
-  //
-  //   真正要守的是：详情页已经逐条列出标题/开关/原文 ⇒ 上面的说明句是冗余，
-  //   且写死 `${PROMPT_CATEGORIES.length}` 会与真实分类数漂移。
-  //   `locale/*.json` 那条说明仍然必要（不开这一行，无从知道它是干什么的）——
-  //   由下面那条用例单独守。
+test('★ `description` 是整段标题（不是自我介绍，也不内插分类数）', () => {
+  // ⚠️ 这条断言**换了两次内容**，值得留档（2026-09-29）：
+  //   ① 最初写的是「没有说明，插件页那一行就没有副标题」——**前提是错的**，
+  //      那一行的副标题来自 `locale/*.json`，与 `description` 无关；
+  //   ② 改成「`description` 必须是 undefined」（当时用户嫌「拆成 14 个分类」冗余）；
+  //   ③ 现在又要求**顶部显示标题** ⇒ 改成「等于 PROMPT_TITLE」。
+  //   两次反复的共同教训：**默认值/文案该是什么由用户拍板，判据只负责让改动可见**，
+  //   所以断言跟着改、并在注释里留着反复，免得下一个人以为是"又改坏了"。
   const ext = createPromptExt({ isSystemPromptReady: () => true })
-  assert.equal(ext.description, undefined, '详情页有了逐条清单，说明句就是重复事实')
+  assert.equal(ext.description, PROMPT_TITLE, '详情页顶部要显示的就是整段标题')
+  // ⚠️ 尤其**不许**内插 `${PROMPT_CATEGORIES.length}`：加减分类后文案不跟着变，
+  //   就是同一件事的两个来源（「反查重复」）。
+  assert.doesNotMatch(String(ext.description), /\d+\s*个/,
+    'description 里内插了分类数量 ⇒ 加减分类后会与真实数量漂移')
 })
 
 test('★ 插件页那一行的说明仍然在（来自 locale，不是 description）', () => {

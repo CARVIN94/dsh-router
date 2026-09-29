@@ -982,44 +982,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 /* 开关 */
-.dshr-toggle {
-    position: relative;
-    flex: none;
-    width: 30px;
-    height: 16px;
-    border: none;
-    border-radius: 8px;
-    background: var(--rs-line);
-    cursor: pointer;
-    padding: 0;
-    transition: background 0.15s ease;
-}
-
-.dshr-toggle-on {
-    background: var(--rs-ok);
-}
-
-.dshr-toggleKnob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #fff;
-    transition: transform 0.15s ease;
-}
-
-.dshr-toggle-on .dshr-toggleKnob {
-    transform: translateX(14px);
-}
-
-/* 开关禁用态：不可用(未就绪)且未开启时,灰显 + 不可点 */
-.dshr-toggle:disabled {
-    cursor: default;
-    opacity: 0.45;
-}
-
 /* 扩展页：未就绪问题描述(红字) */
 .dshr-ext-error {
     color: var(--rs-danger);
@@ -1337,16 +1299,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 /* 输入框聚焦 */
 .dshr-input:focus {
     border-color: var(--rs-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent);
-}
-
-/* 开关微过渡 */
-.dshr-toggle {
-    transition:
-        background 0.15s ease,
-        box-shadow 0.15s ease;
-}
-.dshr-toggle:hover {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--rs-accent) 18%, transparent);
 }
 
@@ -3375,7 +3327,9 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     gap: 16px;
     min-width: 0;
     border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-    padding: 12px 2px;
+    /* ⚠️ 左右 14px（原先 2px）：行贴着卡片边缘，文字几乎顶到边框，读起来"挤"。
+       2026-09-29 用户提出。与 `-compHead` 的内缩对齐。 */
+    padding: 12px 14px;
 }
 
 .dshr-compRow:last-child {

@@ -35,72 +35,6 @@ const I = {
 }
 
 /**
- * 「查看真实装配结果」—— 面板上直接读 `GET /ext/prompt`。
- *
- * 为什么不看轨迹（2026-09-29 用户提的）：准则经 `ctx.systemPrompt.section()`
- * 进的是 **system message 本身**，轨迹里不会单列；而若改成像 mnemon 那样发一条
- * 真 user 消息，它就从「系统规定」降级成「有人说的一句话」，**权威性被改变**，
- * 还会污染输入历史与 fork 分支。⇒ 可见性用**只读端点**解决，不动注入通道。
- *
- * ⚠️ 它给的是 `assemble()` 的**真实结果**（含 Harness 身份、工具说明、以及
- *   其它插件贡献的段落），不是本扩展自己拼的字符串 —— 后者只是「我以为我发了
- *   什么」，两者可能不同。关掉某条分类后能不能确认「它真的没进去」，只有这里
- *   能回答。
- */
-function PromptPreview(): JSX.Element {
-  const [busy, setBusy] = useState(false)
-  const [data, setData] = useState<{ chars: number; sections: { name: string; chars: number }[]; text: string } | null>(null)
-  const [error, setError] = useState('')
-
-  const load = async (): Promise<void> => {
-    setBusy(true); setError('')
-    try {
-      const res = await fetch(`${ROUTER_API_BASE}/ext/prompt`, { cache: 'no-store' })
-      const body = await res.json() as { ok: boolean; error?: string } & Record<string, unknown>
-      if (body.ok === true) setData(body as never)
-      else setError(body.error ?? `读取失败（HTTP ${res.status}）`)
-    } catch {
-      setError('读取失败（网络）')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="dshr-compFoot">
-        <span className="dshr-compRowState">实际生效的提示词</span>
-        <span className="dshr-compCount">
-          {data === null ? '未读取' : `${data.chars} 字 · ${data.sections.length} 段`}
-        </span>
-        {/* ⚠️ **这一整块默认收起，且不再常驻说明文字**（2026-09-29 用户两次嫌
-             「布局太多」「太丑」）。它是**低频核对面**（「我关掉的真的没进去吗」），
-             不是每次都要看的东西 —— 摆在主视图里只是噪音。摘要行自带
-             「多少字 / 多少段」，够判断要不要展开。
-             ⚠️ 也**删掉了原来的「段落来源列表」**：它列的段落与上面那 14 条控制
-             **是同一批东西**，两个列表挨着是纯粹的重复占位。 */}
-        {data === null
-          ? (
-            <button type="button" className="dshr-backLink" disabled={busy} onClick={() => { void load() }}>
-              {busy ? '读取中…' : '读取'}
-            </button>
-          )
-          : (
-            <details>
-              <summary className="dshr-compRowName" style={{ cursor: 'pointer', padding: '8px 0 2px' }}>
-                展开全文
-              </summary>
-              {/* 提示词是代码不是散文 ⇒ 等宽字体 + 保留换行，与散文行区分开。 */}
-              <pre className="dshr-promptDump">{data.text}</pre>
-            </details>
-          )}
-        {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
-      </div>
-    </>
-  )
-}
-
-/**
  * 扩展自带的子开关（如准则的每一条）。
  *
  * ⚠️ **失败时回读真值，不留乐观假象**（与 `RouterComponentsSection.toggle` 同款
@@ -165,11 +99,11 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
     //   唯一的详情页，不该长成另一个样子。
     <section className="dshr-card">
       <div className="dshr-compGroup">
+        {/* ⚠️ **只有标题、没有「N / M 生效」计数**（2026-09-29 用户要求去掉）。
+            计数原本是我加的"点完能立刻核对"，但它每次都占一行常驻显示，而
+            **每个开关右边就在说同一件事** —— 一眼扫过去即是，计数是重复。 */}
         <div className="dshr-compHead">
           <h4 className="dshr-compTitle">子开关</h4>
-          <span className="dshr-compCount">
-            {Object.values(state).filter(Boolean).length} / {controls.length} 生效
-          </span>
         </div>
         {error !== '' && <p className="dshr-compError" role="status">{error}</p>}
         <ul className="dshr-compRows">
@@ -208,8 +142,6 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
         {withBody.length === 0 && (
           <p className="dshr-compHint">本扩展没有提供原文。</p>
         )}
-        {/* 脚注，不另起一张卡：它是「核对面」而不是第二个功能区。 */}
-        <PromptPreview />
       </div>
     </section>
   )
@@ -260,10 +192,6 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
       {/* 扩展自带的面板优先（注册表命中时下面几块都不渲染） */}
       {Custom !== undefined ? <Custom /> : (
         <>
-      {/* 子开关（扩展自己的行为细节；没有 controls 就不渲染这一块） */}
-      {item.controls !== undefined && item.controls.length > 0 && <ExtControls item={item} />}
-
-      {/* 实际生效的提示词（只读预览；回答「关掉的真的没进去吗」） */}
       {/* 扩展说明 */}
       {item.description !== undefined && item.description !== '' && (
         <section className="dshr-card">
@@ -271,6 +199,10 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
         </section>
       )}
 
+      {/* 子开关（扩展自己的行为细节；没有 controls 就不渲染这一块） */}
+      {item.controls !== undefined && item.controls.length > 0 && <ExtControls item={item} />}
+
+      {/* 实际生效的提示词（只读预览；回答「关掉的真的没进去吗」） */}
       {/* 未就绪警示（同供应商详情的出错横幅） */}
       {item.ready === false && (
         <div className="dshr-alert">

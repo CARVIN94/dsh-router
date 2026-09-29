@@ -4,6 +4,7 @@
  * Create/暂停确认/Created 弹窗）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   ROUTER_API_BASE,
   type RouterKey,
@@ -219,16 +220,16 @@ export function EndpointTab(): JSX.Element {
             <p className="dshr-requireTitle">Require API key</p>
             <p className="dshr-requireDesc">不带有效 key 的请求将被拒绝</p>
           </div>
-          <button
-            type="button"
-            className={`dshr-toggle ${requireApiKey ? 'dshr-toggle-on' : ''}`}
-            role="switch"
-            aria-checked={requireApiKey}
-            onClick={() => void toggleRequire(!requireApiKey)}
+          {/* ⚠️ 用 DSH 原生 `Switch`，不用自造的 `dshr-toggle` 按钮。
+              2026-09-29 用户指出的：同一个设置页里两处开关长得不一样（这一页自造、
+              扩展页用原生）⇒ 深浅色两套主题、焦点环、键盘行为都会分叉。
+              原生那个还自带 `label`（读屏可读），自造那个只有 `role="switch"`。 */}
+          <Switch
+            checked={requireApiKey}
+            label="Require API key 开关"
             title={requireApiKey ? '关闭鉴权' : '开启鉴权'}
-          >
-            <span className="dshr-toggleKnob" />
-          </button>
+            onChange={(next) => { void toggleRequire(next) }}
+          />
         </div>
 
         {/* key 列表 / 空状态 */}
@@ -272,16 +273,12 @@ export function EndpointTab(): JSX.Element {
                       </p>
                     </div>
                     <div className="dshr-keyOps">
-                      <button
-                        type="button"
-                        className={`dshr-toggle ${key.isActive ? 'dshr-toggle-on' : ''}`}
-                        role="switch"
-                        aria-checked={key.isActive}
+                      <Switch
+                        checked={key.isActive}
+                        label={`${key.name} 开关`}
                         title={key.isActive ? '暂停 key' : '恢复 key'}
-                        onClick={() => onKeySwitch(key, !key.isActive)}
-                      >
-                        <span className="dshr-toggleKnob" />
-                      </button>
+                        onChange={(next) => { onKeySwitch(key, next) }}
+                      />
                     </div>
                   </div>
                 ))}

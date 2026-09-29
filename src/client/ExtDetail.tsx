@@ -22,6 +22,18 @@ import { ROUTER_API_BASE, type ExtControlItem, type RouterExtItem, type RouterEx
 import { extPanel } from './ext-panels.ts'
 import { Modal } from './Modal.tsx'
 
+/** 行内图标按钮里的图标（照 `CombosTab` 的同款路径与线宽，1.8px 描边）。 */
+function RowIcon({ d, size = 15 }: { d: string; size?: number }): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  )
+}
+
+/** 铅笔图标 —— 与 `CombosTab.tsx` / `SupplierDetail.tsx` 的 `I.edit` **逐字相同**。 */
+const I_EDIT = 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3'
+
 function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -84,8 +96,11 @@ function EditControlModal({
         <p className="dshr-compHint">
           改完立刻生效于 system prompt。此处只存**改过的部分**；未改的分类仍随内置版本更新。
         </p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="button" className="dshr-cardAction" onClick={onClose} disabled={busy}>取消</button>
+        {/* ⚠️ `dshr-modalActions` + `dshr-miniButton` —— 与 `CombosTab` 的
+            创建/删除弹窗**同一套**（2026-09-29 用户指出）。原先是内联
+            `display:flex` 手搓的按钮排布。 */}
+        <div className="dshr-modalActions">
+          <button type="button" className="dshr-miniButton" onClick={onClose} disabled={busy}>取消</button>
           <button
             type="button"
             className="dshr-primaryButton"
@@ -221,14 +236,19 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
                 {/* ⚠️ **按钮在标题右侧**（用户 2026-09-29 指定的位），且**只对
                     `editable` 的条目出现** —— 扩展没说可编辑就不给，
                     免得点开一个必然 400 的弹窗。 */}
+                {/* ⚠️ 用 `dshr-iconBtn` + 铅笔图标，**与 `CombosTab` 的「编辑」按钮
+                    同一套**（2026-09-29 用户指出太丑）。原先自造了一个带文字的
+                    `dshr-compEditBtn` —— 同一页里出现第二种按钮长相。
+                    `aria-label` 不能省：图标按钮没有可见文字，读屏只认它。 */}
                 {c.editable === true && (
                   <button
                     type="button"
-                    className="dshr-compEditBtn"
-                    onClick={() => { setEditing(c.id) }}
+                    className="dshr-iconBtn dshr-iconBtn-sm"
+                    aria-label={`修改「${titles[c.id] ?? c.title}」`}
                     title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
+                    onClick={() => { setEditing(c.id) }}
                   >
-                    修改
+                    <RowIcon d={I_EDIT} />
                   </button>
                 )}
                 {/* ⚠️ **原文直接全文展示，不折叠也不限高**（2026-09-29）。

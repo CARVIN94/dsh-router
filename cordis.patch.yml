@@ -35,9 +35,12 @@
     - id: dsh-router-ext-test
       name: 'dsh-router-core/ext-test'
       disabled: true
-    # 分层提示词扩展。**同样默认关闭**，理由与上一行相同。
+    # 分层提示词扩展。**默认开启**（用户 2026-09-29 拍板）：协作准则是每次都要的
+    # 基础设施，不是可选增强 —— 与上面三行内置供应商一致（它们也不带 disabled）。
+    # 上一个版本这里曾是 `disabled: true`（与 ext-test 同款），后果是「装上却没有
+    # 准则」，用户得先知道去插件页打开它才知道它存在。判据见 ext-prompt.test.ts
+    # 的「那一行默认开启」用例（它真读本文件）。
     # 准则内容随核心分发（`src/ext-prompt/content.ts`）—— 改准则要发新版本；
     # 若只想换内容不改机制，可直接改该文件后重建。
     - id: dsh-router-ext-prompt
       name: 'dsh-router-core/ext-prompt'
-      disabled: true

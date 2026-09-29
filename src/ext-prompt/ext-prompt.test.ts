@@ -43,10 +43,26 @@ test('★ patch 里真的声明了这一行，且 id/name 逐字对得上', () =
   //    症状会非常隐蔽：构建通过、测试通过、装上后插件页**没有这一行**。
   const patch = readFileSync(new URL('../../cordis.patch.yml', import.meta.url), 'utf8')
   const block = patch.match(
-    new RegExp(`- id: ${CORDIS_NAME}\\s*\\n\\s*name: '([^']+)'\\s*\\n(\\s*)disabled: true`),
+    new RegExp(`- id: ${CORDIS_NAME}\\s*\\n\\s*name: '([^']+)'(\\s*\\n\\s*(disabled:.*)?)?\\n`),
   )
-  assert.ok(block, `cordis.patch.yml 里没有 id=${CORDIS_NAME} 且 disabled: true 的行`)
+  assert.ok(block, `cordis.patch.yml 里没有 id=${CORDIS_NAME} 的行`)
   assert.equal(block![1], 'dsh-router-core/ext-prompt', 'patch 的 name 必须是能解析的子路径说明符')
+})
+
+test('★ 那一行默认开启（用户 2026-09-29 拍板：装上就该有准则）', () => {
+  // `disabled: true` = 行默认关 ⇒ loader 不 import ⇒ 卡片不出现。
+  // 用户要求**默认开启**（准则是每次协作都要的基础设施，不是可选增强）。
+  // 内置供应商的三行同样不带 disabled —— 保持一致。
+  const patch = readFileSync(new URL('../../cordis.patch.yml', import.meta.url), 'utf8')
+  const block = patch.match(
+    new RegExp(`- id: ${CORDIS_NAME}[^]*?\\n(\\s*name: '([^']+)'\\n)([^\\n]*)`),
+  )
+  assert.ok(block, 'patch 里找不到这一行')
+  assert.doesNotMatch(
+    block![3] ?? '',
+    /disabled:\s*true/,
+    '这一行带 disabled: true ⇒ 装上后默认没有准则（与用户拍板相反）',
+  )
 })
 
 /** 最小 ctx：inject 立刻回调，systemPrompt 假件记录挂了什么。 */

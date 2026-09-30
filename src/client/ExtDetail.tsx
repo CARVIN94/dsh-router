@@ -406,7 +406,10 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
     //   （颜色/间距/字号在本仓有 CSS 变量，深浅色两套值），而这一页是设置里
     //   唯一的详情页，不该长成另一个样子。
     <section className="dshr-card">
-      <div className="dshr-compGroup">
+      {/* `Tight`：本页不要 `.dshr-compGroup` 的 12px 间距（页头已有分割线，
+          再加留白会让分割线悬在空白上）；那 12px 是 `RouterComponentsSection`
+          隔「组标题/列表」用的，动全局会打坏那一页。 */}
+      <div className="dshr-compGroup dshr-compGroupTight">
         {/* ⚠️ 页头 = `description`（[准则 v5]）+ 右侧「+ 添加准则」（2026-09-29）。
             **不再单独占一块区域** —— 之前标题自己一个卡、列表另一个卡，
             进来第一眼是"这块是什么"而不是准则本身。

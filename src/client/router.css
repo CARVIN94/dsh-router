@@ -3403,6 +3403,16 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
    flex 盒子（它们标题后面没有按钮，平白多一层）。
    没有这层时按钮会掉到**下一行**：`.dshr-compRowMain` 是 column，而
    `.dshr-compRowName` 是行内元素、标题一长就折行（2026-09-29 用户报）。 */
+/* 子开关区：`.dshr-compGroup` 的 `gap: 12px` 覆盖为 0（2026-09-30 用户要求）。
+   ⚠️ **不能直接改 `.dshr-compGroup`**：它还被 `RouterComponentsSection` 用着，
+   那里的 12px 隔的是「组标题 / hint / 列表」三块，删了会挤成一坨。
+   ⇒ 本处单独覆盖，且**只覆盖 gap**（其余属性仍复用同一个类）。
+   本页不需要这个间距：页头自带 `border-bottom` 分割线，再加 12px 留白
+   会让分割线"悬"在一段空白上方（用户说的「分割线有高度」）。 */
+.dshr-compGroupTight {
+    gap: 0;
+}
+
 /* 行内的「修改」按钮：**hover 该行才显形**（2026-09-29）。
    14 行各挂一个常驻图标 = 一排按钮压过内容本身。
    ⚠️ **必须同时有 `:focus-within`**：纯 `:hover` 会让**键盘用户永远够不到**

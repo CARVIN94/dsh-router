@@ -412,8 +412,12 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
             进来第一眼是"这块是什么"而不是准则本身。
             「添加」放在这里而不是页面外层：它与这列表是同一件事
             （增删改条目），而外层拿不到 `adding` 这个状态。 */}
+        {/* ⚠️ 页头直接用 `dshr-compRow`（2026-09-30 用户指出）：我原先自造了一个
+            `dshr-compHeadPad`，只为了"同样的 padding + 分割线"—— 结果是**新旧两份**，
+            连 border 的渲染都和原类对不上。⇒ 复用既有的那一套。
+            （注释必须在 `{cond && (` **外面** —— 那个位置只接受一个表达式。） */}
         {item.description !== undefined && item.description !== '' && (
-          <div className="dshr-compHeadPad">
+          <div className="dshr-compRow">
             <h4 className="dshr-compTitle">{item.description}</h4>
             <button
               type="button"

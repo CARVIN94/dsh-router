@@ -3403,19 +3403,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
    flex 盒子（它们标题后面没有按钮，平白多一层）。
    没有这层时按钮会掉到**下一行**：`.dshr-compRowMain` 是 column，而
    `.dshr-compRowName` 是行内元素、标题一长就折行（2026-09-29 用户报）。 */
-/* 页头（`[准则 v5]` + 「+ 添加准则」）—— 与下方 `.dshr-compRow` **对齐**。
-   ⚠️ 2026-09-30 用户指出：页头与行是两种宽度，看着像两张卡拼的。
-   ⇒ 同样左右 14px、下面一条与行**同色**的分割线，让它读成
-   「列表的表头 + 分隔」而不是「另一块区域」。 */
-.dshr-compHeadPad {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin: 0;
-    padding: 2px 14px 10px;
-    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-}
-
 /* 行内的「修改」按钮：**hover 该行才显形**（2026-09-29）。
    14 行各挂一个常驻图标 = 一排按钮压过内容本身。
    ⚠️ **必须同时有 `:focus-within`**：纯 `:hover` 会让**键盘用户永远够不到**

@@ -186,10 +186,18 @@ export interface ExtControlItem {
   body?: string
   /** 文本可编辑（缺省 = 只读；见 `ExtControl.editable`）。 */
   editable?: boolean
-  /** 自建条目（可删除）。缺省 = 内置。 */
-  custom?: boolean
-  /** 文本被改过（决定「还原」是否可点）。 */
-  overridden?: boolean
+  /**
+   * 自建条目（可删）还是内置（不可删、只有开关与还原）。
+   *
+   * ⚠️ **必填，不给可选**（2026-09-30 实测踩过）：曾声明成 `custom?: boolean`，
+   *   而服务端只在 `custom === true` 时才带这个字段 ⇒ 内置条目拿到的是
+   *   `undefined`，面板判 `c.custom === true` 为假，**恰好是对的** ——
+   *   但那条正确性建立在"缺省恰好等于 false"上，改任何一边的默认值都会翻转。
+   *   ⇒ 让服务端**总是**给显式布尔，两边不必猜。
+   */
+  custom: boolean
+  /** 文本被改过（决定「还原」是否可点）。必填，理由同 `custom`。 */
+  overridden: boolean
 }
 
 /** `/router/api/ext` response（扩展插件列表 + 开关）。 */

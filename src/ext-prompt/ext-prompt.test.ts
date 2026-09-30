@@ -355,3 +355,14 @@ test('★ 还原：改过 ⇒ true（且覆盖被清掉）；没改过 ⇒ false
   assert.equal(ext.resetControlText?.('ladder'), true, '改过的却还原不了')
   assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {}, '覆盖没被清掉')
 })
+
+// ── op 成功必须回整张表（2026-09-30）───────────────────────
+test('★ 契约层：controls 上带 custom 标记（面板据此决定给删除还是还原）', () => {
+  const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const mine = (ext.controls ?? []).find((c) => c.id === 'cu-1')
+  const builtin = (ext.controls ?? []).find((c) => c.id === 'identity')
+  assert.equal(mine?.custom, true, '自建条目没标 custom ⇒ 面板给"还原"而不是"删除"')
+  assert.equal(builtin?.custom, false, '内置条目不该标 custom')
+  assert.notEqual(mine?.custom, undefined, 'custom 必须**显式**为 false，缺省与"未传"无法区分')
+})

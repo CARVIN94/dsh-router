@@ -571,6 +571,43 @@ export function apply(rawContext: unknown): void {
     writeJson(res, 200, { ok: true, requireApiKey: keys.requireApiKey })
   })
 
+
+/**
+ * 把 `router.ext` 表映射成面板要的 `ExtInfo[]`。**GET 与 PATCH 共用**。
+ *
+ * ⚠️ 2026-09-30：op 成功时我复制了一份这段映射来就地回表 —— 两份必然漂移
+ *   （改一处只生效一半，本仓反复栽的坑）⇒ 抽成函数，一处定义两处调用。
+ */
+function extInfos(table: Record<string, unknown>, isEnabled: (id: string) => boolean): ExtInfo[] {
+return Object.values(table as RouterExtService)
+  .map((raw): ExtInfo | undefined => {
+    const e = raw as RouterExt
+    if (!e || typeof e.id !== 'string' || e.id === '') return undefined
+    const st = typeof e.getState === 'function' ? e.getState() : { ready: false }
+    return {
+      id: e.id,
+      name: e.name ?? e.id,
+      ...(e.description !== undefined ? { description: e.description } : {}),
+      ...(e.icon !== undefined ? { icon: e.icon } : {}),
+      enabled: extStore.isEnabled(e.id),
+      ready: st?.ready === true,
+      // 随核心分发的扩展带这个标记（插件页自绘节据此不重复列它：它已经有原生行）
+      ...(raw.source === 'builtin' ? { source: 'builtin' as const } : {}),
+      // 子开关：扩展自报，核心只搬运（形状归扩展，见 ExtControl 的注释）。
+      // ⚠️ **必须过滤掉形状不对的条目**：落盘的 controls 不可信，一条
+      // `undefined` 的 title 会让面板渲染出空行且**不报错**（假绿）。
+      ...(Array.isArray(e.controls) && e.controls.length > 0
+        ? {
+            controls: e.controls
+              .filter((c): c is ExtControl =>
+                !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
+              .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}), custom: c.custom === true, overridden: c.overridden === true })),
+          }
+        : {}),
+      ...(st?.detail !== undefined ? { detail: st.detail } : {}),
+    }
+  })
+  .filter((e): e is ExtInfo => e !== undefined)}
   // ---- 扩展 (Ext)：扩展器列表 + 开关 ----
   route(`${ROUTER_API_BASE}/ext`, async (req, res) => {
     if (req.method === 'PATCH') {
@@ -583,6 +620,9 @@ export function apply(rawContext: unknown): void {
         writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
         return
       }
+      // `addedId` 只给 add 用：面板要靠它定位刚建的那条。声明放在 PATCH 顶层，
+      // 因为**成功路径会落到末尾统一响应**（op 块内声明的话末尾够不着）。
+      let addedId: string | null = null
       const ext = typeof body.id === 'string' ? exts[body.id] as RouterExtService[string] : undefined
       if (!ext) {
         writeJson(res, 404, { ok: false, error: 'extension not found' })
@@ -594,19 +634,23 @@ export function apply(rawContext: unknown): void {
       // 不是一个字段。合在一起会让面板每次都得问"这次改的是哪一层"。
       if (body.op !== undefined) {
         const op = body.op
+        // ⚠️⚠️ **成功不早退**（2026-09-30 实测修的真 bug）：原来四个分支各自
+        //   `writeJson(res, 200, {ok:true}); return` —— **不回 `enhancers`**。
+        //   客户端 `act()` 靠回发的整张表刷新 ⇒ 增删改/排序之后**界面不更新**
+        //   （用户看着像没生效，刷新一下又"变了"）。
+        //   ⇒ 失败早退（400），**成功一律落到末尾**的统一响应，那里会带上新列表。
+        //   这是旧的两个分支（开关 / 文本）本来就有的行为，我加新分支时漏了。
+        //
         if (op === 'reorder') {
           if (!Array.isArray(body.ids)) {
             writeJson(res, 400, { ok: false, error: 'ids must be an array' })
             return
           }
           if (typeof ext.setControlOrder !== 'function' || !ext.setControlOrder(body.ids as string[])) {
-            writeJson(res, 400, { ok: false, error: 'reorder failed' })
+            writeJson(res, 400, { ok: false, error: '排序保存失败' })
             return
           }
-          writeJson(res, 200, { ok: true })
-          return
-        }
-        if (op === 'remove' || op === 'reset') {
+        } else if (op === 'remove' || op === 'reset') {
           if (typeof body.controlId !== 'string' || body.controlId === '') {
             writeJson(res, 400, { ok: false, error: 'controlId must be a non-empty string' })
             return
@@ -623,26 +667,30 @@ export function apply(rawContext: unknown): void {
             })
             return
           }
-          writeJson(res, 200, { ok: true })
-          return
-        }
-        if (op === 'add') {
+        } else if (op === 'add') {
           if (typeof ext.addCustomControl !== 'function') {
             writeJson(res, 400, { ok: false, error: 'extension does not support custom controls' })
             return
           }
-          const id = ext.addCustomControl(
+          addedId = ext.addCustomControl(
             typeof body.title === 'string' ? body.title : '',
             typeof body.body === 'string' ? body.body : '',
           )
-          if (id === null) {
-            writeJson(res, 400, { ok: false, error: 'title and body are required' })
+          if (addedId === null) {
+            writeJson(res, 400, { ok: false, error: '标题与内容都不能为空' })
             return
           }
-          writeJson(res, 200, { ok: true, id })
+        } else {
+          writeJson(res, 400, { ok: false, error: `unknown op: ${String(op)}` })
           return
         }
-        writeJson(res, 400, { ok: false, error: `unknown op: ${String(op)}` })
+        // ✅ 成功：回整张表（与 GET 走**同一个**构造函数，不复制一份）。
+        // ⚠️ 必须带 `enhancers`：客户端 `act()` 靠它刷新；少了它，界面停在旧状态
+        //   （2026-09-30 实测：增删改/排序后看起来"没生效"，刷新一下又变了）。
+        writeJson(res, 200, addedId === null
+          ? { ok: true, enhancers: extInfos(exts, (id) => extStore.isEnabled(id)) }
+          : { ok: true, id: addedId, enhancers: extInfos(exts, (id) => extStore.isEnabled(id)) })
+        return
         return
       }
 
@@ -721,36 +769,7 @@ export function apply(rawContext: unknown): void {
       // 开关归核心持久化。
       extStore.setEnabled(ext.id, body.enabled)
     }
-    const list: ExtInfo[] = Object.values(exts as RouterExtService)
-      .map((raw): ExtInfo | undefined => {
-        const e = raw as RouterExt
-        if (!e || typeof e.id !== 'string' || e.id === '') return undefined
-        const st = typeof e.getState === 'function' ? e.getState() : { ready: false }
-        return {
-          id: e.id,
-          name: e.name ?? e.id,
-          ...(e.description !== undefined ? { description: e.description } : {}),
-          ...(e.icon !== undefined ? { icon: e.icon } : {}),
-          enabled: extStore.isEnabled(e.id),
-          ready: st?.ready === true,
-          // 随核心分发的扩展带这个标记（插件页自绘节据此不重复列它：它已经有原生行）
-          ...(raw.source === 'builtin' ? { source: 'builtin' as const } : {}),
-          // 子开关：扩展自报，核心只搬运（形状归扩展，见 ExtControl 的注释）。
-          // ⚠️ **必须过滤掉形状不对的条目**：落盘的 controls 不可信，一条
-          // `undefined` 的 title 会让面板渲染出空行且**不报错**（假绿）。
-          ...(Array.isArray(e.controls) && e.controls.length > 0
-            ? {
-                controls: e.controls
-                  .filter((c): c is ExtControl =>
-                    !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
-                  .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}), ...(c.custom === true ? { custom: true } : {}), ...(c.overridden === true ? { overridden: true } : {}) })),
-              }
-            : {}),
-          ...(st?.detail !== undefined ? { detail: st.detail } : {}),
-        }
-      })
-      .filter((e): e is ExtInfo => e !== undefined)
-    writeJson(res, 200, { ok: true, enhancers: list })
+    const list: ExtInfo[] = extInfos(exts, (id) => extStore.isEnabled(id))
   })
 
   // ---- 概览看板：用量统计 ----

@@ -98,9 +98,11 @@ export function createPromptExt(deps: {
           //   「看内容 → 决定开关」这个动作必须能一处完成。
           body: t.body,
           editable: true,
-          // 自定义 ⇒ 可删；内置 ⇒ 不可删（它是代码的一部分）。
+          // ⚠️ **显式布尔，不靠缺省**：面板要靠 `custom === true` 决定
+          //   给「删除」还是「还原」，`undefined`（字段缺失）会让"内置"变成
+          //   "不知道是哪种" ⇒ 落到错误的按钮上（2026-09-30 实测现象）。
+          // `custom` ⇒ 可删（自建）；`overridden` ⇒ 「还原」可点（改过内置）。
           custom: c.custom,
-          // 被改过 ⇒ 「还原」可点（丢掉覆盖回到内置）。
           overridden: c.overridden,
           on: on.has(c.id),
         }

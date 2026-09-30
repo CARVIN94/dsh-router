@@ -229,8 +229,8 @@ test('注入：order 漏掉的条目补在后面（丢一条 ≠ 它消失）', 
   const text = renderPromptText(true, { order: ['ladder'] })
   // ⚠️ 只查**默认开启**的那些：万一将来加进默认关的分类（如某天新增的实验项），
   //   它本就不该出现在 prompt 里，否则这条判据会把它误判成"被 order 吞了"。
-  //   （加 ocr 那轮它红了 —— 判据假设"全部开启"，比被守的逻辑宽。）
-  //   注：ocr 曾被写在这里当例子，但它 2026-09-30 起就是 defaultOn，例子已过期。
+  //   （这条判据第一次红就是因为假设了"全部开启"—— 比被守的逻辑宽；
+  //    当年的例子是 `ocr` 那条分类，它 2026-09-30 已整条移出内置，见 git 历史。）
   for (const c of PROMPT_CATEGORIES) {
     if (!c.defaultOn) continue
     assert.ok(text.includes(c.body.slice(0, 8)), `${c.id} 在 order 里缺席就消失了`)
@@ -253,69 +253,4 @@ test('resolveCategories：内置在前、自建在后（代码顺序不被用户
   assert.equal(list[list.length - 1]?.id, 'c1', '自建条目应排在最后')
   assert.equal(list[0]?.custom, false)
   assert.equal(list[list.length - 1]?.custom, true)
-})
-
-// ── OCR 分类（2026-09-30）────────────────────────────────────
-test('★ ocr 分类默认开（2026-09-30 用户拍板）', () => {
-  const c = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')
-  assert.ok(c !== undefined, '没有 ocr 分类')
-  assert.equal(c.defaultOn, true, 'ocr 默认关了 —— 用户要的是默认就有')
-  // 骨架那几条同样必须默认开
-  for (const id of ['identity', 'redline', 'closure', 'hardening', 'verdifiable']) {
-    assert.equal(PROMPT_CATEGORIES.find((x) => x.id === id)?.defaultOn, true, `${id} 不该默认关`)
-  }
-})
-
-test('★ ocr 分类的长度与其它分类同量级（它进 system prompt，每轮都付费）', () => {
-  // ⚠️ 第一版 485 字、其它 14 条平均 79 字 ⇒ 6 倍。压到 259。
-  // 这条不是"越短越好"，是**不许再长出一个数量级**。
-  const o = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')!
-  const others = PROMPT_CATEGORIES.filter((x) => x.id !== 'ocr')
-  const avg = others.reduce((a, c) => a + c.body.length, 0) / others.length
-  // ⚠️ 上限从 `× 4` 收到 `× 2`（2026-09-30 用户第二次要求"至少少一半"）：
-  //   485 时是均值的 6 倍，收到 259（3.3 倍）用户仍嫌长。
-  //   钉 `× 2` 而不是钉绝对值 —— 绝对值会随分类增删失效，比例不会。
-  // ⚠️ 2026-09-30 修事实错误后回到 154 字（1.95 倍，只剩 4 字余量）：
-  //   再加内容就得同时**删**等量的旧描述，不能直接往这条尾巴上续。
-  assert.ok(o.body.length <= avg * 2,
-    `ocr 正文 ${o.body.length} 字，其它平均 ${Math.round(avg)} —— 超过 2 倍就是在往 system prompt 里塞长文`)
-})
-
-test('★ ocr 默认就进 prompt', () => {
-  assert.ok(renderPromptText(true, undefined).includes('OCR 代码审查'))
-  assert.ok(renderPromptText(true, undefined).includes('ocr delegate'))
-})
-
-test('★ 正文里的换行是真换行（不是字面的 \\n）', () => {
-  const on = renderPromptText(true, { categories: { ocr: true } })
-  assert.doesNotMatch(on, /\\n/, '出现了字面的 \\n —— 换行没生效，模型会看到反斜杠n')
-  // ⚠️ 不钉"几行"——那只反映当时的排版（第一版三条子命令各占一行，压缩后并成一行）。
-  //   钉的是**不变量**：没有字面 `\n`，且**至少分行**（不能挤成一坨）。
-  const seg = on.slice(on.indexOf('OCR 代码审查'), on.indexOf('OCR 代码审查') + 200)
-  assert.ok(seg.split('\n').length >= 2, '整段挤成一行 —— 命令与它的盲区该分开读')
-})
-
-test('★ ocr 正文写明了它抓不到什么（别把它当万能闸门）', () => {
-  // 准则是"可判定"的：只写工具能做什么、不写它不能做什么，
-  // 就会变成"凡事跑一遍 ocr"的仪式。
-  const body = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')!.body
-  assert.ok(body.includes('抓不到'), '没写它的盲区')
-  assert.ok(body.includes('grep'), '没写清与 grep 的分工')
-})
-
-// ⚠️ 这条是 2026-09-30 两处事实错误的**固化闸门**。它们能活那么久，
-//   就是因为上面那些断言只钉了"有没有写盲区/分工"，没钉"写得对不对"。
-//   两处都进了 system prompt ⇒ 每轮都付费：照错描述用 `ocr scan` 会扫全仓，
-//   照错描述用 `delegate preview` 会以为拿到了审查结果其实一个码都没审。
-//   判据来自 `ocr --help`（v1.12.11），升级 ocr 后请对着新 help 复核这几条。
-test('★ ocr 正文的两处事实与 `ocr --help` 一致（2026-09-30 闸门）', () => {
-  const body = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')!.body
-  // ① scan 不给 --path 是扫全仓，不是"审整目录"
-  assert.ok(body.includes('--path'), 'scan 的 --path 没了 —— 会被当成默认只审当前目录，实际是全仓')
-  assert.doesNotMatch(body, /`ocr scan` 审整目录/, 'scan 的默认范围又写错了：不带 --path 就是全仓')
-  // ② delegate preview 只输出待审文件列表，自己不审代码
-  assert.ok(body.includes('不审代码'), 'delegate preview 的定位又写错了：它只出待审文件列表')
-  assert.doesNotMatch(body, /免 LLM 自审/, '"免 LLM 自审"是错的：它不做审查，只输出 review spec 给宿主 agent')
-  // ③ 定位：提示层而非闸门（假绿断言只能靠改写成真断言作数）
-  assert.ok(body.includes('闸门'), '没点明它是提示层不是闸门')
 })

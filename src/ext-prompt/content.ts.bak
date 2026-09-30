@@ -144,18 +144,21 @@ export const PROMPT_CATEGORIES: readonly PromptCategory[] = [
   {
     id: 'ocr',
     title: 'OCR 代码审查',
-    // ⚠️ 默认开（2026-09-30 用户拍板；此前是关的）。它比其它分类长，但仍按
-    //   "工具说明"的长度上限写：进的是 system prompt，**每一轮都付费**。
-    //   这条第一版 485 字（其它 14 条平均 79 字）⇒ 砍到同一量级：
-    //   留下「怎么用」与「和 grep 的分工」，砍掉解释性铺垫。
-    defaultOn: true,
+    // ⚠️ **默认关**：这是「什么时候值得多花一次审查」的工具说明，不是纪律本身。
+    //   准则骨架类（身份/底线/收口…）默认必须开；工具类按项目需要开。
+    defaultOn: false,
     body:
-      'OCR 代码审查（`ocr`，第二双眼睛，用于「改完一处、怀疑别处也有」）：\n' +
-      '- `ocr review` 审当前改动（`--from/--to` 审分支，`--commit` 审单条）；' +
-      '`ocr scan` 审整个文件/目录（`--path` 限定）。\n' +
-      '- `ocr delegate preview` / `ocr delegate rule <文件…>` 不需配 LLM，由宿主 agent 自己审。\n' +
-      '抓不到跨文件符号一致性、死代码、假绿断言那些 —— **grep 找同名字的兄弟，' +
-      'ocr 找同形状的兄弟**。',
+      'OCR 代码审查（`ocr`）：读完 diff 或陌生代码后可用来找同款问题，' +
+      '**不是每次都要跑**，是「改完一处、怀疑别处也有」时的第二双眼睛。\n' +
+      '- `ocr review`：审查当前改动（staged + unstaged + untracked）；' +
+      '`--from main --to <分支>` 审分支区间，`--commit <hash>` 审单个提交。\n' +
+      '- `ocr scan`：审整个文件/目录（不需要 diff）；`--path <目录>` 限定范围。' +
+      '用来审计**不熟悉**的代码或没有有意义 diff 的目录。\n' +
+      '- `ocr delegate preview` / `ocr delegate rule <文件…>`：输出审查规格与命中的规则，' +
+      '**不需要配 OCR 的 LLM**；由你（宿主 agent）自己执行审查。\n' +
+      '⚠️ **它抓不到的东西**：跨文件符号一致性（`store.api.X` 是否有真实实现那类）、' +
+      '死代码、假绿断言——那些靠 `grep` 与本仓的闸门，别指望它。' +
+      '典型分工：**grep 找同名字的兄弟，OCR 找同形状的兄弟。**',
   },
 ] as const
 

@@ -255,21 +255,29 @@ test('resolveCategories：内置在前、自建在后（代码顺序不被用户
 })
 
 // ── OCR 分类（2026-09-30）────────────────────────────────────
-test('★ ocr 分类默认关（它是工具说明，不是纪律骨架）', () => {
+test('★ ocr 分类默认开（2026-09-30 用户拍板）', () => {
   const c = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')
   assert.ok(c !== undefined, '没有 ocr 分类')
-  assert.equal(c.defaultOn, false, '工具类默认开 ⇒ 每次会话白带 485 字的工具说明')
-  // 反过来：准则骨架那几条**必须**默认开
+  assert.equal(c.defaultOn, true, 'ocr 默认关了 —— 用户要的是默认就有')
+  // 骨架那几条同样必须默认开
   for (const id of ['identity', 'redline', 'closure', 'hardening', 'verdifiable']) {
     assert.equal(PROMPT_CATEGORIES.find((x) => x.id === id)?.defaultOn, true, `${id} 不该默认关`)
   }
 })
 
-test('★ ocr 分类默认不进 prompt、打开后才进', () => {
-  assert.equal(renderPromptText(true, undefined).includes('OCR 代码审查'), false)
-  const on = renderPromptText(true, { categories: { ocr: true } })
-  assert.ok(on.includes('OCR 代码审查'), '打开后仍不进 prompt')
-  assert.ok(on.includes('ocr delegate'), '正文里少了 delegate 那条')
+test('★ ocr 分类的长度与其它分类同量级（它进 system prompt，每轮都付费）', () => {
+  // ⚠️ 第一版 485 字、其它 14 条平均 79 字 ⇒ 6 倍。压到 259。
+  // 这条不是"越短越好"，是**不许再长出一个数量级**。
+  const o = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')!
+  const others = PROMPT_CATEGORIES.filter((x) => x.id !== 'ocr')
+  const avg = others.reduce((a, c) => a + c.body.length, 0) / others.length
+  assert.ok(o.body.length <= avg * 4,
+    `ocr 正文 ${o.body.length} 字，其它平均 ${Math.round(avg)} —— 超过 4 倍就是在往 system prompt 里塞长文`)
+})
+
+test('★ ocr 默认就进 prompt', () => {
+  assert.ok(renderPromptText(true, undefined).includes('OCR 代码审查'))
+  assert.ok(renderPromptText(true, undefined).includes('ocr delegate'))
 })
 
 test('★ 正文里的换行是真换行（不是字面的 \\n）', () => {

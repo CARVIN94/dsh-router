@@ -227,7 +227,11 @@ test('注入：order 里的未知 id 被忽略，不影响其它条目', () => {
 
 test('注入：order 漏掉的条目补在后面（丢一条 ≠ 它消失）', () => {
   const text = renderPromptText(true, { order: ['ladder'] })
+  // ⚠️ 只查**默认开启**的那些：默认关的（如 `ocr` 工具说明）本就不该出现在
+  //   prompt 里，否则这条判据会把它误判成"被 order 吞了"。
+  //   （加 ocr 那轮它红了 —— 判据假设"全部开启"，比被守的逻辑宽。）
   for (const c of PROMPT_CATEGORIES) {
+    if (!c.defaultOn) continue
     assert.ok(text.includes(c.body.slice(0, 8)), `${c.id} 在 order 里缺席就消失了`)
   }
 })
@@ -248,4 +252,37 @@ test('resolveCategories：内置在前、自建在后（代码顺序不被用户
   assert.equal(list[list.length - 1]?.id, 'c1', '自建条目应排在最后')
   assert.equal(list[0]?.custom, false)
   assert.equal(list[list.length - 1]?.custom, true)
+})
+
+// ── OCR 分类（2026-09-30）────────────────────────────────────
+test('★ ocr 分类默认关（它是工具说明，不是纪律骨架）', () => {
+  const c = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')
+  assert.ok(c !== undefined, '没有 ocr 分类')
+  assert.equal(c.defaultOn, false, '工具类默认开 ⇒ 每次会话白带 485 字的工具说明')
+  // 反过来：准则骨架那几条**必须**默认开
+  for (const id of ['identity', 'redline', 'closure', 'hardening', 'verdifiable']) {
+    assert.equal(PROMPT_CATEGORIES.find((x) => x.id === id)?.defaultOn, true, `${id} 不该默认关`)
+  }
+})
+
+test('★ ocr 分类默认不进 prompt、打开后才进', () => {
+  assert.equal(renderPromptText(true, undefined).includes('OCR 代码审查'), false)
+  const on = renderPromptText(true, { categories: { ocr: true } })
+  assert.ok(on.includes('OCR 代码审查'), '打开后仍不进 prompt')
+  assert.ok(on.includes('ocr delegate'), '正文里少了 delegate 那条')
+})
+
+test('★ 正文里的换行是真换行（不是字面的 \\n）', () => {
+  const on = renderPromptText(true, { categories: { ocr: true } })
+  assert.doesNotMatch(on, /\\n/, '出现了字面的 \\n —— 换行没生效，模型会看到反斜杠n')
+  const seg = on.slice(on.indexOf('OCR 代码审查'), on.indexOf('OCR 代码审查') + 200)
+  assert.ok(seg.split('\n').length >= 3, '三条子命令应该在三行上')
+})
+
+test('★ ocr 正文写明了它抓不到什么（别把它当万能闸门）', () => {
+  // 准则是"可判定"的：只写工具能做什么、不写它不能做什么，
+  // 就会变成"凡事跑一遍 ocr"的仪式。
+  const body = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')!.body
+  assert.ok(body.includes('抓不到'), '没写它的盲区')
+  assert.ok(body.includes('grep'), '没写清与 grep 的分工')
 })

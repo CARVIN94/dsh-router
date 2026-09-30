@@ -730,6 +730,9 @@ return Object.values(table as RouterExtService)
           writeJson(res, 400, { ok: false, error: 'unknown controlId' })
           return
         }
+        // ✅ 成功：回整张表（下面统一出口那句够不着这里 —— 它在别的 `if` 里，
+        //    靠 `return` 出去会**不写响应** ⇒ 请求挂死、开关卡在 loading）。
+        writeJson(res, 200, { ok: true, enhancers: extInfos(exts, (id) => extStore.isEnabled(id)) })
         return
       }
 
@@ -756,6 +759,7 @@ return Object.values(table as RouterExtService)
           writeJson(res, 400, { ok: false, error: 'unknown controlId' })
           return
         }
+        writeJson(res, 200, { ok: true, enhancers: extInfos(exts, (id) => extStore.isEnabled(id)) })
         return
       }
 

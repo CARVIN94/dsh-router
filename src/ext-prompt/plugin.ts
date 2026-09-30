@@ -113,7 +113,10 @@ export function createPromptExt(deps: {
       // ⚠️ **只改这一个键，不重写整块**：整块重写会顺手把 data 抽屉里的其它字段
       //   抹掉（`store.test.ts` 有一条「置开关不能把 data 冲掉」的同款纪律）。
       const data = readData()
-      const known = PROMPT_CATEGORIES.some((c) => c.id === controlId)
+      // ⚠️ 用**合成列表**（内置 + 自建）而不是 `PROMPT_CATEGORIES`：
+      //   自建条目的 id 根本不在内置常量里 ⇒ 切它的开关恒被拒，
+      //   报 `unknown controlId`（2026-09-30 实测：用户看到"自定义的开关控制报错"）。
+      const known = resolveCategories(data).some((c) => c.id === controlId)
       if (!known) return false
       store.writeData(EXT_PROMPT_ID, { ...data, categories: { ...data.categories, [controlId]: on } })
       return true
@@ -124,7 +127,10 @@ export function createPromptExt(deps: {
     setControlText: (controlId, patch) => {
       if (!store) return false
       const data = readData()
-      const known = PROMPT_CATEGORIES.some((c) => c.id === controlId)
+      // ⚠️ 用**合成列表**（内置 + 自建）而不是 `PROMPT_CATEGORIES`：
+      //   自建条目的 id 根本不在内置常量里 ⇒ 切它的开关恒被拒，
+      //   报 `unknown controlId`（2026-09-30 实测：用户看到"自定义的开关控制报错"）。
+      const known = resolveCategories(data).some((c) => c.id === controlId)
       if (!known) return false
       // ⚠️ **空串直接拒绝**（返回 false ⇒ 核心回 400）：空标题会让这一行没名字，
       //   空正文会让规则凭空消失 —— 两者都像"被关了"而不是"被改坏了"。
@@ -198,6 +204,8 @@ export function createPromptExt(deps: {
     resetControlText: (controlId) => {
       if (!store) return false
       const data = readData()
+      // ⚠️ 这里**刻意只用内置常量**：还原的语义是"回到内置内容"，
+      //   自建条目**没有内置版本**可回退（它的对应手段是删除）。
       if (!PROMPT_CATEGORIES.some((c) => c.id === controlId)) return false
       if (data.text?.[controlId] === undefined) return false // 没改过，无需写盘
       store.writeData(EXT_PROMPT_ID, { ...data, text: omit(data.text, controlId) })

@@ -366,3 +366,29 @@ test('★ 契约层：controls 上带 custom 标记（面板据此决定给删�
   assert.equal(builtin?.custom, false, '内置条目不该标 custom')
   assert.notEqual(mine?.custom, undefined, 'custom 必须**显式**为 false，缺省与"未传"无法区分')
 })
+
+// ── 自建条目的写入口（2026-09-30 实测的「自定义开关报错」）──
+test('★ 自建条目的开关可切（判据要用合成列表，不能只用内置常量）', () => {
+  // ⚠️ 真实 bug：改动前 `setControl` 用 `PROMPT_CATEGORIES.some(...)` 判存在性，
+  //   而自建条目的 id 不在内置常量里 ⇒ **恒被拒**，报 `unknown controlId`
+  //   ⇒ 用户看到「自定义的开关控制报错」。而它**在 controls 列表里显示着** ——
+  //   列表用 `resolveCategories`、写入判据用 `PROMPT_CATEGORIES`，两处来源不一致。
+  const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal((ext.controls ?? []).some((c) => c.id === 'cu-1'), true, '列表里没有它')
+  assert.equal(ext.setControl?.('cu-1', false), true, '列表里有、却切不了')
+  assert.equal(store.readData<Record<string, unknown>>('')?.categories && (store.readData<{ categories: Record<string, boolean> }>('')?.categories?.['cu-1']), false, '开关没落盘')
+})
+
+test('★ 自建条目的文本可改（同一处来源不一致）', () => {
+  const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControlText?.('cu-1', { title: '新标题' }), true, '自建条目改不了标题')
+  assert.equal((ext.controls ?? []).find((c) => c.id === 'cu-1')?.title, '新标题')
+})
+
+test('还原仍然只允许内置条目（自建没有「内置版本」可回退）', () => {
+  const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.resetControlText?.('cu-1'), false, '自建条目不该能被「还原」')
+})

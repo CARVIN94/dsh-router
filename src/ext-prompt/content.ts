@@ -144,18 +144,14 @@ export const PROMPT_CATEGORIES: readonly PromptCategory[] = [
   {
     id: 'ocr',
     title: 'OCR 代码审查',
-    // ⚠️ 默认开（2026-09-30 用户拍板；此前是关的）。它比其它分类长，但仍按
-    //   "工具说明"的长度上限写：进的是 system prompt，**每一轮都付费**。
-    //   这条第一版 485 字（其它 14 条平均 79 字）⇒ 砍到同一量级：
-    //   留下「怎么用」与「和 grep 的分工」，砍掉解释性铺垫。
+    // ⚠️ 默认开（2026-09-30 用户拍板）。它进 system prompt，**每一轮都付费**，
+    //   所以按"工具说明"的下限写：只留「怎么用」与「抓不到什么」。
+    //   演进：485（初版）→ 259 → **112**。砍掉的是 `--from/--to/--path` 这类
+    //   参数细节 —— 那些 `ocr --help` 能查，不该每轮随 prompt 付一遍。
     defaultOn: true,
     body:
-      'OCR 代码审查（`ocr`，第二双眼睛，用于「改完一处、怀疑别处也有」）：\n' +
-      '- `ocr review` 审当前改动（`--from/--to` 审分支，`--commit` 审单条）；' +
-      '`ocr scan` 审整个文件/目录（`--path` 限定）。\n' +
-      '- `ocr delegate preview` / `ocr delegate rule <文件…>` 不需配 LLM，由宿主 agent 自己审。\n' +
-      '抓不到跨文件符号一致性、死代码、假绿断言那些 —— **grep 找同名字的兄弟，' +
-      'ocr 找同形状的兄弟**。',
+      'OCR 代码审查：`ocr review` 审改动、`ocr scan` 审整目录、`ocr delegate preview` 免 LLM 自审。\n' +
+      '抓不到跨文件符号一致、死代码、假绿断言 —— grep 找同名的兄弟，ocr 找同形状的兄弟。',
   },
 ] as const
 

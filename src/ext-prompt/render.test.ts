@@ -271,8 +271,11 @@ test('★ ocr 分类的长度与其它分类同量级（它进 system prompt，�
   const o = PROMPT_CATEGORIES.find((x) => x.id === 'ocr')!
   const others = PROMPT_CATEGORIES.filter((x) => x.id !== 'ocr')
   const avg = others.reduce((a, c) => a + c.body.length, 0) / others.length
-  assert.ok(o.body.length <= avg * 4,
-    `ocr 正文 ${o.body.length} 字，其它平均 ${Math.round(avg)} —— 超过 4 倍就是在往 system prompt 里塞长文`)
+  // ⚠️ 上限从 `× 4` 收到 `× 2`（2026-09-30 用户第二次要求"至少少一半"）：
+  //   485 时是均值的 6 倍，收到 259（3.3 倍）用户仍嫌长。现在 122 字 ≈ 1.5 倍。
+  //   钉 `× 2` 而不是钉绝对值 —— 绝对值会随分类增删失效，比例不会。
+  assert.ok(o.body.length <= avg * 2,
+    `ocr 正文 ${o.body.length} 字，其它平均 ${Math.round(avg)} —— 超过 2 倍就是在往 system prompt 里塞长文`)
 })
 
 test('★ ocr 默认就进 prompt', () => {
@@ -283,8 +286,10 @@ test('★ ocr 默认就进 prompt', () => {
 test('★ 正文里的换行是真换行（不是字面的 \\n）', () => {
   const on = renderPromptText(true, { categories: { ocr: true } })
   assert.doesNotMatch(on, /\\n/, '出现了字面的 \\n —— 换行没生效，模型会看到反斜杠n')
+  // ⚠️ 不钉"几行"——那只反映当时的排版（第一版三条子命令各占一行，压缩后并成一行）。
+  //   钉的是**不变量**：没有字面 `\n`，且**至少分行**（不能挤成一坨）。
   const seg = on.slice(on.indexOf('OCR 代码审查'), on.indexOf('OCR 代码审查') + 200)
-  assert.ok(seg.split('\n').length >= 3, '三条子命令应该在三行上')
+  assert.ok(seg.split('\n').length >= 2, '整段挤成一行 —— 命令与它的盲区该分开读')
 })
 
 test('★ ocr 正文写明了它抓不到什么（别把它当万能闸门）', () => {

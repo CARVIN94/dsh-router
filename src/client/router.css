@@ -2347,7 +2347,9 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 380px;
+    /* 原 max-height: 380px —— 写死的值，与容器无关。改由 flex 链给。 */
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -2457,7 +2459,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: 300px;
+    /* 原 max-height: 300px —— 写死的值，与容器无关。改由 flex 链给。 */
     overflow-y: auto;
 }
 
@@ -2515,7 +2517,11 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 24px;
-    align-items: start;
+    /* stretch 而非 start：两列都吃满行高，右列那个滚动列表才有高可用。
+       用 start 的话行高由最高的一列决定，短的那列留白 —— 同一个病。 */
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
 }
 
 .dshr-comboFormLeft {
@@ -2523,6 +2529,15 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     flex-direction: column;
     gap: 12px;
     min-width: 0;
+    min-height: 0;
+}
+
+/* 「模型」那一坨（标题 + 列表）吃掉剩余高度，列表才有空间滚动 */
+.dshr-comboFormLeft > div:last-child {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 .dshr-comboFormRight {
@@ -2530,7 +2545,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     flex-direction: column;
     gap: 6px;
     min-width: 0;
-    max-height: 460px;
+    min-height: 0;
 }
 
 .dshr-comboFormRight .dshr-comboPickList {
@@ -2544,8 +2559,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     max-height: min(90vh, 820px);
 }
 
+/* ⚠️ 这条 min-height **只预留**了高度，不往内传递：body 是块容器，里面的内容
+   各自按自己的 max-height 摆（pick list 300 / 左列表 380 / 右列 460），
+   560 - 内容高 就是底部那条空白 —— 选 2 个模型时最明显，选满时反而看不见，
+   所以它一直躲过了「按内容相关问题」的眼。
+   改成 flex 列，并让 .dshr-modalForm 吃掉剩余高度，预留才真正被内容用掉。 */
 .dshr-modal-wide .dshr-modalBody {
     min-height: 560px;
+    display: flex;
+    flex-direction: column;
+}
+
+.dshr-modal-wide .dshr-modalForm {
+    flex: 1;
+    min-height: 0;
 }
 
 /* 左右分栏之间的分割线 */

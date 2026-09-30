@@ -321,3 +321,37 @@ test('★ 排序：只存 id，且过滤掉不存在的 id（脏数据不留幽�
   assert.equal(ext.setControlOrder?.(['__ghost__', 'ladder', 'ladder']), true)
   assert.deepEqual(store.readData<Record<string, unknown>>('')?.order, ['ladder'], '幽灵/重复 id 没被过滤')
 })
+
+// ── 真实初始状态：`ext.json` 里只有 `{enabled:true}`，没有 `data` ──
+test('★ 没有 data 记录时也能写（"没改过" ≠ "不能写"）', () => {
+  // ⚠️ 这是 2026-09-30 实测的真 bug：`ext.json` 里 `prompt` 只有 `{enabled:true}`
+  //   （用户没改过任何东西 ⇒ 没有 `data` 键），而我把 `readData()` 返回 undefined
+  //   当成"存储不可用"直接拒 ⇒ 「添加准则」永远报 `title and body are required`
+  //   ——而 title/body 明明都传了，报错还指向错误的字段，排查成本极高。
+  const store = fakeStore(undefined) // **没有 data**
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const id = ext.addCustomControl?.('我的准则', '做完就收。')
+  assert.ok(id !== null, '初始状态下添加失败（真实用户第一次用就是这个状态）')
+  assert.equal((ext.controls ?? []).some((c) => c.id === id), true, '写盘了但 controls 里没有')
+})
+
+test('★ 四个写入口在"无 data"时都可用（不只是 add）', () => {
+  const store = fakeStore(undefined)
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.setControl?.('ladder', false), true, '开关在初始状态下不可用')
+  assert.equal(ext.setControlText?.('ladder', { body: 'x' }), true, '改文本在初始状态下不可用')
+  assert.equal(ext.setControlOrder?.(['ladder']), true, '排序在初始状态下不可用')
+})
+
+test('★ 还原：改过 ⇒ true（且覆盖被清掉）；没改过 ⇒ false', () => {
+  // ⚠️ 这个用例第一版**测不出来**：我的假 store 把 `readData: () => undefined`
+  //   写死了，于是 setControlText 写进去的东西**读不回来**，还原永远失败 ——
+  //   而代码是对的。**假 store 比被守的东西更宽容 = 判据无效**（第三次栽在这）。
+  //   ⇒ 假 store 必须**真的读回自己写的东西**：`fakeStore` 的 `box` 已在做。
+  const store = fakeStore({ categories: {} })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  assert.equal(ext.resetControlText?.('identity'), false, '没改过的却说可还原')
+  ext.setControlText?.('ladder', { body: '改过的' })
+  assert.equal(ext.resetControlText?.('ladder'), true, '改过的却还原不了')
+  assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {}, '覆盖没被清掉')
+})

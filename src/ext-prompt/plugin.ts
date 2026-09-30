@@ -42,7 +42,19 @@ export function createPromptExt(deps: {
   store?: ExtStoreService
 }): RouterExt {
   const store = deps.store
-  const readData = (): PromptExtData | undefined => store?.readData<PromptExtData>(EXT_PROMPT_ID)
+  /**
+   * 读落盘数据。**没有记录时返回空对象而不是 undefined**。
+   *
+   * ⚠️ 2026-09-30 实测修的真 bug：`<dataDir>/ext.json` 里 `prompt` 只有
+   * `{enabled:true}`（**用户没改过任何东西** ⇒ 没有 `data` 键），
+   * 而我原先把 `data === undefined` 当成"存储不可用"直接 `return null/false`
+   * ⇒ 「添加准则」永远报 `title and body are required`，
+   * 而 title/body 明明都传了 —— 报错信息还指向错误的字段，排查成本极高。
+   *
+   * ⇒ 「没记录」与「记录为空」**必须同义**：都当作"从空白开始"。
+   * 真正该拒的是 **store 本身不存在**（扩展没挂上），那个在下面单独判。
+   */
+  const readData = (): PromptExtData => store?.readData<PromptExtData>(EXT_PROMPT_ID) ?? {}
   return {
     id: EXT_PROMPT_ID,
     name: '分层提示词',
@@ -99,7 +111,6 @@ export function createPromptExt(deps: {
       // ⚠️ **只改这一个键，不重写整块**：整块重写会顺手把 data 抽屉里的其它字段
       //   抹掉（`store.test.ts` 有一条「置开关不能把 data 冲掉」的同款纪律）。
       const data = readData()
-      if (data === undefined) return false
       const known = PROMPT_CATEGORIES.some((c) => c.id === controlId)
       if (!known) return false
       store.writeData(EXT_PROMPT_ID, { ...data, categories: { ...data.categories, [controlId]: on } })
@@ -111,7 +122,6 @@ export function createPromptExt(deps: {
     setControlText: (controlId, patch) => {
       if (!store) return false
       const data = readData()
-      if (data === undefined) return false
       const known = PROMPT_CATEGORIES.some((c) => c.id === controlId)
       if (!known) return false
       // ⚠️ **空串直接拒绝**（返回 false ⇒ 核心回 400）：空标题会让这一行没名字，
@@ -131,7 +141,6 @@ export function createPromptExt(deps: {
     setControlOrder: (ids) => {
       if (!store) return false
       const data = readData()
-      if (data === undefined) return false
       const known = new Set(resolveCategories(data).map((c) => c.id))
       // ⚠️ 只接受**当前存在**的 id：脏数据（手改 ext.json / 别的扩展写的）会
       //   让顺序里出现幽灵条目，而渲染时会静默忽略它 ⇒ 面板上「存了但没生效」。
@@ -145,7 +154,6 @@ export function createPromptExt(deps: {
       if (typeof title !== 'string' || title.trim() === '') return null
       if (typeof body !== 'string' || body.trim() === '') return null
       const data = readData()
-      if (data === undefined) return null
       const custom = Array.isArray(data.custom) ? [...data.custom] : []
       // ⚠️ **id 必须避开内置**：撞了会让两条同 id，`resolveCategories` 的
       //   `byId` Map 只留一条 ⇒ 另一条凭空消失（且不报错）。
@@ -167,7 +175,6 @@ export function createPromptExt(deps: {
     removeCustomControl: (controlId) => {
       if (!store) return false
       const data = readData()
-      if (data === undefined) return false
       const custom = Array.isArray(data.custom) ? data.custom : []
       if (!custom.some((c) => c.id === controlId)) return false
       store.writeData(EXT_PROMPT_ID, {
@@ -189,7 +196,6 @@ export function createPromptExt(deps: {
     resetControlText: (controlId) => {
       if (!store) return false
       const data = readData()
-      if (data === undefined) return false
       if (!PROMPT_CATEGORIES.some((c) => c.id === controlId)) return false
       if (data.text?.[controlId] === undefined) return false // 没改过，无需写盘
       store.writeData(EXT_PROMPT_ID, { ...data, text: omit(data.text, controlId) })

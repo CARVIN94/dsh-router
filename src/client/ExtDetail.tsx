@@ -413,12 +413,13 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
             「添加」放在这里而不是页面外层：它与这列表是同一件事
             （增删改条目），而外层拿不到 `adding` 这个状态。 */}
         {item.description !== undefined && item.description !== '' && (
-          <div className="dshr-compHead">
+          <div className="dshr-compHeadPad">
             <h4 className="dshr-compTitle">{item.description}</h4>
             <button
               type="button"
               className="dshr-primaryButton"
               onClick={() => { setAdding(true) }}
+              style={{ marginLeft: 'auto' }}
             >
               + 添加准则
             </button>

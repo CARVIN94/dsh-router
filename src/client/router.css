@@ -2520,6 +2520,9 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     /* stretch 而非 start：两列都吃满行高，右列那个滚动列表才有高可用。
        用 start 的话行高由最高的一列决定，短的那列留白 —— 同一个病。 */
     align-items: stretch;
+    /* 行高必须是 minmax(0,1fr) 而不是隐式 auto：auto 行高由内容决定，
+       视口一小内容压不下去，滚动就又跑到外层 body 去了。 */
+    grid-template-rows: minmax(0, 1fr);
     flex: 1;
     min-height: 0;
 }
@@ -2555,17 +2558,26 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 
 /* 组合编辑弹窗：加宽加高（body 更高，内部列表同步放大） */
 .dshr-modal-wide {
+    /* 高度上限必须**扣掉遮罩的 24px×2 padding**：原来的 90vh 在视口
+       低于 480px 时，90vh + 48px 必然超过视口，弹窗顶出遮罩。
+       （基础 .dshr-modal 用 80vh 所以一直没这问题，只有 -wide 变体有。） */
+    --dshr-modalMaxH: calc(100vh - 48px);
     width: min(760px, 100%);
-    max-height: min(90vh, 820px);
+    max-height: min(var(--dshr-modalMaxH), 820px);
 }
 
 /* ⚠️ 这条 min-height **只预留**了高度，不往内传递：body 是块容器，里面的内容
    各自按自己的 max-height 摆（pick list 300 / 左列表 380 / 右列 460），
    560 - 内容高 就是底部那条空白 —— 选 2 个模型时最明显，选满时反而看不见，
    所以它一直躲过了「按内容相关问题」的眼。
-   改成 flex 列，并让 .dshr-modalForm 吃掉剩余高度，预留才真正被内容用掉。 */
+   改成 flex 列，并让 .dshr-modalForm 吃掉剩余高度，预留才真正被内容用掉。
+
+   ⚠️ 地板也不能写死：视口一小，560px 会把弹窗顶出遮罩，逼得**外层 body**
+   出来滚动（多一道滚动条，还裁掉一截）。上限跟着 --dshr-modalMaxH 走
+   （60 = 头部 48 + 边框 2 + 余量），空间不够时该滚的是内层
+   .dshr-comboPickList，不是整个 body。 */
 .dshr-modal-wide .dshr-modalBody {
-    min-height: 560px;
+    min-height: min(560px, calc(var(--dshr-modalMaxH) - 60px));
     display: flex;
     flex-direction: column;
 }

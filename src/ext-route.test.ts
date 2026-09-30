@@ -15,7 +15,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 const src = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
 
@@ -59,4 +59,20 @@ test('注入：删掉 GET 的 writeJson ⇒ 本判据会红', () => {
   const after = stripped.slice(stripped.indexOf('const list: ExtInfo[]'))
   assert.doesNotMatch(after.slice(0, 600), /writeJson\(res,\s*200/,
     '注入没生效：这个替换匹配不上（判据会静默全绿）')
+})
+
+// ── 源码目录的野文件（2026-09-30 实测：`.bak` 被提交进仓）────────
+test('★ src 下不许有备份/临时文件（它们会被 `git add -A` 顺手带进仓）', () => {
+  // ⚠️ 实测经过：我用 `sed -i.bak` 做注入验证，备份文件 `content.ts.bak`
+  //   **被 `git add src/ext-prompt/` 带进了提交**。
+  //   它没被任何代码引用（`.bak` 后缀），所以**测试、typecheck、build 全绿** ——
+  //   典型的「产物看起来对、仓里却多了一份东西」。
+  //   而且它危险在：下一个人看到 `content.ts.bak` 会以为是**第二份内容**，
+  //   正是准则里「反查重复：新旧成两份」要防的。
+  //
+  // `check-publish` 只管「patch / exports / files 白名单 / 源码清单」的一致性，
+  // **不管源码目录里的野文件** ⇒ 这里补上。
+  const junk = [...readdirSync(new URL('.', import.meta.url), { recursive: true } as never) as string[]]
+    .filter((f) => /\.(bak|orig|rej|tmp|swp)$/.test(f) || /~$/.test(f))
+  assert.deepEqual(junk, [], `源码目录里有临时/备份文件：${junk.join(', ')}`)
 })

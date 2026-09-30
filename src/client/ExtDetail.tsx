@@ -47,12 +47,6 @@ function RowIcon({ d, size = 15 }: { d: string; size?: number }): JSX.Element {
 
 /** 铅笔图标 —— 与 `CombosTab.tsx` / `SupplierDetail.tsx` 的 `I.edit` **逐字相同**。 */
 const I_EDIT = 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3'
-/** 还原（逆时针回转）—— 丢掉覆盖、回到内置内容。 */
-const I_RESET = 'M3 5v5h5M3.5 10a8.5 8.5 0 1 1 2.2 6.4'
-/** 删除（垃圾桶）—— 与 `CombosTab` / `EndpointTab` 的 `I.delete` **逐字相同**。 */
-const I_DELETE = 'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6'
-/** 拖把（六点）—— 与 `SupplierDetail` 的 `dshr-linkGrip` **逐字相同**。 */
-const GRIP_PATH = 'M9 6a1.5 1.5 0 1 1 0-.01M15 6a1.5 1.5 0 1 1 0-.01M9 12a1.5 1.5 0 1 1 0-.01M15 12a1.5 1.5 0 1 1 0-.01M9 18a1.5 1.5 0 1 1 0-.01M15 18a1.5 1.5 0 1 1 0-.01'
 
 function Icon({ d, size = 18 }: { d: string; size?: number }): JSX.Element {
   return (
@@ -129,11 +123,17 @@ function EditControlModal({
   control,
   onClose,
   onSave,
+  onReset,
+  onRemove,
   busy,
 }: {
   control: ExtControlItem
   onClose: () => void
   onSave: (patch: { title?: string; body?: string }) => void
+  /** 还原成内置内容（仅内置且被改过时可调）。 */
+  onReset: () => void
+  /** 删除这条自定义准则（仅自建条目可调）。 */
+  onRemove: () => void
   busy: boolean
 }): JSX.Element {
   const [title, setTitle] = useState(control.title)
@@ -168,7 +168,34 @@ function EditControlModal({
         {/* ⚠️ `dshr-modalActions` + `dshr-miniButton` —— 与 `CombosTab` 的
             创建/删除弹窗**同一套**（2026-09-29 用户指出）。原先是内联
             `display:flex` 手搓的按钮排布。 */}
+        {/* ⚠️ 左：这一条**特有**的动作（自建⇒删除 / 内置被改过⇒还原）；
+            右：通用的取消与保存。2026-09-29 把删/还原从行内挪到这里 ——
+            它们是"次要且有破坏性"的动作，不该和「修改」挤在标题旁边
+            （14 行 × 3 个常驻按钮 = 42 个按钮压过内容）。 */}
         <div className="dshr-modalActions">
+          {control.custom === true
+            ? (
+              <button
+                type="button"
+                className="dshr-dangerButton"
+                disabled={busy}
+                onClick={onRemove}
+              >
+                删除这条
+              </button>
+            )
+            : (
+              <button
+                type="button"
+                className="dshr-miniButton"
+                disabled={busy || control.overridden !== true}
+                title={control.overridden === true ? '还原成内置内容' : '这条没被改过，无需还原'}
+                onClick={onReset}
+              >
+                还原成内置
+              </button>
+            )}
+          <span style={{ flex: 1 }} />
           <button type="button" className="dshr-miniButton" onClick={onClose} disabled={busy}>取消</button>
           <button
             type="button"
@@ -436,50 +463,22 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
                     让长标题在**这一行内**省略号，而不是把按钮顶下去。 */}
                 <div className="dshr-compRowTitleLine">
                   <span className="dshr-compRowName">{titles[c.id] ?? c.title}</span>
-                  {/* ⚠️ 用 `dshr-iconBtn` + 铅笔图标，**与 `CombosTab` 的「编辑」按钮
-                      同一套**（2026-09-29 用户指出太丑）。原先自造了一个带文字的
-                      `dshr-compEditBtn` —— 同一页里出现第二种按钮长相。
-                      `aria-label` 不能省：图标按钮没有可见文字，读屏只认它。 */}
+                  {/* ⚠️ 行内**只留「修改」**，且**hover 这一行才出现**（2026-09-29）。
+                      14 行都常驻三个图标按钮 = 42 个按钮压过内容；它们绝大多数时候
+                      不该被看见。`opacity: 0` + `:focus-within`（见 CSS）保证
+                      **键盘聚焦时也会显形** —— 纯 `:hover` 会让键盘用户永远够不到。
+                      删/还原已挪进修改弹窗（2026-09-29），它们是"次要且有破坏性"的动作，
+                      不该和「修改」挤在标题旁边。 */}
                   {c.editable === true && (
-                    <>
-                      <button
-                        type="button"
-                        className="dshr-iconBtn dshr-iconBtn-sm"
-                        aria-label={`修改「${titles[c.id] ?? c.title}」`}
-                        title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
-                        onClick={() => { setEditing(c.id) }}
-                      >
-                        <RowIcon d={I_EDIT} />
-                      </button>
-                      {/* ⚠️ **自建 ⇒ 删除；内置且被改过 ⇒ 还原**（位置都在「修改」之后，
-                          2026-09-29 指定）。内置**没被改过**时还原**置灰**而不是隐藏 ——
-                          隐藏会让用户以为没有这个功能，而问「怎么退回默认」时找不到入口。
-                          自建条目没有「内置版本」可回退，所以给删除而不是还原。 */}
-                      {c.custom === true
-                        ? (
-                          <button
-                            type="button"
-                            className="dshr-iconBtn dshr-iconBtn-sm dshr-comboOpBtn-danger"
-                            aria-label={`删除「${titles[c.id] ?? c.title}」`}
-                            title="删除这条自定义准则"
-                            onClick={() => { setRemoving(c.id) }}
-                          >
-                            <RowIcon d={I_DELETE} />
-                          </button>
-                        )
-                        : (
-                          <button
-                            type="button"
-                            className="dshr-iconBtn dshr-iconBtn-sm"
-                            aria-label={`还原「${titles[c.id] ?? c.title}」`}
-                            title={c.overridden === true ? '还原成内置内容' : '这条没被改过，无需还原'}
-                            disabled={c.overridden !== true}
-                            onClick={() => { void act({ op: 'reset', controlId: c.id }) }}
-                          >
-                            <RowIcon d={I_RESET} />
-                          </button>
-                        )}
-                    </>
+                    <button
+                      type="button"
+                      className="dshr-iconBtn dshr-iconBtn-sm dshr-compRowAct"
+                      aria-label={`修改「${titles[c.id] ?? c.title}」`}
+                      title={`修改「${titles[c.id] ?? c.title}」的标题与内容`}
+                      onClick={() => { setEditing(c.id) }}
+                    >
+                      <RowIcon d={I_EDIT} />
+                    </button>
                   )}
                 </div>
                 {/* ⚠️ **原文直接全文展示，不折叠也不限高**（2026-09-29）。
@@ -554,6 +553,9 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
               busy={busy === editing}
               onClose={() => { setEditing(null) }}
               onSave={(patch) => { void save(editing, patch) }}
+              // 还原/删除后**关掉弹窗**：状态已经变了，再开着会让人以为还能改。
+              onReset={() => { void act({ op: 'reset', controlId: editing }, () => { setEditing(null) }) }}
+              onRemove={() => { setEditing(null); setRemoving(editing) }}
             />
           )
         })()}

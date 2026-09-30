@@ -3403,6 +3403,29 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
    flex 盒子（它们标题后面没有按钮，平白多一层）。
    没有这层时按钮会掉到**下一行**：`.dshr-compRowMain` 是 column，而
    `.dshr-compRowName` 是行内元素、标题一长就折行（2026-09-29 用户报）。 */
+/* 行内的「修改」按钮：**hover 该行才显形**（2026-09-29）。
+   14 行各挂一个常驻图标 = 一排按钮压过内容本身。
+   ⚠️ **必须同时有 `:focus-within`**：纯 `:hover` 会让**键盘用户永远够不到**
+     （Tab 到它时它是 `opacity:0`，看得见焦点环但看不见按钮）。
+   ⚠️ 用 `opacity` 而不是 `visibility`/`display` —— 后两者会让它**不可聚焦**
+     （`visibility:hidden` 的元素不进 Tab 序），`opacity:0` 仍在。 */
+.dshr-compRowAct {
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.dshr-compRow:hover .dshr-compRowAct,
+.dshr-compRow:focus-within .dshr-compRowAct {
+    opacity: 1;
+}
+
+/* 触屏没有 hover ⇒ 按钮永远点不到。窄屏（触屏为主）直接常显。 */
+@media (hover: none) {
+    .dshr-compRowAct {
+        opacity: 1;
+    }
+}
+
 .dshr-compRowTitleLine {
     display: flex;
     align-items: center;

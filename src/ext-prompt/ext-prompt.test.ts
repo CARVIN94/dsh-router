@@ -13,6 +13,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createPromptExt, EXT_PROMPT_ID } from './plugin.ts'
+import { PROMPT_LOGO_URL } from './logo.ts'
 import { apply, name as CORDIS_NAME, inject as CORDIS_INJECT } from './index.ts'
 import { PROMPT_SECTION_NAME } from './mount.ts'
 import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
@@ -391,4 +392,41 @@ test('还原仍然只允许内置条目（自建没有「内置版本」可回�
   const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
   const ext = createPromptExt({ isSystemPromptReady: () => true, store })
   assert.equal(ext.resetControlText?.('cu-1'), false, '自建条目不该能被「还原」')
+})
+
+// ── 图标（2026-09-30）────────────────────────────────────────
+test('★ 图标能被真实渲染（base64 必须解得出合法 SVG）', () => {
+  // ⚠️ 为什么需要这条：我第一版**手编**了一串 base64，解出来是乱码
+  //   （`tept-Gradient`、`#17118=D`…）。而客户端的 `onError` 会把加载失败的图
+  //   **静默藏掉**、退回默认闪电图标 ⇒ 页面"看起来正常"，图标却根本没换 ——
+  //   **编造的常量不会报错，这是它最险的地方**。
+  // ⇒ 判据钉住"能往返成 `<svg` 开头的合法文档"。
+  assert.ok(PROMPT_LOGO_URL.startsWith('data:image/svg+xml;base64,'), '必须是内联 data URI（离线可用）')
+  const decoded = Buffer.from(PROMPT_LOGO_URL.split(',')[1] ?? '', 'base64').toString('utf8')
+  assert.ok(decoded.trimStart().startsWith('<svg'), 'base64 解不出 SVG')
+  assert.ok(decoded.includes('</svg>'), 'SVG 没闭合')
+  // 属性引号必须成对：手编最容易在这里错（如我第一版那个 `fill="#17118=D"` ——
+  // 少一个引号，后面整段被当成属性值）。
+  // ⚠️ 检测的是**引号总数为偶数**，不是"引号后跟属性名" —— 属性之间本来就该有
+  // 空格（`width="64" height="64"`），我第一版正则把合法的也判成错位了。
+  assert.equal((decoded.match(/"/g) ?? []).length % 2, 0, 'SVG 属性引号不成对（手编 base64 的典型症状）')
+  assert.doesNotMatch(decoded, /tept|#17118=D/, '出现了已知的编造残留')
+  // ⚠️ 只检查"解得出 `<svg`"**不够**：`<svg></svg>` 语法完全合法、却什么都没画 ——
+  //   注入验证时它就是从这条判据下面溜过去的。⇒ 还要有**实际图元**。
+  assert.match(decoded, /<(rect|path|circle|g|line|polyline|polygon)\b/,
+    'SVG 里没有任何图元 —— 合法但画不出东西（空壳图标等于没换）')
+})
+
+test('图标挂在 ext 上（不设的话面板退回默认闪电）', () => {
+  const ext = createPromptExt({ isSystemPromptReady: () => true })
+  assert.equal(ext.icon, PROMPT_LOGO_URL)
+})
+
+test('logo.svg 源文件与 base64 一致（改了图忘了重生成就会漂）', () => {
+  // 源文件是唯一可编辑的形态；base64 是它的派生物。两者不一致 = 有人改了 svg
+  // 却没重新生成 ⇒ 面板显示的还是旧图，而且**没有任何报错**。
+  const src = readFileSync(new URL('./logo.svg', import.meta.url), 'utf8')
+  const decoded = Buffer.from(PROMPT_LOGO_URL.split(',')[1] ?? '', 'base64').toString('utf8')
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim()
+  assert.equal(norm(decoded), norm(src), 'logo.svg 改了但 base64 没重新生成')
 })

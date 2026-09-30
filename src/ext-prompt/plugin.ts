@@ -14,6 +14,7 @@
  */
 import type { ExtStoreService, RouterExt } from '../ext/contract.ts'
 import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
+import { PROMPT_LOGO_URL } from './logo.ts'
 import { effectiveText, resolveCategories, resolveEnabledCategories, type PromptExtData } from './render.ts'
 
 /** 从对象里去掉某个键（不改原对象）。`writeData` 是整块替换 ⇒ 删一个键要重写。 */
@@ -58,6 +59,9 @@ export function createPromptExt(deps: {
   return {
     id: EXT_PROMPT_ID,
     name: '分层提示词',
+    // 图标（面板卡片 / 详情页头部的 44px 圆角位）。SVG base64 内联 ⇒ 离线可用、
+    // 不依赖外链、不受 CSP 的 img-src 限制。源文件在 `logo.svg`，base64 由它生成。
+    icon: PROMPT_LOGO_URL,
     description: PROMPT_TITLE,
     // ⚠️ `description` = 整段的**标题**（不是一句自我介绍）。2026-09-29 两次调整：
     //   先是删掉它（详情页逐条列清单，「拆成 14 个分类」是纯冗余）；

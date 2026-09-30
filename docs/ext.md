@@ -111,6 +111,19 @@ interface RouterExt {
   readonly description?: string  // 面板内容区说明
   readonly icon?: string         // 卡片/详情图标 URL
   readonly source?: 'builtin'    // 标了 = 随核心分发(见下);不标 = 独立插件
+
+  // ↓ 以下 7 个全是**可选**的子开关能力。不实现 =「一个总开关的扩展」,
+  //   面板只显示总开关、不渲染子开关列表。权威定义见 src/ext/contract.ts。
+  readonly controls?: ExtControl[]   // 子开关列表。⚠️ 必须每次读都重算(getter);
+                                     //    做成构造时的数组快照 ⇒ 改完文本刷新面板
+                                     //    拿到的还是旧值(2026-09-29 实测踩过)
+  setControl?(id: string, on: boolean): boolean               // 开关一个。false = 失败,核心回 400 且不写盘
+  setControlText?(id: string, patch: {title?, body?}): boolean // 改文本(部分更新,未出现的字段保持原样)
+  setControlOrder?(ids: string[]): boolean                   // 拖动排序(改的是列表本身,不是某一条)
+  addCustomControl?(title: string, body: string): string | null // 新增自建条目,返回新 id;失败 null
+  removeCustomControl?(id: string): boolean                   // 删。只该允许删自建的
+  resetControlText?(id: string): boolean                      // 还原文本。自建条目无「自带内容」,应返 false
+
   getState(): ExtState           // 运行时事实
   dispose?(): void
 }
@@ -123,6 +136,11 @@ interface ExtState {
 ```
 
 **没有 `rewrite`。** 怎么改命令是插件的实现细节,核心不感知、不调用。
+
+> 子开关的**落盘形状归扩展所有**:本仓是 `data.categories[id]` 存开关、
+> `data.text[id]` 存文本,**两个键分开**(开关是"开不开",文本是"写成什么样",
+> 混在一个键里改标题会顺手碰到开关状态)。核心只把 `{controlId, on}` 递进来、
+> 如实回传成功/失败,**不代写** —— 否则核心会变成「认识所有扩展私有数据格式」的地方。
 
 **`source: 'builtin'`** 标的是「随核心分发」。这类扩展同时是插件页原生「包含的组件」
 里的**一行**(自带宿主管的开关,关一行 = loader 不 import 它),因此插件页那个自绘的
@@ -225,7 +243,7 @@ tsdown.config.ts
 {
   "main": "lib/index.js",
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
-  "peerDependencies": { "@deepseek-ai/cordis": "^4.0.1" }
+  "peerDependencies": { "@deepseek-ai/cordis": "^4.0.4" }
 }
 ```
 

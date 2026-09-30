@@ -146,12 +146,19 @@ export const PROMPT_CATEGORIES: readonly PromptCategory[] = [
     title: 'OCR 代码审查',
     // ⚠️ 默认开（2026-09-30 用户拍板）。它进 system prompt，**每一轮都付费**，
     //   所以按"工具说明"的下限写：只留「怎么用」与「抓不到什么」。
-    //   演进：485（初版）→ 259 → **112**。砍掉的是 `--from/--to/--path` 这类
-    //   参数细节 —— 那些 `ocr --help` 能查，不该每轮随 prompt 付一遍。
+    //   演进：485（初版）→ 259 → 122 → **154**。
+    //   ⚠️ 2026-09-30 逐条对 `ocr --help`（v1.12.11）核过，122 字那版有**两处事实错误**：
+    //     ① `ocr scan` 不给 `--path` 是**扫全仓**不是"审整目录"——照原文用会意外烧全仓 token；
+    //     ② `ocr delegate preview` **根本不审代码**，它只输出待审文件列表+mode/ref
+    //        （官方定义：Output review spec for host-agent delegation, no LLM required），
+    //        真正执行的是宿主 agent 自己。"免 LLM 自审"把它说成了审查器。
+    //   另加「提示层非闸门」：它是有 LLM 在后的审查建议，不是会变红的闸门。
+    //   154 字 ≈ 均值 79 的 1.95 倍，仍在 `render.test.ts` 钉的 ×2 以内。
     defaultOn: true,
     body:
-      'OCR 代码审查：`ocr review` 审改动、`ocr scan` 审整目录、`ocr delegate preview` 免 LLM 自审。\n' +
-      '抓不到跨文件符号一致、死代码、假绿断言 —— grep 找同名的兄弟，ocr 找同形状的兄弟。',
+      'OCR 代码审查（提示层非闸门）：`ocr review` 审改动、`ocr scan --path <目录>` 审目录（默认全仓）、' +
+      '`ocr delegate preview` 只列待审文件、不审代码。\n' +
+      '盲区：跨文件符号一致、死代码、假绿断言都抓不到 —— grep 找同名的兄弟，ocr 找同形状的兄弟。',
   },
 ] as const
 

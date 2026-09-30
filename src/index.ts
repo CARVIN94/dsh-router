@@ -579,6 +579,12 @@ export function apply(rawContext: unknown): void {
  *   （改一处只生效一半，本仓反复栽的坑）⇒ 抽成函数，一处定义两处调用。
  */
 function extInfos(table: Record<string, unknown>, isEnabled: (id: string) => boolean): ExtInfo[] {
+  // ⚠️ **必须用参数 `isEnabled`，不能抓 `extStore`**（2026-09-30 实测的卡死）：
+  //   本函数是**模块顶层**，而 `extStore` 是 `apply()` 里的局部变量
+  //   ⇒ 顶层函数引用它会 `extStore is not defined`。而这个异常发生在
+  //   启动/请求路径上被吞掉，表现是**接口一直转圈、不报错** —— 最坏的一种。
+  //   （我抽出这个函数时加了参数、却忘了把函数体里的引用换掉。）
+
 return Object.values(table as RouterExtService)
   .map((raw): ExtInfo | undefined => {
     const e = raw as RouterExt
@@ -589,7 +595,7 @@ return Object.values(table as RouterExtService)
       name: e.name ?? e.id,
       ...(e.description !== undefined ? { description: e.description } : {}),
       ...(e.icon !== undefined ? { icon: e.icon } : {}),
-      enabled: extStore.isEnabled(e.id),
+      enabled: isEnabled(e.id),
       ready: st?.ready === true,
       // 随核心分发的扩展带这个标记（插件页自绘节据此不重复列它：它已经有原生行）
       ...(raw.source === 'builtin' ? { source: 'builtin' as const } : {}),
@@ -607,7 +613,8 @@ return Object.values(table as RouterExtService)
       ...(st?.detail !== undefined ? { detail: st.detail } : {}),
     }
   })
-  .filter((e): e is ExtInfo => e !== undefined)}
+  .filter((e): e is ExtInfo => e !== undefined)
+}
   // ---- 扩展 (Ext)：扩展器列表 + 开关 ----
   route(`${ROUTER_API_BASE}/ext`, async (req, res) => {
     if (req.method === 'PATCH') {
@@ -770,6 +777,11 @@ return Object.values(table as RouterExtService)
       extStore.setEnabled(ext.id, body.enabled)
     }
     const list: ExtInfo[] = extInfos(exts, (id) => extStore.isEnabled(id))
+    // ⚠️⚠️ **这行是 GET 的唯一出口**（2026-09-30 实测的「一直加载中」）：
+    //   上一轮我以为「成功路径统一落到末尾响应」就把它删了，结果**没有任何地方
+    //   写响应** ⇒ 请求永不结束 ⇒ 面板一直转圈。
+    //   症状极其恶劣：不报错、不 500、就挂在那儿。
+    writeJson(res, 200, { ok: true, enhancers: list })
   })
 
   // ---- 概览看板：用量统计 ----

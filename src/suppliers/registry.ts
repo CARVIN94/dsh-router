@@ -44,6 +44,36 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload)
 }
 
+/**
+ * 包住会调插件的 handler：插件抛错时回 **JSON 500**，别让异常裸奔到 webServer。
+ *
+ * 为什么必须有这一层：webServer 的兜底是 `res.writeHead(400); res.end()`——**空
+ * body**。面板拿到空 body，`response.json()` 抛 "Unexpected end of JSON input"，
+ * 真实原因（上游 500 / token 失效…）全丢，用户只看到一句解析错误。
+ *
+ * 这条路径是插件契约「出错就抛」(docs/suppliers.md「模型统一策略」) 的下游：插件
+ * 老实抛了，核心就得老实接住并说清楚。以前 `listModels` 静默吞错，所以从没暴露过
+ * 这个缺口（traework 2026-10-10 「获取模型只有几个」修完才浮现）。
+ */
+function guard(handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>) {
+  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    try {
+      await handler(req, res)
+    } catch (err) {
+      // headers 已发出就没法再改状态码了（writeJson 是原子的，这里基本不会发生）
+      if (res.headersSent) {
+        res.end()
+        return
+      }
+      // body 不是合法 JSON 是客户端的事（400），不该报成核心 500。这些 handler 里
+      // 唯一的 SyntaxError 来源就是 `JSON.parse(await readBody(req))`。
+      // （改 guard 之前这种情况由 webServer 兜底成**空** 400，改后保住状态码又带上原因。）
+      const status = err instanceof SyntaxError ? 400 : 500
+      writeJson(res, status, { ok: false, error: (err as Error).message })
+    }
+  }
+}
+
 async function readBody(req: IncomingMessage, limit = 64 << 10): Promise<string> {
   const chunks: Buffer[] = []
   let size = 0
@@ -109,10 +139,10 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
   routes.push({
     kind: 'exact',
     path: `${p}/models`,
-    handler: async (_req, res) => {
+    handler: guard(async (_req, res) => {
       const models = await router.modelsOf(s.id)
       writeJson(res, 200, { ok: true, alias: s.getAlias(), models })
-    },
+    }),
   })
 
   // ---- 通用: 供应商开关 ----
@@ -235,7 +265,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
   routes.push({
     kind: 'exact',
     path: `${p}/models/toggle`,
-    handler: async (req, res) => {
+    handler: guard(async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { id?: string; enabled?: boolean }
       const cfg = store.get(s.id)
       const models = await router.modelsOf(s.id)
@@ -246,14 +276,14 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
       store.setModelEnabled(s.id, body.id, !!body.enabled)
       router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
-    },
+    }),
   })
 
   // ---- 通用: models/add（自定义模型） ----
   routes.push({
     kind: 'exact',
     path: `${p}/models/add`,
-    handler: async (req, res) => {
+    handler: guard(async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { id?: string }
       const id = (body.id ?? '').trim()
       if (id === '') {
@@ -268,7 +298,7 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
       store.addCustomModel(s.id, id)
       router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
-    },
+    }),
   })
 
   // ---- 通用: models/remove（自定义模型） ----
@@ -292,13 +322,13 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
   routes.push({
     kind: 'exact',
     path: `${p}/models/bulk`,
-    handler: async (req, res) => {
+    handler: guard(async (req, res) => {
       const body = JSON.parse(await readBody(req)) as { enabled?: boolean }
       const models = await router.modelsOf(s.id)
       store.setAllModelsEnabled(s.id, !!body.enabled, models.map((mm) => mm.id))
       router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true })
-    },
+    }),
   })
 
   // ---- 通用: pool/order ----
@@ -324,10 +354,10 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
   routes.push({
     kind: 'exact',
     path: `${p}/models/fetch`,
-    handler: async (_req, res) => {
+    handler: guard(async (_req, res) => {
       const models = await router.modelsOf(s.id, true)
       writeJson(res, 200, { ok: true, models })
-    },
+    }),
   })
 
   // ---- 通用: 测试模型（核心统一走 chatOnce 路径，账号池回退/冷却自动生效） ----

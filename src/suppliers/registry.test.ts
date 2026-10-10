@@ -211,3 +211,59 @@ test('刷新：status() 抛错 → 500 带错误信息', async () => {
   assert.equal(body.ok, false)
   assert.match(body.error ?? '', /status boom/)
 })
+
+/**
+ * 插件在 `listModels` 里抛错时，核心必须回 **JSON 500**。
+ *
+ * 为什么值得单锁：webServer 的兜底是 `res.writeHead(400); res.end()` —— **空
+ * body**。面板 `response.json()` 于是抛 "Unexpected end of JSON input"，真实原因
+ * （上游 500 / token 失效…）全丢。插件契约要求「出错就抛」(docs/suppliers.md)，
+ * 所以这层必须接住。traework 修掉 `catch {}` 之后这条才第一次真被走到。
+ */
+test('models 路由：插件 listModels 抛错 → 500 + JSON body（不是空 400）', async () => {
+  for (const path of ['models', 'models/fetch']) {
+    const supplier = {
+      id: 'fake',
+      name: 'fake',
+      status: () => ({ id: 'fake', name: 'fake', accounts: [] }),
+    }
+    const loaded = { supplier, capabilities: new Set(), source: 'builtin' }
+    // router.modelsOf 复刻核心语义：无旧值 → 把插件的错抛出来
+    const router = {
+      modelsOf: async (): Promise<never> => { throw new Error('models api returned empty list') },
+      invalidateModels: () => {},
+    }
+    const routes = supplierRoutes('/router/api', loaded as never, { get: () => ({ custom: [], disabled: [], poolOrder: [], credits: {} }) } as never, router as never)
+    const route = routes.find((r) => r.path === `/router/api/suppliers/fake/${path}`)
+    assert.ok(route, `${path} 路由应注册`)
+    const sink = fakeRes()
+    await route!.handler({} as never, sink.res)
+    const body = sink.body as { ok: boolean; error?: string }
+    assert.equal(sink.status, 500, `${path}: 抛错该回 500`)
+    assert.equal(body.ok, false, `${path}: 必须是 JSON body，不能是空 body`)
+    assert.match(String(body.error), /empty list/, `${path}: 真实原因不能丢`)
+  }
+})
+
+test('models 路由：body 不是合法 JSON → 400（不是 500，也不是空 body）', async () => {
+  const supplier = { id: 'fake', name: 'fake', status: () => ({ id: 'fake', name: 'fake', accounts: [] }) }
+  const loaded = { supplier, capabilities: new Set(), source: 'builtin' }
+  const router = { modelsOf: async () => [], invalidateModels: () => {} }
+  const routes = supplierRoutes('/router/api', loaded as never, { get: () => ({ custom: [], disabled: [], poolOrder: [], credits: {} }) } as never, router as never)
+  const route = routes.find((r) => r.path === '/router/api/suppliers/fake/models/toggle')
+  assert.ok(route)
+  // 造一个会吐非法 JSON 的 req（readBody 读 data/end）
+  const req = {
+    on(event: string, cb: (chunk?: Buffer) => void) {
+      if (event === 'data') cb(Buffer.from('{ not json'))
+      if (event === 'end') cb()
+      return req
+    },
+  }
+  const sink = fakeRes()
+  await route!.handler(req as never, sink.res)
+  const body = sink.body as { ok: boolean; error?: string }
+  assert.equal(sink.status, 400, '客户端传坏 body 是 400，不是核心 500')
+  assert.equal(body.ok, false)
+  assert.ok(String(body.error).length > 0, '400 也要带原因，不能是空 body')
+})

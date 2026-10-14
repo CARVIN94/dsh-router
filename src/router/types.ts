@@ -3,7 +3,7 @@
  * 每个供应商提供 OpenAI 兼容的 chat/models，并暴露面板状态。
  * 仿 9router：供应商 = 一种"免费/付费"通道；dsh-router 在其上做路由。
  */
-import type { ChatOnceResult, SupplierAccountNow } from '../suppliers/contract.ts'
+import type { AccountState, ChatOnceResult, SupplierAccountNow } from '../suppliers/contract.ts'
 import type { AccountPool } from './account-pool.ts'
 
 /** 面板展示的账号状态（脱敏）。 */
@@ -11,6 +11,14 @@ export interface SupplierAccount {
   uid: string
   nickname?: string
   credits: number
+  /**
+   * 插件解读上游信号后的语义状态（`quota` = 额度/积分用完，`session_dead` = 凭证失效）。
+   *
+   * `decorate()` 一直原样带出插件报的状态，核心选号也读它（`quota`/`session_dead`
+   * 的号不进候选）——面板类型里缺了这一格就会自相矛盾：号明明已被排除在路由之外，
+   * 界面上却只看得到「0 积分」，看不出它为什么不参与。
+   */
+  state?: AccountState
   cooling: boolean
   until?: string
   reason?: string

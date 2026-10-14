@@ -215,3 +215,56 @@ test('用户目录只加载 *.js，且同 id 后者覆盖前者（按文件名�
   assert.equal(suppliers[0]?.supplier.name, 'Second')
   assert.equal(suppliers[0]?.source, 'user')
 })
+
+// ---------------------------------------------------------------------------
+// 插件报的「额度用完」要真的进路由（end-to-end 的那一段线）
+// ---------------------------------------------------------------------------
+
+/**
+ * 造一个报 quota 的插件（模拟 traework 的 pool.list()：credits===0 → state quota）。
+ * 这条钉住 loader 的 `accounts()` 是**原样透传**插件状态（不带 decorate/hydrate）：
+ * 核心 pick() 读的就是它。哪天有人给它加一层加工，把 quota 抹成 ok，路由又会
+ * 去撞没额度的号，而面板还显示正常——所以这里必须红。
+ */
+function quotaPlugin(id: string): SupplierModule {
+  const accounts: SupplierAccountNow[] = [
+    { uid: 'u-broke', credits: 0, state: 'quota' },
+    { uid: 'u-rich', credits: 500, state: 'ok' },
+  ]
+  return {
+    id,
+    name: id,
+    status: () => ({ id, name: id, accounts }),
+    listModels: () => [],
+    getAlias: () => id,
+    chatOnce: async (_uid: string, _req: ChatRequest): Promise<ChatOnceResult> => ({ ok: true, status: 200, body: '{}' }),
+    dispose: () => {},
+  } as unknown as SupplierModule
+}
+
+test('插件报的 quota 原样到达核心 → 没额度的号不进选号', () => {
+  const { env: e } = env()
+  const { supplier } = wrapModule(quotaPlugin('traework'), e, 'test')
+  assert.equal(
+    supplier.accounts().find((a) => a.uid === 'u-broke')?.state,
+    'quota',
+    'accounts() 必须原样带出插件状态（核心 pick 读的就是它）',
+  )
+  assert.equal(supplier.pool.pick(supplier.accounts(), [], 'm1'), 'u-rich', '额度用完的号被跳过')
+})
+
+test('额度用完的号在面板上也能看出来（decorate 不吞掉插件报的 state）', () => {
+  const { env: e } = env()
+  const { supplier } = wrapModule(quotaPlugin('traework'), e, 'test')
+  const shown = supplier.status().accounts.find((a) => a.uid === 'u-broke')
+  assert.equal(shown?.state, 'quota', '面板要能区分「没额度」与「正常」')
+  assert.equal(shown?.cooling, false, '还没发生过失败，就不该标成冷却')
+})
+
+test('额度用完 ≠ -1：water 后积分真值 0 照旧落进核心缓存（不冲值、不误判）', () => {
+  const { env: e, store } = env()
+  const { supplier } = wrapModule(quotaPlugin('traework'), e, 'test')
+  supplier.status() // 触发 hydrateCredits
+  assert.equal(store.get('traework').credits['u-broke'], 0, '0 是真值，要落盘')
+  assert.equal(store.get('traework').credits['u-rich'], 500)
+})

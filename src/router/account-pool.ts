@@ -253,6 +253,25 @@ export class AccountPool {
   }
 
   /**
+   * 插件报的「现在状态」是否意味着这个号此刻不该被选中。
+   *
+   * 只认两种**账号级持久事实**（要靠外部动作才能恢复，不是抖动）：
+   *  - `quota` —— 额度/积分用完，充值才能恢复（traework 积分归零时报它）
+   *  - `session_dead` —— 凭证失效，重新登录才能恢复
+   *
+   * 其余一律不看：`transport`/`unknown`/`unavailable` 是插件某一次采样的瞬时
+   * 观察，拿它排除等于「一次抖动就踢号」，而且没有冷却计时器兜底；`rate_limit`
+   * 的指数退避由核心的冷却单元管，比状态采样准。
+   *
+   * 这是「插件只报现在怎么了、核心决定怎么办」的分工落地：插件报出它观察到
+   * 的事实，核心决定此刻不选它。恢复同样自动——充值/重登后插件报回 `ok`，
+   * 该号立刻回到候选（没有额外状态要清）。
+   */
+  private servableByReport(a: SupplierAccountNow | undefined): boolean {
+    return a?.state !== 'quota' && a?.state !== 'session_dead'
+  }
+
+  /**
    * 为「某个模型」选一个健康账号 —— **会话亲和选号，无策略旋钮**。
    *
    * 旧的两策略（fallback 取第一个 / round-robin 轮转）都删了：前者让所有
@@ -267,11 +286,17 @@ export class AccountPool {
    *     "策略"，是无会话身份时的替身。
    *  4. 块统计不驱动轮转（亲和已保证驻留），只保留 `BLOCK_MAX` 次不达标 →
    *     降权该号（缓存无效，可恢复）。
+   *  5. 插件报的 `quota`/`session_dead`（额度用完 / 凭证失效）→ **直接不选它**：
+   *     这类失败要靠充值/重登才能恢复，选它必是白撞一次（还有的供应商失败在
+   *     流已提交之后，这次请求根本救不回来）。见 `servableByReport`。
    *
    * 天花板：号数 < 并发会话数时必然有会话共用号 → 互踩，无法用选号手法消除
    * （缓存空间是账号侧物理限制）。见 docs/pool-sticky-block.md §10。
    *
-   * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）
+   * @param accounts 插件报告的「现在状态」（顺序即插件的自然顺序）。
+   *   `state` 会被读：`quota`/`session_dead` 的号不进候选（见 `servableByReport`）。
+   *   `credits` **不读** —— 不同供应商的 0 含义不同（openrouter/nvidia 的 0 是
+   *   「没有积分这个概念」），是否已用完由插件解读成 `state` 后报上来。
    * @param poolOrder 用户在面板拖出来的顺序（核心管）
    * @param modelId 当前要路由的模型（决定查哪个 (model, uid) 冷却单元）
    * @param messages 请求体的 messages（算亲和指纹的内容兜底）
@@ -286,9 +311,11 @@ export class AccountPool {
       ...poolOrder.filter((uid) => byUid.has(uid)),
       ...accounts.map((a) => a.uid).filter((uid) => !poolOrder.includes(uid)),
     ]
-    const healthy = ordered.filter((uid) => this.healthy(uid, modelId, now))
+    const healthy = ordered.filter(
+      (uid) => this.healthy(uid, modelId, now) && this.servableByReport(byUid.get(uid)),
+    )
     if (healthy.length === 0) {
-      this.lastWhy = '全池无健康号（都在冷却）'
+      this.lastWhy = '全池无健康号（都在冷却，或插件报的额度/凭证已不可用）'
       return undefined
     }
     // 缓存无效降权：该号缓存质量样本长期不达标 → 跳过它（可到期恢复）
@@ -309,8 +336,13 @@ export class AccountPool {
       why.push('该指纹无绑定（会话首次出现）')
     } else {
       if (!healthy.includes(bound)) {
-        const c = this.cooldowns.get(this.key(modelId, bound))
-        why.push(`原绑定 ${bound} 正在冷却${c?.reason ? `(${c.reason})` : ''}`)
+        const ba = byUid.get(bound)
+        if (!this.servableByReport(ba)) {
+          why.push(`原绑定 ${bound} 插件报额度/凭证不可用（${ba?.state}）`)
+        } else {
+          const c = this.cooldowns.get(this.key(modelId, bound))
+          why.push(`原绑定 ${bound} 正在冷却${c?.reason ? `(${c.reason})` : ''}`)
+        }
       } else if (!usable.includes(bound)) {
         why.push(`原绑定 ${bound} 被降权（本会话样本不达标）`)
       } else {

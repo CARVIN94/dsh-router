@@ -218,3 +218,94 @@ test('指定不存在的连接：明确报「连接不存在」，而不是静�
   assert.equal(a.calls, 0, '一个号都不该被试')
   assert.match(r.error ?? '', /不存在/)
 })
+
+test('指定连接失败：报上游真实原因，不许说成「连接不存在」', async () => {
+  // 2026-10-14 实测：0 积分号（uid 在池里、面板上看得见）测出来是
+  // 「连接 "4135677434275728" 不存在（可能已被删除）」——真话是额度用完。
+  // 机制：失败后 `continue`，下一轮 onlyUid 被 `tried` 挡掉 → uid undefined，
+  // 旧代码在那里无条件覆盖 lastError，把上游原因冲掉。假诊断比没有诊断更坏：
+  // 用户会去删链接、重新登录，而正解是充值。
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  a.s.accounts = () => [
+    { uid: 'broke', credits: 0, state: 'ok' },
+    { uid: 'rich', credits: 100, state: 'ok' },
+  ]
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  const seen: string[] = []
+  a.s.chatOnce = async (uid) => {
+    seen.push(uid)
+    return { ok: false, state: 'quota', message: 'Your requests have exceeded the quota.' }
+  }
+  add(router, a.s)
+
+  const r = await router.testModel('supA', 'a-model', 'broke')
+  assert.equal(r.ok, false)
+  assert.deepEqual(seen, ['broke'], '钉死单连接，失败也不换号')
+  assert.match(r.error ?? '', /quota|exceeded/, `要报上游真因，实际: ${r.error}`)
+  assert.doesNotMatch(r.error ?? '', /不存在/, 'uid 在池里，绝不是「不存在」')
+})
+
+// ---- 积分用完的号必须退出路由（插件报 quota → 核心不选它） ----
+// 端到端串起来：traework 的 pool.list() 在 credits===0 时报 quota，核心 pick()
+// 据此跳过该号。这条走真实入口 chatCompletions，钉住「报出的事实真的改变了路由」，
+// 而不只是「状态字符串好看」。
+
+test('插件报 quota 的号：请求直接落到还有额度的号，不去撞死号', async () => {
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  const tried: string[] = []
+  a.s.accounts = () => [
+    { uid: 'broke', credits: 0, state: 'quota' },
+    { uid: 'rich', credits: 500, state: 'ok' },
+  ]
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  a.s.chatOnce = async (uid) => {
+    tried.push(uid)
+    return { ok: true, status: 200, body: '{"ok":1}' }
+  }
+  add(router, a.s)
+
+  await router.chatCompletions(reqWith('supA/a-model'), fakeRes())
+
+  assert.deepEqual(tried, ['rich'], '一次都不该撞到积分用完的号')
+})
+
+test('积分用完的号恢复（充值后报 ok）：立刻重新参与路由，无需重启', async () => {
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  let broke = true
+  const tried: string[] = []
+  a.s.accounts = () => (broke
+    ? [{ uid: 'was-broke', credits: 0, state: 'quota' }, { uid: 'other', credits: 10, state: 'ok' }]
+    : [{ uid: 'was-broke', credits: 900, state: 'ok' }])
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  a.s.chatOnce = async (uid) => {
+    tried.push(uid)
+    return { ok: true, status: 200, body: '{"ok":1}' }
+  }
+  add(router, a.s)
+
+  await router.chatCompletions(reqWith('supA/a-model'), fakeRes())
+  assert.deepEqual(tried, ['other'], '没额度时不选它')
+
+  broke = false
+  await router.chatCompletions(reqWith('supA/a-model'), fakeRes())
+  assert.equal(tried[1], 'was-broke', '充值后立刻回到候选')
+})
+
+test('全池都没额度：如实失败，不假装成功也不无限转圈', async () => {
+  const { router } = rig()
+  const a = spy('supA', 'a-model')
+  a.s.accounts = () => [
+    { uid: 'b1', credits: 0, state: 'quota' },
+    { uid: 'b2', credits: 0, state: 'quota' },
+  ]
+  a.s.status = () => ({ id: 'supA', name: 'supA', accounts: a.s.accounts() })
+  a.s.chatOnce = async () => ({ ok: true, status: 200, body: '{"ok":1}' })
+  add(router, a.s)
+
+  const r = await router.testModel('supA', 'a-model')
+  assert.equal(r.ok, false, '没号可选就是失败')
+  assert.equal(a.calls, 0, '不该去撞任何一个已知没额度的号')
+})

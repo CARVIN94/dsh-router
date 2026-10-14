@@ -517,6 +517,80 @@ test('状态表：各 AccountState 的处置符合预期', () => {
   assert.equal(p.pick(list, [], 'm1'), undefined, '四个号都不可服务')
 })
 
+// ---- 插件报的额度/凭证状态直接进选号 ----
+// 分工：插件报「现在怎么了」，核心决定「怎么办」。积分用完（quota）/凭证失效
+// （session_dead）要靠充值/重登才能恢复，选它必是白撞一次——而且 traework 的
+// 积分耗尽失败发生在流已提交之后（HTTP 200 + 流内 4008），这次请求救不回来。
+// 所以必须在**选号阶段**就排除，不能等失败后记账。
+
+test('报 quota 的号不进选号（额度用完，选它必白撞）', () => {
+  const p = pool()
+  const list: SupplierAccountNow[] = [
+    { uid: 'broke', credits: 0, state: 'quota' },
+    { uid: 'rich', credits: 100, state: 'ok' },
+  ]
+  assert.equal(p.pick(list, ['broke', 'rich'], 'm1'), 'rich', '池顺序在前也没用，用不了的号跳过')
+})
+
+test('报 session_dead 的号不进选号（凭证失效，要重登）', () => {
+  const p = pool()
+  const list: SupplierAccountNow[] = [
+    { uid: 'dead', credits: 100, state: 'session_dead' },
+    { uid: 'alive', credits: 1, state: 'ok' },
+  ]
+  assert.equal(p.pick(list, ['dead', 'alive'], 'm1'), 'alive')
+})
+
+test('全池都报 quota → 无号可选，且说明原因不是「都在冷却」', () => {
+  const p = pool()
+  const list: SupplierAccountNow[] = [
+    { uid: 'a', credits: 0, state: 'quota' },
+    { uid: 'b', credits: 0, state: 'quota' },
+  ]
+  assert.equal(p.pick(list, [], 'm1'), undefined)
+  assert.match(p.lastWhy, /额度|凭证/, '原因要能区分「没额度」和「冷却中」')
+})
+
+test('报 quota 的号恢复成 ok 后立刻回到候选（充值即自愈，无需重启）', () => {
+  const p = pool()
+  assert.equal(p.pick([{ uid: 'u', credits: 0, state: 'quota' }], [], 'm1'), undefined)
+  assert.equal(p.pick([{ uid: 'u', credits: 50, state: 'ok' }], [], 'm1'), 'u')
+})
+
+test('积分 0 但状态是 ok 的号照常可选（0 不等于「没额度」）', () => {
+  const p = pool()
+  // openrouter/nvidia 报的就是 credits: 0 + state: 'ok'（没有积分这个概念）。
+  // 核心不能自己拿 credits===0 当「用完了」，否则这些供应商会被整池排除。
+  const list: SupplierAccountNow[] = [{ uid: 'api-key', credits: 0, state: 'ok' }]
+  assert.equal(p.pick(list, [], 'm1'), 'api-key')
+})
+
+test('瞬时状态（transport/unknown/unavailable）不排除号：那是采样抖动，不是账号事实', () => {
+  const p = pool()
+  for (const state of ['transport', 'unknown', 'unavailable'] as const) {
+    const list: SupplierAccountNow[] = [{ uid: 'u', credits: 5, state }]
+    assert.equal(p.pick(list, [], 'm1'), 'u', `${state} 不该让号退出候选`)
+  }
+})
+
+test('会话绑定撞上报 quota 的号 → 换号，且 lastWhy 指出是额度问题', () => {
+  const p = pool()
+  const msgs = [{ role: 'user', content: 'hello' }]
+  const okList: SupplierAccountNow[] = [
+    { uid: 'bound', credits: 10, state: 'ok' },
+    { uid: 'other', credits: 10, state: 'ok' },
+  ]
+  assert.equal(p.pick(okList, [], 'm1', msgs), 'bound', '先绑到 bound')
+  // 该号积分耗尽后：同一会话必须换到别的号，不能继续钉在死号上
+  const brokeList: SupplierAccountNow[] = [
+    { uid: 'bound', credits: 0, state: 'quota' },
+    { uid: 'other', credits: 10, state: 'ok' },
+  ]
+  assert.equal(p.pick(brokeList, [], 'm1', msgs), 'other')
+  assert.match(p.lastWhy, /bound/, '要说清为什么没用原绑定')
+  assert.match(p.lastWhy, /额度|凭证/, '原因要指向额度/凭证，不是「冷却」')
+})
+
 /**
  * 处置对齐 9router：未知/瞬时错误**每次**短冷却（不再攒够 3 次）。
  */

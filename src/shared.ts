@@ -25,6 +25,12 @@ export interface RouterAccount {
   uid: string
   nickname?: string
   credits: number
+  /**
+   * 插件解读上游信号后的语义状态（`quota` = 额度/积分用完，`session_dead` = 凭证失效）。
+   * 核心选号会跳过这些号，所以面板必须显示出来——否则界面写着「健康」，而路由
+   * 永远不选它，用户无从知道为什么。
+   */
+  state?: string
   cooling: boolean
   until?: string
   reason?: string

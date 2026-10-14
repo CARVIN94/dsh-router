@@ -12,6 +12,7 @@ import {
   type RouterSupplierModel,
   type RouterSupplierModelsResponse,
 } from '../shared.ts'
+import { statusBadge } from './account-badge.ts'
 import { Modal } from './Modal.tsx'
 
 /* ---------------- SVG 图标 ---------------- */
@@ -59,11 +60,6 @@ function untilLabel(account: RouterAccount): string {
   if (minutes < 60) return `剩余 ${minutes} 分钟`
   const hours = Math.ceil(minutes / 60)
   return `剩余 ${hours} 小时`
-}
-
-function statusBadge(account: RouterAccount): { text: string; cls: string } {
-  if (account.cooling) return { text: '冷却中', cls: 'dshr-badge-warn' }
-  return { text: '健康', cls: 'dshr-badge-ok' }
 }
 
 export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRefresh }: SupplierDetailProps): JSX.Element {

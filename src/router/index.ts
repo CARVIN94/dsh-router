@@ -1276,12 +1276,19 @@ export class Router {
     for (;;) {
       // 指定连接：只试它。选不中就直接失败并说明原因（连接已不存在/不在池里），
       // **不回退到别的号** —— 否则「测这个连接」测出来的是另一个号的结果，
-      // 诊断就变成了假话。
+      // 诊断就变成了假话。注意「选不中」要区分「不在池里」和「这一轮试过了」：
+      // 后者是失败重试的收尾，必须保留上游给的真实错误（见下方 uid === undefined）。
       const uid = onlyUid !== undefined
         ? (s.accounts().some((a) => a.uid === onlyUid) && !tried.has(onlyUid) ? onlyUid : undefined)
         : pool.pick(s.accounts().filter((a) => !tried.has(a.uid)), cfg.poolOrder, req.model, messages, req.session)
       if (uid === undefined) {
-        if (onlyUid !== undefined && trace !== undefined) {
+        // 指定连接却选不出来，有两种完全不同的原因，混为一谈就是假诊断：
+        //   - 这个 uid 根本不在账号池里 → 真「连接不存在（可能已被删除）」
+        //   - uid 在池里，只是这一轮被 `tried` 挡掉 → 它**刚才已经试过并失败**了，
+        //     trace 里正躺着上游给的真实原因（如 quota / 4008「额度已用完」）。
+        //     此处若照旧覆盖，会把「积分用完」说成「连接不存在」——2026-10-14
+        //     实测：0 积分号测出「连接不存在（可能已被删除）」，而它明明在面板上。
+        if (onlyUid !== undefined && !tried.has(onlyUid) && trace !== undefined) {
           // 不给 AccountState 加「连接不存在」这个值：那是给**账号的失败**分类用的
           // （决定要不要冷却），而链接不存在不是任何账号的错，混进去会让所有分类逻辑
           // 都要认识它。具体原因放 lastError 就够。

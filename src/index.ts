@@ -162,6 +162,11 @@ export function apply(rawContext: unknown): void {
     get: (key: string) => unknown
     on: (name: string, listener: (...args: unknown[]) => void) => unknown
     provide: (name: string, value: unknown) => unknown
+    /**
+     * 广播宿主事件。组合增删改后必须用它发 `llm/adapters-updated`，
+     * 否则模型选择器一直拿着旧快照（见 `Router` 的 `onCombosChanged` 注释）。
+     */
+    emit: (name: string, ...args: unknown[]) => unknown
     webServer: WebServer
     llm?: Llm
     logger: { info: (message: string) => void; warn: (message: string) => void }
@@ -193,7 +198,13 @@ export function apply(rawContext: unknown): void {
   }
   const store = new SupplierConfigStore(stateFile)
   const credentials = new CredentialStore(join(dataDir, 'auths'))
-  const router = new Router(stateFile, store, log)
+  // 组合增删改后广播 `llm/adapters-updated`：模型选择器的目录是客户端缓存的，
+  // 只在这个（宿主已转发给客户端的）事件上失效重载。不发它就出现「面板里有、
+  // 选择器里找不到/切不过去」（2026-10-14 实测）。
+  // 该事件在宿主侧是纯通知（payload-free），监听方都是幂等的重读，重复发安全。
+  const router = new Router(stateFile, store, log, {
+    onCombosChanged: () => { ctx.emit('llm/adapters-updated') },
+  })
 
   const keys = new KeysStore(stateFile)
 

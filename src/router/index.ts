@@ -657,6 +657,21 @@ export class Router {
   private log: (msg: string) => void
   /** 每条降级腿的首字节预算（ms）。只给测试一个入口，生产恒为 FIRST_BYTE_BUDGET_MS。 */
   private firstByteBudgetMs: number
+  /**
+   * 组合增删改**成功提交后**的通知出口。
+   *
+   * 为什么必须有：模型选择器（`ui-model-selection`）的目录是**客户端缓存**的，
+   * 只在宿主转发过来的事件上失效重载（`llm/adapters-updated` /
+   * `settings/document-updated` / 凭据事件 / 重连）。而组合只是本插件
+   * `combos.json` 里的一份状态：改完名字若不发通知，选择器会一直拿着旧快照 ——
+   * 用户能看到的症状是「面板里明明有这个名字，模型选择器里却找不到、切不过去」，
+   * 且新建的组合永远不出现（2026-10-14 实测）。
+   *
+   * 通知与落盘分开（{@link saveCombos} 先 {@link commitCombos} 落盘、再发通知）：
+   * 落盘失败、或 `stateFile` 为空（单测/独立运行时）时内存已经改了，客户端的
+   * 状态同样过期，所以这两条路径都必须照发。
+   */
+  private onCombosChanged: (() => void) | undefined
   /** 用量统计（概览看板）。 */
   usage: UsageStore
 
@@ -664,12 +679,13 @@ export class Router {
     stateFile = '',
     store?: SupplierConfigStore,
     log?: (msg: string) => void,
-    opts?: { firstByteBudgetMs?: number },
+    opts?: { firstByteBudgetMs?: number; onCombosChanged?: () => void },
   ) {
     this.combosFp = stateFile ? join(dirname(stateFile), 'combos.json') : ''
     this.store = store ?? new SupplierConfigStore(stateFile)
     this.log = log ?? ((): void => {})
     this.firstByteBudgetMs = opts?.firstByteBudgetMs ?? FIRST_BYTE_BUDGET_MS
+    this.onCombosChanged = opts?.onCombosChanged
     this.usage = new UsageStore(stateFile)
     this.loadCombos()
   }
@@ -728,7 +744,24 @@ export class Router {
     }
   }
 
+  /**
+   * 提交组合变更：落盘 + 通知拓扑观察者。
+   *
+   * `onCombosChanged` 的失败必须被吞掉：它是**通知**不是事务参与者，
+   * 监听方（宿主事件总线）出问题不能把一次已经生效的增删改报成失败 ——
+   * 那会让用户重试一个其实已经成功的操作（同 `schedule/changed` 的口径）。
+   */
   private saveCombos(): void {
+    this.commitCombos()
+    try {
+      this.onCombosChanged?.()
+    } catch (err) {
+      this.log(`combo change notification failed: ${(err as Error).message}`)
+    }
+  }
+
+  /** 组合落盘（通知由 {@link saveCombos} 单独发，落盘失败不阻断它）。 */
+  private commitCombos(): void {
     if (this.combosFp === '') return
     try {
       const dir = dirname(this.combosFp)

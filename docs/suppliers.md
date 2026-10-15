@@ -138,7 +138,7 @@ js 只要知道这一条:**报 `rate_limit`/`transport`/`unknown` 只影响「�
 type ChatOnceResult =
   | { ok: true; stream: ReadableStream<Uint8Array> }   // 流式
   | { ok: true; status: number; body: string }         // 非流式
-  | { ok: false; state: AccountState; message: string } // 失败
+  | { ok: false; state: AccountState; message: string; resetAt?: number } // 失败
 ```
 
 要点:
@@ -151,7 +151,7 @@ type ChatOnceResult =
 
 | state | 核心处置 |
 |---|---|
-| `rate_limit` | **指数退避**:首次 2s,每次翻倍,上限 5 分钟;成功后等级清零 |
+| `rate_limit` | **指数退避**:首次 2s,每次翻倍,上限 5 分钟;成功后等级清零。失败项带 `resetAt`(上游声明的重置时刻,epoch ms)时**冷到该点**——频率配额的重置是小时级的,退避上限只会到点回来再撞 |
 | `quota` | 冷却 10 分钟 |
 | `session_dead` | **连接级冷却 30 分钟**(该号所有模型都停用,到期自愈;没有永久禁用——403 分不清凭证死活与风控误伤) |
 | `unavailable` / `transport` / `unknown` | 瞬时短冷却 30s(**每次都冷**,不攒次数) |

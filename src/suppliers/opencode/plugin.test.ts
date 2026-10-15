@@ -1,17 +1,24 @@
 /**
- * opencode(Zen 免费档)握手契约测试 —— 锁住 2026-09-22 实测的那组硬门。
+ * opencode(OpenCode Zen 免费档)握手契约测试 —— 锁住 2026-10-15 实测的那组硬门。
  *
- * 为什么值得固化：这四条**都不是可选优化，缺一即 403**
+ * 为什么值得固化：这些**都不是可选优化，缺一即 403**
  * `FreeTierError: OpenCode's free tier can only be used from within OpenCode`。
- * 它们全是「看不出来」的那种约定——代码删掉一行 headers、或把 UA 改回
- * `opencode`，单测本该立刻变红，否则下次只能在真机对话里发现整个供应商死了。
+ * 它们全是「看不出来」的那种约定——代码删掉一行、或把端点/工具名改回去，
+ * 单测本该立刻变红，否则下次只能在真机对话里发现整个供应商死了。
  *
- * 实测依据（2026-09-22，逐项消融验证）：
- *   - UA 必须带版本且 ≥1.18：裸 `opencode`→403；`opencode/1.17.x`→426；1.18.0 起 200
- *   - 必须同时有 `x-opencode-session`/`x-opencode-request`，且形状是
- *     `ses_<12hex><14base62>` / `msg_<同形状>`——格式错也 403
- *   - tools 里必须**同时**有 bash 和 read，只给一个也 403
- *   - 非流式（`stream:false`）即使三样齐全也 403 → 必须恒发 stream:true
+ * 实测依据（2026-10-15，逐项消融 + 单因子隔离）：
+ *   - 端点必须是 `/inference/v1/chat/completions`：`/zen/v1` 已废弃，
+ *     对任何头部/工具组合一律 403（旧实现死在这里）
+ *   - `tools` 里必须存在**小写精确名为 `read`** 的工具：
+ *     `read` 单独→200；`bash`/`glob`/`write`/`shell` 单独→403；
+ *     `read` 改名 `READ`→403；但 `read` 的 `parameters` 完全不看
+ *     （`properties:{}`、无 `parameters`、`parameters:null` 全 200）
+ *   - session 的 12 位 hex 前缀必须是倒序时间戳且低 12 位 ∈ [0,63]：
+ *     纯随机 hex→403、sha256 派生→403、counter=64/300→403
+ *   - 非流式（`stream:false`）即使其余齐全也 403 → 必须恒发 stream:true
+ *
+ * 已实测**不敏感**（故不作为断言，改回旧值也不算错）：UA 具体版本、
+ * `x-opencode-client` 的 cli/desktop、工具 description。
  *
  * 用 node --test 跑（Node 原生剥 TS 类型）：
  *   node --test src/suppliers/opencode/plugin.test.ts
@@ -27,6 +34,19 @@ import type { ChatRequest } from '../../router/types.ts'
 /** 上游认的 session/request id 形状：前缀 + 12 位小写 hex + 14 位 base62。 */
 const SES_RE = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/
 const MSG_RE = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/
+
+/** 上游免费档的推理端点。`/zen/v1` 已废弃，出现即回归。 */
+const EXPECTED_CHAT_URL = 'https://opencode.ai/inference/v1/chat/completions'
+
+/**
+ * 从 session id 还原出 counter：12 位 hex 是 `~(ts * 0x1000 + counter)`，
+ * 故先取反还原 `ts * 0x1000 + counter`，再取低 12 位即 counter
+ * （`ts * 0x1000` 的低 12 位恒为 0）。
+ */
+function invertedCounter(id: string): bigint {
+  const time = BigInt('0x' + id.slice(4, 16))
+  return ~time & 0xffffffffffffn & 0xfffn
+}
 
 interface Captured {
   url: string
@@ -70,25 +90,38 @@ function request(over: Partial<ChatRequest> = {}): ChatRequest {
   }
 }
 
-test('chatOnce 必须带版本化 UA + 合法形状的 session/request 头', async () => {
+test('chat 必须打 /inference/v1（/zen/v1 已废弃，全组合 403）', async () => {
   const stub = stubFetch()
   try {
     const r = await makePlugin().chatOnce('', 'auto', request())
     assert.equal(r.ok, true, '握手齐全时应当成功')
-    const h = stub.captured[0]!.headers
-
-    // UA 必须带版本号（裸 'opencode' 会被上游按非 CLI 拒掉）
-    assert.match(h['User-Agent'] ?? '', /^opencode\/\d+\.\d+/, 'UA 必须带 opencode/ 版本号')
-
-    // session/request 形状不对上游是**拒绝**而不是忽略 —— 形状必须严格
-    assert.match(h['x-opencode-session'] ?? '', SES_RE, 'x-opencode-session 形状不对会被 403')
-    assert.match(h['x-opencode-request'] ?? '', MSG_RE, 'x-opencode-request 形状不对会被 403')
+    assert.equal(stub.captured[0]!.url, EXPECTED_CHAT_URL, '/zen/v1 是本次故障根因，不得回退')
   } finally {
     stub.restore()
   }
 })
 
-test('请求体恒为流式，且 tools 同时含 bash 与 read', async () => {
+test('session 的 12 位 hex 必须是倒序时间戳，低 12 位 counter ∈ [0,63]', async () => {
+  const stub = stubFetch()
+  try {
+    await makePlugin().chatOnce('', 'auto', request())
+    const h = stub.captured[0]!.headers
+
+    // 形状不对上游是**拒绝**而不是忽略 —— 形状必须严格
+    assert.match(h['x-opencode-session'] ?? '', SES_RE, 'x-opencode-session 形状不对会被 403')
+    assert.match(h['x-opencode-request'] ?? '', MSG_RE, 'x-opencode-request 形状不对会被 403')
+
+    // 纯随机 hex 与 sha256 派生 hex 都落不进 [0,63] 窗口 → 必然 403
+    for (const key of ['x-opencode-session', 'x-opencode-request'] as const) {
+      const counter = invertedCounter(h[key]!)
+      assert.ok(counter <= 63n, `${key} 的 counter 必须 ∈ [0,63]（实测 64/300 会 403），得到 ${counter}`)
+    }
+  } finally {
+    stub.restore()
+  }
+})
+
+test('tools 必须含小写 read；bash 不是门，且不得被注入（旧实现的回归点）', async () => {
   const stub = stubFetch()
   try {
     // 调用方明确要非流式 —— 上游免费档对非流式一律 403，插件必须翻成流式
@@ -96,32 +129,53 @@ test('请求体恒为流式，且 tools 同时含 bash 与 read', async () => {
     const body = stub.captured[0]!.body
     assert.equal(body.stream, true, '免费档只支持流式，非流式必须翻成 stream:true')
 
-    const names = (body.tools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name)
-    assert.ok(names.includes('bash'), 'tools 缺 bash 会被 403')
+    const tools = body.tools as Array<{ function?: { name?: string } }>
+    const names = tools.map((t) => t.function?.name)
     assert.ok(names.includes('read'), 'tools 缺 read 会被 403')
+    // 实测：bash 不是门（bash 单独 → 403），注入它只会污染调用方的工具表
+    assert.equal(names.includes('bash'), false, 'bash 不是免费档的门，不该被注入')
+    assert.equal(tools.length, 1, '无调用方工具时只应补 read 一个占位')
   } finally {
     stub.restore()
   }
 })
 
-test('调用方自带的同名工具不被占位工具覆盖（bash/read 只补缺）', async () => {
+test('read 的 parameters 不被检查（空 schema 即可通过）', async () => {
   const stub = stubFetch()
   try {
+    await makePlugin().chatOnce('', 'auto', request())
+    const tools = stub.captured[0]!.body.tools as Array<{ function: { name: string; parameters?: unknown } }>
+    const read = tools.find((t) => t.function.name === 'read')!
+    // 上游只看名字，故占位用空 properties 是对的（别"补"成真 schema 增加噪音）
+    assert.deepEqual(read.function.parameters, { type: 'object', properties: {} })
+  } finally {
+    stub.restore()
+  }
+})
+
+test('调用方自带的同名工具不被占位工具覆盖（read 只补缺）', async () => {
+  const stub = stubFetch()
+  try {
+    const realRead = {
+      type: 'function',
+      function: { name: 'read', description: 'REAL READ', parameters: { type: 'object', properties: { filePath: { type: 'string' } } } },
+    }
     const realBash = {
       type: 'function',
       function: { name: 'bash', description: 'REAL BASH', parameters: { type: 'object', properties: { command: { type: 'string' } } } },
     }
     await makePlugin().chatOnce('', 'auto', request({
-      rawBody: JSON.stringify({ model: 'big-pickle', messages: [], stream: true, tools: [realBash] }),
+      rawBody: JSON.stringify({ model: 'big-pickle', messages: [], stream: true, tools: [realRead, realBash] }),
     }))
     const tools = stub.captured[0]!.body.tools as Array<{ function: { name: string; description?: string } }>
 
-    const bash = tools.filter((t) => t.function.name === 'bash')
-    assert.equal(bash.length, 1, 'bash 不能被注入成两条（否则真实工具签名被挤掉）')
-    assert.equal(bash[0]!.function.description, 'REAL BASH', '调用方自己的定义必须原样保留')
+    const read = tools.filter((t) => t.function.name === 'read')
+    assert.equal(read.length, 1, 'read 不能被注入成两条（否则真实工具签名被挤掉）')
+    assert.equal(read[0]!.function.description, 'REAL READ', '调用方自己的定义必须原样保留')
+    assert.equal(tools.length, 2, '已有 read 时不该再补任何占位')
 
-    // read 缺失 → 补上；bash 已有 → 不重复
-    assert.ok(tools.some((t) => t.function.name === 'read'), '缺的 read 要补上')
+    // 调用方的 bash 必须原样留着（它不是门，但也绝不能被删）
+    assert.equal(tools.filter((t) => t.function.name === 'bash').length, 1, '调用方的 bash 不得被动')
   } finally {
     stub.restore()
   }

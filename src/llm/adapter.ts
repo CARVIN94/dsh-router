@@ -444,13 +444,35 @@ export async function* translateSse(payloads: AsyncIterable<string> | Iterable<s
         const usage = toTokenUsage(accumulated)
         if (usage !== null) yield { type: 'usage', usage }
       }
+      // 上游报 `stop` **却发了工具调用**时，必须以 tool-calls 收尾。
+      //
+      // 为什么（2026-10-15 实测）：traework 上游在带 tools 的请求上正常发出
+      // 完整的 tool_calls（参数逐片拼全），收尾帧却写 `finish_reason: "stop"`
+      // ——与 OpenAI 契约不符（有工具调用应为 `tool_calls`）。而 mapFinishReason
+      // 只看 reason 字面量，于是 kind='stop'，下面那个 `order.length === 0` 的
+      // 兜底又因为「有内容」不触发，最终以 stop 收尾 → **已攒好的工具块被静默
+      // 丢弃**，调用方（Delta 等）据此认为「本轮结束、没有工具要执行」，表现为
+      // 「模型能对话但工具永远调不动」。
+      //
+      // 判据用 `complete` 而不是 `order`：只有**参数拼全**的工具块才配提升为
+      // tool-calls。注意在当前逻辑下两者等价——参数残缺时上面的 `pendingFinish`
+      // 已经把它改成 error，`reason.kind` 就不是 'stop'，根本走不到这里；
+      // 仍写 `complete` 是因为语义直接（「完整的工具调用」），且不依赖那个
+      // 副作用：哪天 error 分支挪走或放宽，这里不会跟着把半成品放行。
+      //
+      // 只改 `stop`：`length`（截断）必须原样透传 —— dsh-llm 的 assembled()
+      // 正是靠 `finish.kind === 'max-tokens'` 去丢弃被截断的工具调用，
+      // 改掉它就等于把半截调用放出去执行。
+      const hasCompleteToolCall = complete.some((block) => block.kind === 'tool-call')
       const reason = pendingFinish ?? { kind: 'stop' }
+      const resolved =
+        reason.kind === 'stop' && hasCompleteToolCall ? { kind: 'tool-calls' } : reason
       yield {
         type: 'finish',
         reason:
-          reason.kind === 'stop' && order.length === 0
+          resolved.kind === 'stop' && order.length === 0
             ? { kind: 'error', failure: { message: 'model returned a completed response with no content', code: EMPTY_RESPONSE_CODE } }
-            : (reason as never),
+            : (resolved as never),
       }
       return
     }

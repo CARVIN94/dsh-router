@@ -156,6 +156,60 @@ test('出口：空的 finish_reason 不许冲掉后面那个真终止原因', as
   assert.deepEqual(reason, { kind: 'tool-calls' })
 })
 
+test('出口：上游报 stop 却发了完整工具调用时，必须以 tool-calls 收尾', async () => {
+  // 真实事故（2026-10-15，traework 上游 + Delta 客户端）：带 tools 的请求上，
+  // 上游正常发出完整的 tool_calls（参数逐片拼全），收尾帧却写
+  // `finish_reason: "stop"` —— 与 OpenAI 契约不符（有工具调用应为 tool_calls）。
+  //
+  // 修复前 mapFinishReason('stop') 直接给 kind='stop'，而「无内容」兜底又因
+  // 为有内容不触发，于是已攒好的工具块被静默丢弃；调用方据此认为「本轮结束、
+  // 没有工具要执行」，表现为「模型能对话但工具永远调不动」（Delta 侧即
+  // 「test 能访问但 tool 调用不了」）。
+  const reason = await finishOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"command":"ls"}' } }] } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  )
+  assert.deepEqual(reason, { kind: 'tool-calls' })
+})
+
+test('出口：stop + 工具调用时，工具块本身也要照常交出（不能只改收尾）', async () => {
+  const calls = await toolCallsOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"command":"ls"}' } }] } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  )
+  assert.deepEqual(calls, [{ type: 'tool-call', id: 'call_1', name: 'bash', arguments: '{"command":"ls"}' }])
+})
+
+test('出口：stop 且没有工具调用时，仍然收尾为 stop（不能误报 tool-calls）', async () => {
+  // 反向判据：修复不能把普通对话也标成 tool-calls，否则调用方会空等工具结果。
+  const reason = await finishOf(frame({ choices: [{ delta: { content: 'hello' }, finish_reason: 'stop' }] }), '[DONE]')
+  assert.deepEqual(reason, { kind: 'stop' })
+})
+
+test('出口：length 截断即使带了工具调用也不能改成 tool-calls', async () => {
+  // `length` 必须原样透传：dsh-llm 的 assembled() 靠 `finish.kind === 'max-tokens'`
+  // 丢弃被截断的工具调用，改成 tool-calls 等于把半截调用放出去执行。
+  const reason = await finishOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"command":"ls"}' } }] } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'length' }] }),
+    '[DONE]',
+  )
+  assert.deepEqual(reason, { kind: 'max-tokens' })
+})
+
+test('出口：stop + 参数残缺的工具调用时，仍判 error（半成品不许当有效调用）', async () => {
+  // 与上一条互补：`stop` 只在工具块**完整**时才提升为 tool-calls。
+  // 参数残缺时既有逻辑已把 pendingFinish 改成 error，不能被这条修复绕过去。
+  const reason = await finishOf(
+    frame({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"command": "cd' } }] } }] }),
+    frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  )
+  assert.equal(reason?.kind, 'error')
+})
+
 test('出口：未知终止原因必须带非空 code（agent-loop 会拿它重建 LlmError）', async () => {
   const reason = await finishOf(frame({ choices: [{ delta: { content: 'x' }, finish_reason: 'content_filter' }] }), '[DONE]')
   assert.equal(reason?.kind, 'error')

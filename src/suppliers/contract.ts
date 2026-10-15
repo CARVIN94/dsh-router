@@ -117,8 +117,13 @@ export type ChatOnceResult =
   | { ok: true; stream: ReadableStream<Uint8Array> }
   /** 非流式：核心写 JSON。 */
   | { ok: true; status: number; body: string }
-  /** 失败：核心据此做冷却/换号。 */
-  | { ok: false; state: AccountState; message: string }
+  /**
+   * 失败：核心据此做冷却/换号。
+   * `resetAt` = 上游自己声明的重置时刻（epoch ms，可选）：限流类错误带它时
+   * 核心冷却到该点，而不是指数退避——频率配额的重置是小时级的，5min 上限的
+   * 退避只会到点回来再撞（2026-10-15 的 6004 事故：11 个号轮流被打冷）。
+   */
+  | { ok: false; state: AccountState; message: string; resetAt?: number }
 
 /** 供应商模块 —— 契约（核心必须，差异化可选）。 */
 export interface SupplierModule {

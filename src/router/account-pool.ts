@@ -54,7 +54,9 @@ const SESSION_DEAD_COOLDOWN_MS = 30 * MINUTE
  *
  * 冷却策略对齐 9router 的 accountFallback / errorConfig：
  *  - `rate_limit` 用**指数退避**（9router 的 `backoff: true`）：偶发限流只
- *    短冷，持续限流越退越久，比固定 1 分钟两头不讨好要准。
+ *    短冷，持续限流越退越久，比固定 1 分钟两头不讨好要准。上游自己声明了
+ *    **重置时刻**（resetAt，如 6004「将在 … 重置」）时冷到该点——频率配额是
+ *    小时级的，退避上限（5min）只会到点回来再撞。
  *  - 未知/瞬时错误用**瞬时短冷却**（9router 默认分支 TRANSIENT_COOLDOWN_MS）：
  *    每次失败都冻结，坏号不会留在池里被下一个请求再选中。
  *
@@ -495,8 +497,13 @@ export class AccountPool {
     return `${this.supplierId}${SEP}${modelId}`
   }
 
-  /** 记录一次失败：按状态处置（冷却/退避），落在「(模型, 连接)」这个冷却单元上。 */
-  noteFailure(uid: string, modelId: string, state: AccountState, message: string): void {
+  /**
+   * 记录一次失败：按状态处置（冷却/退避），落在「(模型, 连接)」这个冷却单元上。
+   * `resetAt` = 上游声明的重置时刻（epoch ms）：限流退避优先冷到该点——
+   * 频率配额是小时级的，5min 上限的指数退避只会到点回来再撞 6004，
+   * 把号轮流打冷（2026-10-15 的 11 号全灭事故）。
+   */
+  noteFailure(uid: string, modelId: string, state: AccountState, message: string, resetAt?: number): void {
     const rule = RULES[state]
     if (rule.cooldown === 0) return // no_such_model 等：不冷不记
     // session_dead 是连接级冷却（登录态问题，跨该号所有模型），到期自愈——
@@ -514,7 +521,11 @@ export class AccountPool {
     if (rule.cooldown === 'backoff') {
       // 连续被限流 → 等级递进冷却；成功（noteSuccess）会清零等级
       e.backoffLevel = Math.min(e.backoffLevel + 1, BACKOFF_MAX_LEVEL)
-      e.until = Math.max(e.until, Date.now() + backoffMs(e.backoffLevel))
+      const backoffUntil = Date.now() + backoffMs(e.backoffLevel)
+      // 上游自己报了重置时刻就冷到那个点（且不低于已有的更长冷却）；过期/
+      // 未报的 resetAt 退回指数退避。
+      const until = resetAt !== undefined && resetAt > Date.now() ? resetAt : backoffUntil
+      e.until = Math.max(e.until, until)
       return
     }
     if (rule.cooldown === 'transient') {

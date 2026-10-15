@@ -61,9 +61,13 @@ export interface ChatRequest {
   /** 推理等级（reasoning effort），供应商各自决定怎么映射到上游。缺省 = 'auto'。 */
   lv?: string
   /**
-   * 宿主盖的会话身份（dsh-llm `GenerateOptions.sessionId`），由 adapter 转成
-   * 内部头带进来。用于把用量记录**按会话归因**（「最近命中」徽章要按当前会话
-   * 显示，而不是显示别的会话的命中）。缺省 = 非宿主调用（外部 OpenAI 客户端）。
+   * 调用方身份（归因键）。来源两种：
+   *   1. 宿主会话身份（dsh-llm `GenerateOptions.sessionId`，adapter 转成内部头
+   *      `x-dsh-router-session`）——形式 `session-<uuid>`；
+   *   2. 外部 OpenAI 兼容客户端的 `user` 字段（Zed/IDE 等多客户端场景）——形式
+   *      `ext:<user>`，前缀标明「这不是宿主会话」。
+   * 用途：把用量记录**按调用方归因**（「最近命中」徽章按当前会话显示；出事时
+   * 能反查是哪个客户端在打）。缺省 = 匿名外部客户端。
    */
   session?: string
 }

@@ -660,3 +660,38 @@ test('【隔离】不同供应商的同名模型，各自独立冷却', () => {
   // B 供应商同名模型不受影响
   assert.equal(pb.pick(list, [], 'deepseek-v4-flash'), 'acc', 'B 池同名模型照常可用')
 })
+
+// ============ 限流冷却对齐上游声明的重置时刻（resetAt） ============
+
+/**
+ * 2026-10-15 事故：6004 文案自带「将在 … 重置」（小时级），但退避上限 5min →
+ * 到点回来再撞，11 个号轮流被打冷。锁住：带 resetAt 就冷到那个点；
+ * 过期/未带的 resetAt 退回指数退避（行为与改动前一致）。
+ */
+test('【resetAt】限流冷却到上游声明的重置时刻，而不是 5min 退避上限', () => {
+  const p = pool()
+  const list = accs(['a'])
+  const resetAt = Date.now() + 3 * 3600_000 // 3 小时后重置
+  p.noteFailure('a', 'm1', 'rate_limit', 'codebuddy 6004: 您的使用量已超出频率限制，将在 … 重置', resetAt)
+  const row = p.decorate(list, 'm1')[0]
+  assert.equal(row?.cooling, true)
+  assert.equal(row?.until === undefined ? 0 : new Date(row.until).getTime(), resetAt, '冷到上游重置点')
+  assert.equal(p.pick(list, [], 'm1'), undefined, '重置前不该再被选中')
+})
+
+test('【resetAt】过期的重置时刻退回指数退避；不带 resetAt 行为不变', () => {
+  const p = pool()
+  const list = accs(['a'])
+  // 上游报的重置时刻已过 → 退避（首档 2s 量级），不是「不冷」也不是冷很久
+  p.noteFailure('a', 'm1', 'rate_limit', '429', Date.now() - 1000)
+  const row = p.decorate(list, 'm1')[0]
+  const until = row?.until === undefined ? 0 : new Date(row.until).getTime()
+  assert.ok(until > Date.now(), '仍要冷')
+  assert.ok(until - Date.now() <= 60_000, '退回短退避，而不是按过期时刻冷')
+  // 不带 resetAt（其它供应商/文案没解析出）：同样短退避
+  const p2 = pool()
+  p2.noteFailure('b', 'm1', 'rate_limit', '429')
+  const row2 = p2.decorate(accs(['b']), 'm1')[0]
+  const until2 = row2?.until === undefined ? 0 : new Date(row2.until).getTime()
+  assert.ok(until2 > Date.now() && until2 - Date.now() <= 60_000)
+})

@@ -321,3 +321,25 @@ export interface RouterChartResponse {
   error?: string
   chart?: RouterChartBucket[]
 }
+
+/**
+ * 外部 OpenAI 兼容客户端的归因标签（`/v1` 没有宿主内部头 `x-dsh-router-session`
+ * 时的兜底）——否则 usage 记录里全是匿名流量，出事反查不出是谁在打
+ * （2026-10-15 实测：296 条匿名记录对不上任何会话）。
+ *
+ * 取值优先级：`user`（OpenAI 标准终端用户字段）→ `prompt_cache_key`
+ * （Zed 等客户端的缓存键，常带线程粒度）→ `User-Agent`（保底到客户端粒度）。
+ * 值截断到 64 字符；三者皆无返回 undefined（保持匿名）。
+ */
+export function clientIdentityOf(
+  body: { user?: unknown; prompt_cache_key?: unknown },
+  userAgent: string | undefined,
+): string | undefined {
+  const tag = (kind: string, v: unknown): string | undefined =>
+    typeof v === 'string' && v !== '' ? `ext/${kind}:${v.slice(0, 64)}` : undefined
+  return (
+    tag('user', body.user)
+    ?? tag('cache', body.prompt_cache_key)
+    ?? (userAgent !== undefined && userAgent !== '' ? `ext/ua:${userAgent.slice(0, 64)}` : undefined)
+  )
+}

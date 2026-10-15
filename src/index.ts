@@ -33,7 +33,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
-import { ROUTER_API_BASE, type RouterPeriod } from './shared.ts'
+import { ROUTER_API_BASE, type RouterPeriod, clientIdentityOf } from './shared.ts'
 import { Router } from './router/index.ts'
 import { RouterAdapter, type RouterAttachmentStore } from './llm/adapter.ts'
 import { KeysStore } from './keys.ts'
@@ -363,9 +363,9 @@ export function apply(rawContext: unknown): void {
       writeJson(res, 413, { error: { message: 'request body too large', type: 'api_error', code: 'request_too_large' } })
       return
     }
-    let peek: { stream?: boolean; model?: string; reasoning_effort?: unknown }
+    let peek: { stream?: boolean; model?: string; reasoning_effort?: unknown; user?: unknown; prompt_cache_key?: unknown }
     try {
-      peek = JSON.parse(body) as { stream?: boolean; model?: string; reasoning_effort?: unknown }
+      peek = JSON.parse(body) as { stream?: boolean; model?: string; reasoning_effort?: unknown; user?: unknown; prompt_cache_key?: unknown }
     } catch {
       writeJson(res, 400, { error: { message: 'invalid JSON body', type: 'api_error', code: 'invalid_request' } })
       return
@@ -373,9 +373,12 @@ export function apply(rawContext: unknown): void {
     const lv = typeof peek.reasoning_effort === 'string' && peek.reasoning_effort !== ''
       ? peek.reasoning_effort
       : 'auto'
-    // 宿主会话身份（adapter 从 GenerateOptions.sessionId 转来的内部头）；外部客户端没有。
+    // 调用方身份：宿主会话内部头（adapter 从 GenerateOptions.sessionId 转来）
+    // 优先；外部客户端没有内部头，用 user/prompt_cache_key/UA 兜底归因——
+    // 否则 usage 记录全是匿名，反查不出是哪个客户端在打。
     const sessionRaw = req.headers['x-dsh-router-session']
-    const session = typeof sessionRaw === 'string' && sessionRaw !== '' ? sessionRaw : undefined
+    const session = (typeof sessionRaw === 'string' && sessionRaw !== '' ? sessionRaw : undefined)
+      ?? clientIdentityOf(peek, req.headers['user-agent'])
     await router.chatCompletions(
       {
         rawBody: body,

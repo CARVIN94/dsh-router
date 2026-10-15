@@ -1355,7 +1355,7 @@ export class Router {
           }
           return false
         }
-        pool.noteFailure(uid, req.model, r.state, r.message)
+        pool.noteFailure(uid, req.model, r.state, r.message, r.resetAt)
         // 故障切走：下次选号会换号，旧块的驻留计数不再适用（前缀归属变了）
         pool.dropBlock(req.model)
         if (trace !== undefined) {

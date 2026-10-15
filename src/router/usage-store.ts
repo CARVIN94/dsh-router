@@ -55,8 +55,10 @@ export interface UsageRecord {
   /** 失败原因（ok=false 时）。 */
   error?: string
   /**
-   * 宿主会话身份（有则记）。用于「最近命中」按当前会话归因 —— 徽章要显示
-   * 当前会话的命中，而不是全局最近（team 多会话下后者会张冠李戴）。
+   * 调用方身份（有则记）：宿主会话 id（`session-<uuid>`）或外部 OpenAI 客户端
+   * 标签（`ext/…`，见 shared.ts 的 clientIdentityOf）。用于「最近命中」按当前
+   * 会话归因（徽章要显示当前会话的命中，而不是全局最近），出事时也能反查
+   * 是哪个客户端在打。
    */
   session?: string
 }

@@ -1,17 +1,21 @@
 /**
- * opencode(Zen 免费档)握手契约测试 —— 锁住 2026-09-22 实测的那组硬门。
+ * opencode(Zen 免费档)握手契约测试 —— 锁住 2026-10 复测的那组硬门。
  *
- * 为什么值得固化：这四条**都不是可选优化，缺一即 403**
+ * 为什么值得固化：这些**都不是可选优化，缺一即 403**
  * `FreeTierError: OpenCode's free tier can only be used from within OpenCode`。
  * 它们全是「看不出来」的那种约定——代码删掉一行 headers、或把 UA 改回
  * `opencode`，单测本该立刻变红，否则下次只能在真机对话里发现整个供应商死了。
  *
- * 实测依据（2026-09-22，逐项消融验证）：
+ * 实测依据（2026-09-22 首测，2026-10 复测 + 真机 curl 逐项消融）：
  *   - UA 必须带版本且 ≥1.18：裸 `opencode`→403；`opencode/1.17.x`→426；1.18.0 起 200
- *   - 必须同时有 `x-opencode-session`/`x-opencode-request`，且形状是
- *     `ses_<12hex><14base62>` / `msg_<同形状>`——格式错也 403
- *   - tools 里必须**同时**有 bash 和 read，只给一个也 403
- *   - 非流式（`stream:false`）即使三样齐全也 403 → 必须恒发 stream:true
+ *   - `x-opencode-session`/`x-opencode-request` 必须是 opencode 真实
+ *     `descending()`/`ascending()` 标识符：`ses_<12hex><14base62>`，且 hex 的
+ *     低 12 位（counter 字段，`low12 = 0xfff - counter`）要求 **counter ≤ 64**。
+ *     counter 边界实测：1/32/63/64 → 200；65/100/4095 → 403。
+ *     这是 2026-10 修的根因：旧的随机 hex 实现有约 98% 概率 403
+ *     （「供应商发消息不通」就是这个）。
+ *   - tools 里必须有 `read`（只看名字，schema 随意）；bash 占位是历史冗余，无害
+ *   - 非流式（`stream:false`）即使其他齐全也 403 → 必须恒发 stream:true
  *
  * 用 node --test 跑（Node 原生剥 TS 类型）：
  *   node --test src/suppliers/opencode/plugin.test.ts
@@ -27,6 +31,13 @@ import type { ChatRequest } from '../../router/types.ts'
 /** 上游认的 session/request id 形状：前缀 + 12 位小写 hex + 14 位 base62。 */
 const SES_RE = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/
 const MSG_RE = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/
+
+/**
+ * counter ≤ 64 的闸门（2026-10 真机消融）：hex 低 12 位 = `0xfff - counter`，
+ * 所以合法 id 的 hex 必须满足 `low12 >= 0xfff - 64 = 0xfbf`。
+ * 旧实现（随机 hex）这条只有 65/4096 ≈ 1.6% 的概率满足——正是根因。
+ */
+const COUNTER_OK_RE = /^ses_[0-9a-f]{9}(fbf|fc[0-9a-f]|fd[0-9a-f]|fe[0-9a-f]|ff[0-9a-f])/
 
 interface Captured {
   url: string
@@ -83,12 +94,33 @@ test('chatOnce 必须带版本化 UA + 合法形状的 session/request 头', asy
     // session/request 形状不对上游是**拒绝**而不是忽略 —— 形状必须严格
     assert.match(h['x-opencode-session'] ?? '', SES_RE, 'x-opencode-session 形状不对会被 403')
     assert.match(h['x-opencode-request'] ?? '', MSG_RE, 'x-opencode-request 形状不对会被 403')
+
+    // counter ≤ 64 闸门：必须是真实 descending() 算法，不能是随机 hex
+    assert.match(h['x-opencode-session'] ?? '', COUNTER_OK_RE, 'session 的 counter 字段超界（>64）会被上游 403')
   } finally {
     stub.restore()
   }
 })
 
-test('请求体恒为流式，且 tools 同时含 bash 与 read', async () => {
+test('session id 必须稳定满足 counter ≤ 64（旧随机实现约 98% 会被 403）', async () => {
+  const stub = stubFetch()
+  try {
+    const p = makePlugin()
+    // 连打 60 次：随机 hex 实现 60 次全过的概率只有 (65/4096)^60 ≈ 0，
+    // 而真实算法每次都过。曾经就靠这种批量断言抓出过随机退化的根因。
+    for (let i = 0; i < 60; i++) {
+      const r = await p.chatOnce('', 'auto', request())
+      assert.equal(r.ok, true)
+      const h = stub.captured[i]!.headers
+      assert.match(h['x-opencode-session'] ?? '', COUNTER_OK_RE, `第 ${i + 1} 次的 session counter 越界`)
+      assert.match(h['x-opencode-request'] ?? '', MSG_RE)
+    }
+  } finally {
+    stub.restore()
+  }
+})
+
+test('请求体恒为流式，且 tools 含 read（bash 占位一并保留）', async () => {
   const stub = stubFetch()
   try {
     // 调用方明确要非流式 —— 上游免费档对非流式一律 403，插件必须翻成流式
@@ -97,8 +129,8 @@ test('请求体恒为流式，且 tools 同时含 bash 与 read', async () => {
     assert.equal(body.stream, true, '免费档只支持流式，非流式必须翻成 stream:true')
 
     const names = (body.tools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name)
-    assert.ok(names.includes('bash'), 'tools 缺 bash 会被 403')
-    assert.ok(names.includes('read'), 'tools 缺 read 会被 403')
+    assert.ok(names.includes('read'), 'tools 缺 read 会被 403（2026-10 消融实测的唯一硬门槛）')
+    assert.ok(names.includes('bash'), 'bash 占位保留（历史行为，无害）')
   } finally {
     stub.restore()
   }

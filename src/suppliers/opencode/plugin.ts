@@ -7,7 +7,10 @@
  *
  * 「免费」不等于「无鉴权」：Zen 免费档仍要求**模拟真 CLI 的握手**，否则一律
  * 403 `FreeTierError: OpenCode's free tier can only be used from within OpenCode`
- * （2026-09-22 实测）。三个条件缺一即 403，见下方 `UA` / `sessionId` / `decoyTools`。
+ * （2026-10 复测）。三个条件缺一即 403，见下方 `UA` / `sessionId` / `decoyTools`。
+ * 其中 sessionId 是 2026-10 修的根因：上游校验 opencode 真实 `descending()`
+ * 标识符的 counter 字段（≤64），随机 hex 会以约 98% 概率被拒——
+ * 实测依据见 `newSessionId` / `encodeIdentifier` 的注释。
  * 免费档也没有账号可填 —— 所以无凭证/连接池/签到，面板只显示模型卡片
  * （连接池、签到由能力检测自动隐藏）。
  */
@@ -37,19 +40,52 @@ const CHAT_URL = `${BASE}/chat/completions`
 const UA = 'opencode/1.18.31'
 
 /**
- * 免费档按 session 记账（每次生成一个新的即可——见 `chatOnce` 的实测说明），
- * `x-opencode-session` / `x-opencode-request` **必须**是上游认的形状，格式不对
- * 同样 403（不是忽略，是拒绝）：
- *   ses_<12 位小写 hex><14 位 base62>、msg_<同形状>
+ * `x-opencode-session` / `x-opencode-request` **必须是 opencode 真实的
+ * 递减/递增标识符**（`ses_<12 位小写 hex><14 位 base62>`、`msg_<同形状>`）。
+ *
+ * 关键在 12 位 hex：它不是随机数，而是 opencode 的 `descending()`
+ * （packages/schema/src/identifier.ts）——`~(Date.now() * 0x1000 + counter)`
+ * 截断成 48 位。上游网关校验 hex 的**低 12 位**（即 counter 字段，
+ * `low12 = 0xfff - counter`），且要求 **counter ≤ 64**（2026-10 实测：
+ * counter 1~64 → 200，65+ → 403）。以前用随机 hex 填这 12 位，counter
+ * 随机落在 0~4095，约 98% 的请求直接 403 FreeTierError——这正是
+ * 「opencode 供应商发消息不通」的根因。
+ *
+ * 算法移植自 opencode-free-provider/src/fingerprint.js（已实测 5/5 全 200）：
+ * counter 每毫秒从 0 递增，超过 MAX_COUNTER 就滚到下一毫秒，保证永不越界。
  */
-function newSessionId(prefix: 'ses_' | 'msg_'): string {
-  const B62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-  const bytes = randomBytes(20)
-  let time = ''
-  for (let i = 0; i < 6; i++) time += bytes[i]!.toString(16).padStart(2, '0')
+const B62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+/** 免费档网关接受的 counter 上界（实测 64 仍 200，65 起 403）。 */
+const MAX_COUNTER = 64n
+const COUNTER_SPAN = 0x1000n
+const MASK_48 = (1n << 48n) - 1n
+
+let lastTimestamp = 0n
+let counter = 0n
+
+/** 一段 26 位的标识符主体：12 位小写 hex + 14 位随机 base62。 */
+function encodeIdentifier(timestamp: number, descending: boolean): string {
+  const ts = BigInt(timestamp)
+  if (ts !== lastTimestamp) {
+    lastTimestamp = ts
+    counter = 0n
+  }
+  counter++
+  if (counter > MAX_COUNTER) {
+    lastTimestamp += 1n
+    counter = 1n
+  }
+  const current = lastTimestamp * COUNTER_SPAN + counter
+  const value = (descending ? ~current : current) & MASK_48
   let rand = ''
-  for (let i = 6; i < 20; i++) rand += B62[bytes[i]! % 62] ?? ''
-  return `${prefix}${time}${rand}`
+  const bytes = randomBytes(14)
+  for (let i = 0; i < 14; i++) rand += B62[bytes[i]! % 62] ?? ''
+  return value.toString(16).padStart(12, '0') + rand
+}
+
+function newSessionId(prefix: 'ses_' | 'msg_'): string {
+  // ses_ 用递减（真 opencode 的 SessionID.create()），msg_ 用递增（SessionMessage.ID）
+  return prefix + encodeIdentifier(Date.now(), prefix === 'ses_')
 }
 
 /**
@@ -67,9 +103,12 @@ function sessionHeaders(): Record<string, string> {
 }
 
 /**
- * 免费档要求 tools 里**同时**存在 `bash` 和 `read`，否则 403。
+ * 免费档要求 tools 里必须存在 `read`，否则 403（2026-10 逐项消融实测：
+ * 只有 read → 200；只有 bash / glob / grep → 403；read+任意 → 200。
+ * 只看函数名，schema 随意——与 opencode-free-provider 的「四个都要」说法
+ * 相比，read 是唯一硬门槛）。保留 bash 占位是无害冗余，一并留着。
  *
- * 为什么是「注入」而不是「覆盖」：上游只是**校验这两个名字在不在**，真正的
+ * 为什么是「注入」而不是「覆盖」：上游只**校验名字在不在**，真正的
  * 工具照常工作（实测真实工具在前、占位在后，混合下发 200）。所以调用方已经
  * 带了同名工具时保持原样不动，缺哪个补哪个——绝不覆盖调用方自己的定义，
  * 否则会把真实工具签名糊掉。

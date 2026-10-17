@@ -3489,7 +3489,7 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     overflow-wrap: anywhere;
     /* 保留换行：子开关的**原文**是这个类的另一个用法（2026-09-29 合并进来），
        它是多行段落。状态文案都是单行，所以这条对它们没有副作用。
-       ⇒ 原来的 `.dshr-compRowBody` 整块删掉：14 条规则的正文不需要左边框 +
+       ⇒ 原来的 `.dshr-compRowBody` 整块删掉：各条规则的正文不需要左边框 +
        缩进那种「引用块」的额外装饰（用户要求），层级只靠颜色就够。 */
     white-space: pre-wrap;
 }

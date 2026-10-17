@@ -143,7 +143,7 @@ test('★ 渲染出来的第一行是整段标题（拆分时差点丢的就是�
   // ⚠️ 原文是 `[准则 …] ·身份气质：…`，标题在方括号里、**不属于任何单条分类**
   //   ⇒ 按分隔符切分时天然被丢掉
   //   （它只出现在 content.ts 头注，没进任何 body）。
-  //   丢了的后果：模型看到 14 条**没有名字**的规则，不知道这套东西是什么。
+  //   丢了的后果：模型看到一堆**没有名字**的规则，不知道这套东西是什么。
   const text = renderPromptText(true, undefined)
   assert.ok(text.startsWith(PROMPT_TITLE), `第一行不是标题；开头是：${text.slice(0, 30)}`)
   assert.equal(text.split('\n')[0], PROMPT_TITLE, '标题必须在最前面 —— 它要解释后面的规则')

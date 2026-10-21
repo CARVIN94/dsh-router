@@ -5,6 +5,7 @@
  */
 import type { AccountState, ChatOnceResult, SupplierAccountNow } from '../suppliers/contract.ts'
 import type { AccountPool } from './account-pool.ts'
+import type { ProtocolId } from '../protocol/types.ts'
 
 /** 面板展示的账号状态（脱敏）。 */
 export interface SupplierAccount {
@@ -70,6 +71,15 @@ export interface ChatRequest {
    * 能反查是哪个客户端在打）。缺省 = 匿名外部客户端。
    */
   session?: string
+  /**
+   * 客户端说的协议（入站）。
+   *
+   * 缺省 `'chat'`（今天所有入口的现状）。四种协议（chat / anthropic /
+   * responses / gemini）在入站路由上就被翻成规范形态，所以**核心与供应商
+   * 只认 chat**；这个字段存在的理由是让用量记录与日志能说出「客户端原本
+   * 说的哪种协议」，排查「Claude Code 打过来为什么不通」时省一次猜。
+   */
+  protocol?: ProtocolId
 }
 
 /**
@@ -97,6 +107,15 @@ export interface Supplier {
   accounts(): SupplierAccountNow[]
   /** 对单个账号调一次上游。不遍历账号、不管冷却、不写 res。 */
   chatOnce(uid: string, lv: string, req: ChatRequest): Promise<ChatOnceResult>
+  /**
+   * 上游说哪种协议（缺省 `'chat'`）。
+   *
+   * 声明成别种时，核心在 `chatOnce` 前后各做一次翻译：请求体翻成该协议、
+   * 响应流翻回 OpenAI SSE。于是**插件实现里永远只看见 OpenAI 形态**，
+   * 契约不变 —— 一个只会说 Anthropic 的上游可以接一个只写了几行 fetch 的
+   * 插件，路由/选号/冷却/用量全都照旧。
+   */
+  readonly wire?: ProtocolId
   /** 删除链接（清理凭证；内部能力，js 契约不要求实现）。 */
   removeLink?(uid: string): Promise<boolean>
   dispose(): void

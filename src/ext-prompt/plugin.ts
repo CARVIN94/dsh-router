@@ -146,7 +146,11 @@ export function createPromptExt(deps: {
         title: sectionTitleOf(s.name),
         on: !off.has(s.name),
         detail: s.name,
-        body: s.text,
+        // ⚠️ 空原文要**说清是空的**，不能给空串（2026-10-21 真机实测）：
+        //   `deployment:persona-prefix` / `persona-suffix` 的 provider 在未配置
+        //   人设时返回 ""，面板上就是一条没有正文的行 —— 用户只能盲切。
+        //   这不是"忘了给原文"，是这一段此刻**确实没内容**，说清楚才谈得上判断。
+        body: s.text === '' ? '（此段当前为空）' : s.text,
         group: groupLabelOf(s.name),
         sortable: false,
       }))

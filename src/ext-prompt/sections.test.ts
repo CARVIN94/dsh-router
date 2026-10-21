@@ -73,21 +73,43 @@ test('缓存：自己的段不进清单，且返回值是拷贝（调用方改�
 
 test('分组：组的先后 = 首次出现序（不按字母重排）', () => {
   const groups = groupSections([
-    { name: 'harness:identity', text: '' },
+    { name: 'deployment:persona-prefix', text: '' },
     { name: 'tool:bash', text: '' },
     { name: 'tool:edit', text: '' },
     { name: 'plan:policy', text: '' },
   ])
-  assert.deepEqual(groups.map((g) => g.label), ['开场身份', '工具说明', '计划模式'])
+  assert.deepEqual(groups.map((g) => g.label), ['部署人设', '工具说明', '计划模式'])
   assert.deepEqual(groups[1]!.items.map((i) => i.name), ['tool:bash', 'tool:edit'], '组内顺序被改 ⇒ 面板顺序与 prompt 顺序脱钩')
 })
 
-test('分组的落名：已知前缀用中文组名、未知前缀原样、无冒号归「其他」', () => {
+test('★ 分组落名以真宿主实测为准（2026-10-21，9 个段名逐个钉）', () => {
+  // 这组断言直接抄 3081 上真宿主返回的段名 —— 我第一版按"看起来像"的前缀
+  // 脑补过两处（harness / app），真机一看就对不上。
+  const actual: [string, string][] = [
+    ['deployment:persona-prefix', '部署人设'],
+    ['deployment:persona-suffix', '部署人设'],
+    ['tool:pty', '工具说明'],
+    ['tool:session-query', '工具说明'],
+    ['mcp:rea', 'MCP 服务'],
+    ['ui:deliverable-file-references', '界面与交付'],
+    ['mcp-resource-servers', 'MCP 资源'],
+    // ⚠️ 这两个**刻意不并入任何美名组**：`harness:source` 是运行环境说明
+    // （不是开场身份），`app:web-surface` 是 Web GUI 说明（不是"界面与交付"，
+    // 那个组是给 `ui:` 的）。归错组比留真实前缀更误导。
+    ['harness:source', 'harness'],
+    ['app:web-surface', 'app'],
+  ]
+  for (const [name, label] of actual) {
+    assert.equal(groupLabelOf(name), label, `${name} 归组错了`)
+  }
+})
+
+test('已知前缀用中文组名、未知前缀原样、无冒号归「其他」', () => {
   assert.equal(groupLabelOf('tool:write'), '工具说明')
-  assert.equal(groupLabelOf('harness:identity'), '开场身份')
+  assert.equal(groupLabelOf('plan:policy'), '计划模式')
   // 宿主新加的段（映射表还没有）：组名原样显示，条目照样能列能开关
   assert.equal(groupLabelOf('web:surface'), 'web')
-  assert.equal(groupLabelOf('mcp-resource-servers'), '其他')
+  assert.equal(groupLabelOf('unknown-thing'), '其他')
 })
 
 test('条目标题去掉组前缀（组名已经给了语境）', () => {

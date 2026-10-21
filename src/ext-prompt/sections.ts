@@ -42,8 +42,22 @@ export const OWN_SECTION_NAME = 'dsh-router-ext-prompt:guideline'
  * 宿主还会加新段（`web:`、`structured:`…），映射漏了顶多组名不雅，
  * 条目照常列出照常开关 —— 映射表漂移不允许变成"段消失"。
  */
+/**
+ * 段名前缀 → 面板分组名。
+ *
+ * ⚠️ 键是**段名的第一段**（冒号前），不是"看起来像"的前缀。2026-10-21 实测
+ * 真宿主（3081，23 条 controls / 9 段）纠正过两处脑补：
+ *   - `harness:source`（运行时上下文里 Harness 检出的位置）第一段是 `harness`，
+ *     按前缀映射会被并入「开场身份」—— 而它不是身份，是运行环境说明；
+ *   - `app:web-surface`（Web GUI 说明）第一段是 `app`，与"界面与交付"无关。
+ * 所以 `harness` 刻意**不映射**：`harness:identity` 是身份、`harness:source` 不是，
+ * 靠第一段分不开 —— 让它们各自留下真实前缀（`harness` / `app`）比归错组诚实。
+ * `ui:` 才是界面与交付那一组（`ui:deliverable-file-references`）。
+ *
+ * 映射漏了或故意不映射的前缀，组名**原样显示前缀**、条目照常能列能开关 ——
+ * 映射表漂移不允许变成"段消失"。
+ */
 const GROUP_LABELS: Record<string, string> = {
-  harness: '开场身份',
   deployment: '部署人设',
   plan: '计划模式',
   team: '团队',
@@ -51,6 +65,15 @@ const GROUP_LABELS: Record<string, string> = {
   mcp: 'MCP 服务',
   context: '运行上下文',
   ui: '界面与交付',
+}
+
+/**
+ * 无冒号段名的映射（宿主有几个段名整名不带冒号）。
+ *
+ * `harness:identity` 才是开场身份，它带冒号走前缀表；这里只收无冒号的整名。
+ */
+const WHOLE_NAME_LABELS: Record<string, string> = {
+  'mcp-resource-servers': 'MCP 资源',
 }
 
 /** 一条已装配的段（面板清单用）。 */
@@ -74,15 +97,17 @@ export function sectionControlId(name: string): string {
 /**
  * 段名的分组名。
  *
- * 前缀是段命名的既成事实（`tool:bash`、`plan:policy`）；同时认**无冒号的整名**
- * （`mcp-resource-servers` 这种宿主段没有冒号，按整名查映射表）。
- * 两级都查不到 ⇒ 有冒号用前缀当组名、无冒号归「其他」—— 映射表漏了顶多
- * 组名不雅，条目照常列出、照常开关。
+ * 查表顺序：**整名**（无冒号段名，如 `mcp-resource-servers`）→ **第一段前缀**
+ * （`tool:write` → `tool`）。两级都查不到 ⇒ 有冒号时用第一段原样当组名、
+ * 无冒号归「其他」。
  */
 export function groupLabelOf(name: string): string {
+  const whole = WHOLE_NAME_LABELS[name]
+  if (whole !== undefined) return whole
   const i = name.indexOf(':')
-  const head = i >= 0 ? name.slice(0, i) : name
-  return GROUP_LABELS[head] ?? (i >= 0 ? head : '其他')
+  if (i < 0) return '其他'
+  const head = name.slice(0, i)
+  return GROUP_LABELS[head] ?? head
 }
 
 /** 面板条目标题：去掉组前缀的部分（`tool:write` → `write`；无冒号 = 全名）。 */

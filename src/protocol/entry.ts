@@ -44,7 +44,22 @@ export interface InboundRequest {
 export async function parseInbound(
   req: IncomingMessage,
   protocol: ProtocolId,
-  opts: { limitBytes: number; modelFromPath?: string; lvFromBody?: (body: JsonObject) => string },
+  opts: {
+    limitBytes: number
+    modelFromPath?: string
+    lvFromBody?: (body: JsonObject) => string
+    /**
+     * 路径里已声明的流式意图。
+     *
+     * Gemini 是唯一把「流不流式」放在 **URL 路径**（`:streamGenerateContent`
+     * vs `:generateContent`）而不是 body 里的协议。不认它，Gemini 的流式请求
+     * 会被当成非流式处理 —— 客户端拿到一整个 JSON，而它按 SSE 解析 ⇒ 空响应
+     * （2026-10-21 在 3080 实测）。
+     *
+     * `undefined` = 路径没说，看 body；`true/false` = 路径已明确，body 不算数。
+     */
+    streamFromPath?: boolean
+  },
 ): Promise<InboundRequest | { error: string; status: number }> {
   const raw = await readBody(req, opts.limitBytes)
   if (raw === undefined) return { error: 'request body too large', status: 413 }
@@ -57,9 +72,9 @@ export async function parseInbound(
   const codec = codecOf(protocol)
   // 路径里的模型名优先：Gemini 只在路径里给，body 里没有 model 字段
   const model = opts.modelFromPath ?? str(body.model) ?? ''
-  const stream = body.stream === true
+  const stream = opts.streamFromPath ?? (body.stream === true)
   const canonical = codec.toChat(body, { model, stream })
-  // 流式标志由客户端说了算，协议模块不擅自改
+  // 流式标志由**入口**说了算（路径 > body），协议模块不擅自改
   canonical.stream = stream
   canonical.model = model
   const lv = opts.lvFromBody?.(body) ?? 'auto'
@@ -153,9 +168,18 @@ export function outboundSink(protocol: ProtocolId, model: string, res: ServerRes
       }
       if (translator !== undefined) {
         const frames = translator.push(text)
+        // **即使这一批没有可发的帧，也要先把响应头提交掉**（带一个零长度
+        // 的写入会让 Router 立刻认为「已写第一个字节」）。
+        //
+        // 为什么：Gemini 的 functionCall 攒到流末才发，纯工具调用轮次在收尾前
+        // **一个字节都没有**。Router 看到 wroteAny=false 就判这次失败、
+        // 换号重试 —— 于是整条请求在上游成功的情况下被反复重放，客户端侧表现
+        // 为挂死（2026-10-22 实测）。响应头一旦提交，Router 就知道这条腿成了。
         if (frames.length > 0) {
           sendHead(200, 'text/event-stream')
           res.write(encoder.encode(frames.join('')))
+        } else if (!headSent) {
+          sendHead(200, 'text/event-stream')
         }
         return
       }
@@ -178,7 +202,15 @@ export function outboundSink(protocol: ProtocolId, model: string, res: ServerRes
       if (translator !== undefined) {
         // 流式收尾：finish + usage + endFrames
         const tail = translator.end()
-        if (tail.length > 0) res.write(encoder.encode(tail.join('')))
+        if (tail.length > 0) {
+          sendHead(200, 'text/event-stream')
+          res.write(encoder.encode(tail.join('')))
+        }
+        // 判据用「尾巴有没有内容」而不是 headSent：纯工具调用的流在收尾前
+        // **一个字节都没写过**（Gemini 的 functionCall 攒到流末才发），此时
+        // headSent 仍是 false —— 照旧条件会走 finishEmptyStream，把刚写出去的
+        // 真实工具调用又用一个「upstream closed」的错误流盖掉，而且那两个
+        // writeHead 会打架（2026-10-22 实测：Gemini 流式工具调用整体挂死）。
         if (headSent) res.end()
         else finishEmptyStream(codec, protocol, model, res, sendHead)
         return
@@ -362,6 +394,22 @@ export function geminiModelFromPath(pathname: string): string | undefined {
   const path = pathname.split('?')[0] ?? ''
   const m = /\/models\/(.+?):(?:streamGenerateContent|generateContent|countTokens)$/.exec(path)
   return m?.[1]
+}
+
+/**
+ * Gemini 的流式意图在**路径尾部**：`:streamGenerateContent` 是流式、
+ * `:generateContent` 是非流式。返回 `undefined` 表示路径没表态（不是 Gemini
+ * 形态，或路径不可识别），交给 body 的 `stream` 决定。
+ *
+ * 为什么不能只看 body：Gemini 的请求体里**没有** `stream` 字段 —— 它的官方
+ * 契约就是靠 URL 区分两种方法。不认这个，流式请求会被当成非流式，客户端按
+ * SSE 解析一整个 JSON ⇒ 空响应（2026-10-21 在 3080 实测到）。
+ */
+export function geminiStreamFromPath(pathname: string): boolean | undefined {
+  const path = pathname.split('?')[0] ?? ''
+  if (/:streamGenerateContent$/.test(path)) return true
+  if (/:generateContent$/.test(path)) return false
+  return undefined
 }
 
 /**

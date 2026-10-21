@@ -203,6 +203,17 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 `cache_control`、Responses 的 `previous_response_id` / `store`、Gemini 的
 `safetySettings`。它们在目标协议里没有对应概念,硬造一个只是猜。
 
+**实测过**(2026-10-21,真宿主 + 真实上游):四种协议的非流式与流式往返、
+Anthropic 的工具调用(非流式 `tool_use` 与流式 `content_block_start` +
+`input_json_delta` 增量)、用量从上游一路带到客户端。
+
+接线与语义层有七处坑是编解码器全绿也发现不了的:prefix 尾斜杠导致 404/405、
+`chatCompletions` 造了 sink 却仍写 `res`、入站 tools 方向搞反、Gemini 的流式
+标志在 URL 不在 body、Anthropic 收尾帧的用量不能单独发、Gemini 的
+`finishReason` 不能排在 `functionCall` 之前、纯工具调用流在收尾前一个字节都
+没有(收尾兜底判据得看「尾巴有没有内容」而不是「之前有没有写过」)。逐条记在
+[`docs/protocols.md`](docs/protocols.md)。
+
 设计取舍、各协议的坑(工具调用的三种编码、收尾的四种词汇、用量分散在不同帧)、
 测试策略见 [`docs/protocols.md`](docs/protocols.md)。
 

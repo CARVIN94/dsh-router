@@ -47,7 +47,7 @@ import { loopbackBaseURL } from './host-base-url.ts'
 import { detectHostVersion, isHostSupported } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
 import type { ExtControl, ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
-import { geminiModelFromPath, lvOf, outboundSink, parseInbound } from './protocol/entry.ts'
+import { geminiModelFromPath, geminiStreamFromPath, lvOf, outboundSink, parseInbound } from './protocol/entry.ts'
 
 /**
  * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
@@ -431,6 +431,10 @@ export function apply(rawContext: unknown): void {
     const parsed = await parseInbound(req, protocol, {
       limitBytes: 8 << 20,
       modelFromPath: protocol === 'gemini' ? geminiModelFromPath(req.url ?? '') : undefined,
+      // Gemini 的「流不流式」在 URL 尾部（:streamGenerateContent vs
+      // :generateContent），body 里没有 stream 字段 —— 不认它，流式请求会被
+      // 当成非流式返回一整个 JSON，客户端按 SSE 解析就是空响应。
+      streamFromPath: protocol === 'gemini' ? geminiStreamFromPath(req.url ?? '') : undefined,
       lvFromBody: (body) => lvOf(body, protocol),
     })
     if ('error' in parsed) {
@@ -482,9 +486,16 @@ export function apply(rawContext: unknown): void {
   // 斜杠，逐段穷举不现实）。流式/非流式靠路径尾部的
   // `:streamGenerateContent` / `:generateContent` 区分，已在
   // `geminiModelFromPath` 与 `parseInbound` 里落到 `stream` 上。
+  //
+  // ⚠️ **prefix 不能带尾斜杠**：宿主 `Table.match()` 的判据是
+  //     `pathname === prefix || pathname.startsWith(prefix + '/')`
+  //   注册 `'/v1beta/models/'` 会让实际请求去比 `'/v1beta/models//'`，
+  //   **永不匹配** → 落到宿主兜底，表现为 GET 404 / POST 405（2026-10-21 实测
+  //   在 3080 上复现）。注册成不带斜杠的 `'/v1beta/models'`，
+  //   `startsWith('/v1beta/models/')` 才成立。
   disposers.push(ctx.webServer.register({
     kind: 'prefix',
-    path: '/v1beta/models/',
+    path: '/v1beta/models',
     handler: enterProtocol('gemini'),
   }))
 

@@ -101,13 +101,30 @@ export class StreamState {
       // startFrames 是不够的 —— Anthropic 客户端等 message_stop、Codex 等
       // response.completed，缺收尾帧它们会报「流被截断」而不是「上游没答」。
       this.started = true
-      return [...enc.startFrames(ctx), ...enc.endFrames(ctx)]
+      return [...enc.startFrames(ctx), ...enc.endFrames(ctx, this.encodeSession)]
     }
+    // finish 帧要拿到**已经累计好的**用量：有的协议（Anthropic）把 stop_reason
+    // 与 output_tokens 绑在同一帧里，而 finish 事件本身不带 usage。所以要派生
+    // 一个带 usage 的会话给它，不能复用构造时那份（那份的 usage 是空的）。
+    const finishSession = this.finishSessionWithUsage()
     const out: string[] = []
-    out.push(...enc.encodeFrame(this.finish ?? { type: 'finish', reason: 'stop' }, this.encodeSession))
-    out.push(...enc.encodeFrame({ type: 'usage', ...this.usage }, this.encodeSession))
-    out.push(...enc.endFrames(ctx))
+    out.push(...enc.encodeFrame(this.finish ?? { type: 'finish', reason: 'stop' }, finishSession))
+    out.push(...enc.encodeFrame({ type: 'usage', ...this.usage }, finishSession))
+    out.push(...enc.endFrames(ctx, finishSession))
     return out
+  }
+
+  /**
+   * 带当前用量派生的编码会话。
+   *
+   * 不能只在 `encodeSession` 存在时才派生：`createSession` 是**可选**的
+   * （只有 Gemini 这类有跨帧映射的协议实现它），Anthropic 没有 —— 按
+   * `encodeSession === undefined` 就返回 undefined 会让 usage 永远送不进去
+   * （2026-10-21 实测：output_tokens 恒为 0）。所以无论如何都造一个，
+   * 有 state 就带上。
+   */
+  private finishSessionWithUsage(): CodecSession {
+    return { ...this.encodeSession, usage: { ...this.usage } }
   }
 
   /**

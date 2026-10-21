@@ -112,15 +112,87 @@ Anthropic 把输入用量放 `message_start`、输出放 `message_delta`;其余�
 `router/usage-tokens.ts` 的 `mergeUsage` 同规则)—— 覆盖会让后一帧把前面的
 输入清零。
 
+## 接线与语义上的七个坑（真宿主实测踩出来的）
+
+编解码器全绿、端点却不通 —— 这几条都属于**接线**而非翻译，症状离根因很远。
+
+### 1. prefix 路由不能带尾斜杠
+
+宿主 `Table.match()` 的判据是
+
+```js
+pathname === prefix || pathname.startsWith(prefix + '/')
+```
+
+注册 `'/v1beta/models/'` 会让它去比 `'/v1beta/models//'`，**永不匹配** →
+落到宿主兜底，表现为 GET `404` / POST `405`。正确写法是不带尾斜杠的
+`'/v1beta/models'`。
+
+### 2. `chatCompletions` 造了 sink 却没用它
+
+`const out = sink === undefined ? res : sinkRes(sink)` 造完之后，方法体内仍
+一律写 `res` ⇒ 非 chat 客户端收到的还是 OpenAI 形态。`wiring.test.ts` 现在
+**静态扫这一段**：方法体内除签名与 `out` 定义行外，出现任何 `res` 就红。
+
+### 3. 入站的 tools 方向搞反了
+
+Anthropic 工具是扁平的 `{name, description, input_schema}`，Chat 要
+`{type:'function', function:{name, parameters}}`。`toChat` 的 `convertTools`
+一度读的是 `tool.function.*`（出站方向的形状）⇒ **Claude Code 的所有工具被
+静默丢光**，模型回答「我没有这个工具」。出站方向当时有判据，入站一条都没有。
+
+### 4. 流式标志在 Gemini 的 URL 里，不在 body 里
+
+Gemini 的官方契约是靠路径区分：`:streamGenerateContent` / `:generateContent`，
+请求体里**没有** `stream` 字段。只看 `body.stream` 会把流式请求当非流式，
+客户端按 SSE 解析一整个 JSON ⇒ 空响应。`parseInbound` 现在接受
+`streamFromPath`（路径优先于 body）。
+
+### 5. 收尾帧的顺序按协议分治，不能统一
+
+`StreamState.finishStream()` 原本固定发 `finish → usage → endFrames`。这对
+Anthropic/Responses 是对的（收尾帧在最后），对 Gemini 是**致命**的：
+
+Gemini 没有参数增量形态，`functionCall` 必须攒到流末才发（见下一条），而
+`finishReason` 是「本轮说完了」的标记 —— 客户端看到它就收尾。若 `finishReason`
+先出，随后补发的 `functionCall` 被丢掉，表现为「工具永远调不动」。
+
+所以 `gemini.encodeFrame(finish)` 返回空，`finishReason` 改由 `endFrames` 在
+补发完 `functionCall` **之后**发出。判据直接断言
+`indexOf('functionCall') < indexOf('finishReason')`。
+
+### 6. 收尾帧的用量不能单独发
+
+Anthropic 的 `message_delta` 是**收尾帧**：`stop_reason` 与 `output_tokens`
+必须同帧。先发 finish（带占位 `output_tokens: 0`）再发 usage，会让流尾出现
+两个 `message_delta`，客户端取第一个就把用量读成 0。
+
+修法是给 `CodecSession` 加一个 `usage` 槽位，`finishStream` 派生一份带当前
+用量的会话来编收尾帧。注意 `createSession` 是**可选**的（只有 Gemini 实现它），
+所以派生时不能因 `encodeSession === undefined` 就跳过 —— 跳过等于用量永远送不进去。
+
+### 7. 纯工具调用流在收尾前一个字节都没有
+
+`outboundSink.end()` 曾经用 `headSent` 判断「要不要给个空流兜底」。但 Gemini
+的 `functionCall` 攒到流末才发 ⇒ **纯工具调用轮次在收尾前没写过任何字节**，
+`headSent` 是 false，于是收尾帧写完之后又被 `finishEmptyStream` 覆盖，两次
+`writeHead` 打架，连接被掐断（2026-10-22 实测：请求 4.5 秒后 000）。
+
+判据必须改成「尾巴有没有内容」，而不是「之前有没有写过」。
+
 ## 测试
 
-两条线,缺一不可:
+三条线,缺一不可:
 
-- **`protocol.test.ts`** —— 编解码器两两往返(纯函数、无 IO)。16 条基础 +
-  7 条回归,每条对应一个真实修掉的 bug。
+- **`protocol.test.ts`** —— 编解码器两两往返(纯函数、无 IO)。基础 + 回归,
+  每条回归对应一个真实修掉的 bug(含**入站**的 tools 方向)。
 - **`wire-e2e.test.ts`** —— 从 `outboundSink` 到真实字节。守的是接线:状态行、
   content-type、内容、收尾四件事同时搬对。
+- **`wiring.test.ts`** —— 守**接线本身**:prefix 尾斜杠、`chatCompletions` 里
+  有没有绕过 sink、四条入站路由是否都注册、Gemini 路径的流式意图与模型名是否
+  真接进了 `parseInbound`、以及 Anthropic 收尾帧是否只发一次且带真用量。
 
-为什么两条都要:编解码器正确 ≠ 接线正确。`finishJson` 曾经把 Router 写的
+为什么都要:编解码器正确 ≠ 接线正确。`finishJson` 曾经把 Router 写的
 **Chat 形态**用**客户端 codec** 去解(`choices` 字段根本不存在)—— 编解码器
-各自都是对的,但客户端拿到 200 + 空内容。静默错,只有端到端能抓到。
+各自都是对的,但客户端拿到 200 + 空内容。静默错,只有端到端能抓到。上面五条
+接线坑则说明:**光有端到端也不够**,接线错误会让端到端测不到(路由根本没命中)。

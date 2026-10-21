@@ -203,7 +203,7 @@ function roundTripEvents(protocol: (typeof PROTOCOL_IDS)[number], events: ChatEv
   const frames = [
     ...codec.startFrames(boundaryCtx),
     ...events.flatMap((e) => codec.encodeFrame(e, session)),
-    ...codec.endFrames(boundaryCtx),
+    ...codec.endFrames(boundaryCtx, session),
   ]
   const back: ChatEvent[] = []
   for (const frame of frames) {
@@ -396,16 +396,26 @@ test('每种协议都有 startFrames 与 endFrames（形状完整）', () => {
     const end = codec.endFrames({ model: 'm', stream: true })
     assert.ok(Array.isArray(start), `${protocol}: startFrames 必须是数组`)
     assert.ok(Array.isArray(end), `${protocol}: endFrames 必须是数组`)
-    // chat 与 gemini 没有额外的开始/结束帧：
-    //   - chat：[DONE] 由 finish 带，OpenAI SSE 没有信封事件
-    //   - gemini：SSE 帧就是裸 `data:`，没有 message_start 这类信封
-    // Anthropic（message_start/message_stop）与 Responses
-    // （response.created/response.completed）必须有 —— 那两个客户端严格等它们。
+    // 开始帧：只有 Anthropic（message_start）与 Responses（response.created）
+    // 有信封事件，那两个客户端严格等它。chat 的 [DONE] 由 finish 带；
+    // Gemini 的帧是裸 `data:`，没有信封。
     if (protocol === 'chat' || protocol === 'gemini') {
-      assert.equal(start.length, 0)
-      assert.equal(end.length, 0)
+      assert.equal(start.length, 0, `${protocol}: 不该有开始信封帧`)
     } else {
       assert.ok(start.length > 0, `${protocol}: 流式必须有开始帧（客户端严格等）`)
+    }
+    // 收尾帧：Gemini **必须**有（finishReason 只能在最后发，见 gemini.ts
+    // 的 endFrames —— functionCall 攒到流末，finishReason 排它前面会让客户端
+    // 在收到工具调用前就收尾）。chat 没有（[DONE] 由 finish 带）。
+    if (protocol === 'gemini') {
+      assert.ok(end.length > 0, 'gemini: 收尾帧必须带 finishReason')
+      assert.ok(end.join('').includes('finishReason'), 'gemini: 收尾帧缺 finishReason')
+    }
+    if (protocol === 'chat') {
+      assert.equal(end.length, 0)
+    }
+    if (protocol === 'anthropic' || protocol === 'responses') {
+      assert.ok(end.length > 0, `${protocol}: 必须有收尾帧`)
       assert.ok(end.length > 0, `${protocol}: 流式必须有收尾帧（否则客户端报流被截断）`)
     }
   }
@@ -425,16 +435,30 @@ test('★ 回归：Chat 的 tools 带 function 包装，跨到各协议后工具
   }
 })
 
-test('★ 回归：Gemini 的 tool-args 必须继承 tool-start 给的名字', () => {
-  // 事故：tool-args 只有 index 没有 name，映射丢了就会发出 name:'' 的
-  // functionCall —— 客户端多认出一个空名工具。
+test('★ 回归：Gemini 的 functionCall 攒到流末一次发出（不逐帧、不占位）', () => {
+  // 三个事故叠在一起：
+  //  1. tool-args 只有 index 没有 name，映射丢了会发出 name:'' 的 functionCall
+  //     —— 客户端多认出一个空名工具；
+  //  2. tool-start 也发帧时，客户端看到一次 args={} 占位调用；
+  //  3. 上游把一次调用拆成多个 arguments 增量帧（OpenAI 系常态），逐帧发
+  //     functionCall 会让客户端看到 N 次调用（2026-10-21 在 3080 实测：5 个
+  //     args={} / 半截 JSON）。
+  // 正确行为：tool-start 登记名字、tool-args 累积、**流末**由 endFrames 一次发出。
   const codec = codecOf('gemini')
   const session = codec.createSession?.()
-  assert.deepEqual(codec.encodeFrame({ type: 'tool-args', index: 0, delta: '{"p":"/"}' }, session), [], '没有 tool-start 时不该凭空发 functionCall')
-  const started = codec.encodeFrame({ type: 'tool-start', index: 0, name: 'ls' }, session)
-  assert.ok(started.join('').includes('"ls"'))
-  const args = codec.encodeFrame({ type: 'tool-args', index: 0, delta: '{"p":"/"}' }, session)
-  assert.ok(args.join('').includes('"ls"'), '参数帧丢了工具名')
+  const ctx = { model: 'm', stream: true }
+
+  assert.deepEqual(codec.encodeFrame({ type: 'tool-start', index: 0, name: 'ls' }, session), [], 'tool-start 不该发帧')
+  // 参数分三段到（真实上游形态：JSON 字符串被切片）
+  for (const d of ['{"p":', '"/tm', 'p"}']) {
+    assert.deepEqual(codec.encodeFrame({ type: 'tool-args', index: 0, delta: d }, session), [], '参数增量不该逐帧发')
+  }
+
+  const tail = codec.endFrames(ctx, session)
+  const joined = tail.join('')
+  assert.equal((joined.match(/functionCall/g) ?? []).length, 1, '一次工具调用只该产生一个 functionCall part')
+  assert.ok(joined.includes('"ls"'), '流末发的那一帧丢了工具名')
+  assert.ok(joined.includes('/tmp'), '参数没被拼完整')
 })
 
 test('★ 回归：两条并发流的工具名映射不串（会话隔离）', () => {
@@ -443,9 +467,16 @@ test('★ 回归：两条并发流的工具名映射不串（会话隔离）', (
   const b = codec.createSession?.()
   codec.encodeFrame({ type: 'tool-start', index: 0, name: 'read' }, a)
   codec.encodeFrame({ type: 'tool-start', index: 0, name: 'write' }, b)
-  // 同名 index、不同会话，各说各的名字
-  assert.ok(codec.encodeFrame({ type: 'tool-args', index: 0, delta: '{}' }, a).join('').includes('"read"'))
-  assert.ok(codec.encodeFrame({ type: 'tool-args', index: 0, delta: '{}' }, b).join('').includes('"write"'))
+  // 同名 index、不同会话，参数各自累积；流末各发自己的名字
+  const ctx = { model: 'm', stream: true }
+  codec.encodeFrame({ type: 'tool-args', index: 0, delta: '{"x":1}' }, a)
+  codec.encodeFrame({ type: 'tool-args', index: 0, delta: '{"y":2}' }, b)
+  const ta = codec.endFrames(ctx, a).join('')
+  const tb = codec.endFrames(ctx, b).join('')
+  assert.ok(ta.includes('"read"'), 'A 流的名字串了')
+  assert.ok(tb.includes('"write"'), 'B 流的名字串了')
+  assert.ok(ta.includes('"x"') && !ta.includes('"y"'), 'A 流的参数串了')
+  assert.ok(tb.includes('"y"') && !tb.includes('"x"'), 'B 流的参数串了')
 })
 
 test('★ 回归：Responses 收尾帧必须带 status 与 usage（Codex 靠它判结束）', () => {
@@ -618,8 +649,11 @@ test('★ 穷举响应路径：A 的帧 → 规范 → B 的帧，文本与工�
       const sa = ca.createSession?.()
       const sb = cb.createSession?.()
 
-      // 规范事件 → A 的帧
-      const framesA = CROSS_EVENTS.flatMap((e) => ca.encodeFrame(e, sa))
+      // 规范事件 → A 的帧（含 A 的收尾帧：Gemini 的工具调用只在那里发出）
+      const framesA = [
+        ...CROSS_EVENTS.flatMap((e) => ca.encodeFrame(e, sa)),
+        ...ca.endFrames({ model: 'm', stream: true, finish: 'tool-calls' }, sa),
+      ]
       // A 的帧 → 规范事件
       const back: ChatEvent[] = []
       for (const frame of framesA) {
@@ -635,10 +669,60 @@ test('★ 穷举响应路径：A 的帧 → 规范 → B 的帧，文本与工�
       // 规范 → B 的帧（内容事件 + 收尾帧）
       const out = [
         ...back.filter((e) => e.type !== 'finish' && e.type !== 'usage').flatMap((e) => cb.encodeFrame(e, sb)),
-        ...cb.endFrames({ model: 'm', stream: true, finish: 'tool-calls' }),
+        ...cb.endFrames({ model: 'm', stream: true, finish: 'tool-calls' }, sb),
       ].join('')
       assert.ok(out.includes('hi'), `${a} → ${b}: 文本丢了`)
       assert.ok(out.includes('ls'), `${a} → ${b}: 工具名丢了`)
     }
   }
+})
+
+test('★ 回归：各协议**入站**的 tools 必须转成 Chat 的 function 包装（否则客户端看不到任何工具）', () => {
+  // 事故（2026-10-21 在 3080 实测）：anthropic 的 `convertTools` 读的是
+  // `tool.function.*`（Chat 形状），而 Anthropic 客户端给的是扁平的
+  // `{name, description, input_schema}` —— 于是 Claude Code 的所有工具被
+  // 静默丢光，模型回答「我没有这个工具」。上一条判据只测了出站方向，
+  // 入站方向当时一条都没有。
+  const expectChatTool = (protocol: string, out: JsonObject): void => {
+    const tools = out.tools as JsonObject[] | undefined
+    assert.ok(tools !== undefined && tools.length > 0, `${protocol}: 入站 tools 被丢光`)
+    const fn = tools[0]?.function as JsonObject | undefined
+    assert.equal(fn?.name, 'w', `${protocol}: 入站 tools 缺 function.name`)
+    assert.ok(
+      (fn?.parameters as JsonObject | undefined)?.properties !== undefined,
+      `${protocol}: 入站 tools 缺 parameters（input_schema 没转名）`,
+    )
+  }
+  const schema = { type: 'object', properties: { city: { type: 'string' } } }
+
+  expectChatTool('anthropic', codecOf('anthropic').toChat({
+    messages: [{ role: 'user', content: 'hi' }],
+    tools: [{ name: 'w', description: 'd', input_schema: schema }],
+  }, CTX))
+
+  expectChatTool('responses', codecOf('responses').toChat({
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+    tools: [{ type: 'function', name: 'w', description: 'd', parameters: schema }],
+  }, CTX))
+
+  expectChatTool('gemini', codecOf('gemini').toChat({
+    contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+    tools: [{ functionDeclarations: [{ name: 'w', description: 'd', parameters: schema }] }],
+  }, CTX))
+})
+
+test('★ 回归：Gemini 非流式也只产出一个 functionCall（不重复占位）', () => {
+  // 与流式同一个坑：tool-start 发 part + tool-args 再发 part = 客户端看到
+  // 两次调用，第一次 args 还是空的。
+  const body = codecOf('gemini').encodeJson([
+    { type: 'text', text: 'checking' },
+    { type: 'tool-start', index: 0, name: 'ls' },
+    { type: 'tool-args', index: 0, delta: '{"p":"/tmp"}' },
+    { type: 'finish', reason: 'tool-calls' },
+  ], { model: 'm', stream: false })
+  const parts = (body.candidates as JsonObject[])[0]?.content as JsonObject
+  const list = parts.parts as JsonObject[]
+  const calls = list.filter((p) => p.functionCall !== undefined)
+  assert.equal(calls.length, 1, `一次工具调用只该有一个 functionCall part，实际 ${calls.length}`)
+  assert.deepEqual((calls[0]?.functionCall as JsonObject).args, { p: '/tmp' })
 })

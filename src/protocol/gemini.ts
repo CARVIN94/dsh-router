@@ -151,21 +151,22 @@ export const geminiCodec: ProtocolCodec = {
       case 'reasoning':
         return chunk([{ text: event.text, thought: true }])
       case 'tool-start': {
-        // 记下 index→name：Gemini 的 functionCall 必须自带名字，而后续
-        // `tool-args` 增量里没有名字（规范形态把名字只放在 tool-start）。
+        // **只登记名字，不发帧**。Gemini 的 functionCall 是「名字+参数整块」
+        // 一个 part，没有「先声明、后补参数」的形态；在 tool-start 就发一帧
+        // 空 args 会让客户端多认出一个 args={} 的工具调用，紧接着 tool-args
+        // 再发一个同名带参数的 —— 客户端看到两次调用（2026-10-21 在 3080
+        // 实测：`get_weather args={}` + `get_weather args={city:Beijing}`）。
         const name = event.name ?? ''
         if (name !== '') toolMap.remember(event.index, name)
-        return chunk([{ functionCall: { name, args: {} } }])
+        return []
       }
       case 'tool-args': {
-        // Gemini 没有参数增量形态：把整段 JSON 当一次 functionCall.args。
-        // 多段增量会发出多个同名 functionCall part —— 客户端（Gemini CLI）
-        // 按 name 归并，行为正确。
-        // 名字未知（tool-start 没带 name）时**不发**：发一个空名 functionCall
-        // 会让客户端多认出一个叫 "" 的工具，比丢参数更糟。
-        const name = toolMap.nameOf(event.index)
-        if (name === '') return []
-        return chunk([{ functionCall: { name, args: parseArgs(event.delta) } }])
+        // **只累积，不发帧**。Gemini 的 `functionCall.args` 是整块对象，而上游
+        // 会把一次调用拆成很多 `arguments` 增量帧。逐帧发会让客户端看到 N 次
+        // 调用、前 N-1 次 args 还是空对象/半截 JSON（2026-10-21 在 3080 实测：
+        // 一次调用发了 5 个 `args:{}`）。所以攒到 `endFrames` 里一次发出。
+        toolMap.appendArgs(event.index, event.delta)
+        return []
       }
       case 'usage':
         return [
@@ -189,12 +190,47 @@ export const geminiCodec: ProtocolCodec = {
           ),
         ]
       case 'finish':
-        return chunk([], finishToGemini(event.reason))
+        // **不发帧**，由 `endFrames` 在最后发。
+        //
+        // Gemini 的 `finishReason` 是「本轮说完了」的标记，客户端看到它就结束
+        // 这一轮。而 `functionCall` 攒到流末才发 —— 若 finish 在这里先出去，
+        // 客户端会在收到工具调用**之前**就判定结束，那次调用被丢掉
+        // （2026-10-22 在 3080 实测：functionCall 排在 finishReason 之后）。
+        return []
     }
   },
 
   startFrames: () => [],
-  endFrames: () => [],
+
+  /**
+   * 流末一次性发出**完整的** functionCall。
+   *
+   * 为什么集中在这里：Gemini 没有参数增量形态，一个调用必须「名字+完整参数」
+   * 用一个 part 给出。上游（OpenAI 系）逐帧发参数增量，`tool-args` 只能攒；
+   * 攒到流末参数才完整，此时才发得出合法的 `functionCall`。
+   *
+   * 半截 JSON（上游断流）**不发**：发出去客户端会拿坏参数执行工具，
+   * 比少一次调用危险得多。
+   */
+  endFrames(ctx, session) {
+    const toolMap = mapOf(session)
+    const out: string[] = []
+    for (const index of toolMap.pendingIndexes()) {
+      const name = toolMap.nameOf(index)
+      if (name === '') continue
+      const args = toolMap.completeArgs(index)
+      if (args === undefined) continue
+      out.push(
+        dataFrame(
+          JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ functionCall: { name, args } }] } }] }),
+        ),
+      )
+    }
+    // `finishReason` **最后**发 —— 客户端看到它就收尾这一轮，必须排在所有
+    // 内容（含刚补发的 functionCall）之后。
+    out.push(...chunkOf([], finishToGemini(ctx.finish ?? 'stop')))
+    return out
+  },
 
   /**
    * 非流式响应体 → 规范事件。
@@ -218,9 +254,10 @@ export const geminiCodec: ProtocolCodec = {
         case 'text': parts.push({ text: ev.text }); break
         case 'reasoning': parts.push({ text: ev.text, thought: true }); break
         case 'tool-start': {
+          // 只登记名字，不产 part —— 与流式同理（Gemini 没有「先声明后补参」
+          // 的形态，发占位 part 会让客户端看到两次调用）。
           const name = ev.name ?? ''
           if (name !== '') toolMap.remember(ev.index, name)
-          parts.push({ functionCall: { name, args: {} } })
           break
         }
         case 'tool-args': {
@@ -250,6 +287,17 @@ export const geminiCodec: ProtocolCodec = {
 /* 实现                                                               */
 /* ------------------------------------------------------------------ */
 
+/** 一帧 `candidates`。与 `encodeFrame` 里的闭包同形，供 `endFrames` 用。 */
+function chunkOf(parts: JsonObject[], finish?: string): string[] {
+  return [
+    dataFrame(
+      JSON.stringify({
+        candidates: [{ content: { role: 'model', parts }, ...(finish === undefined ? {} : { finishReason: finish }) }],
+      }),
+    ),
+  ]
+}
+
 /**
  * 工具名 ↔ index 的映射，**每个请求一份**。
  *
@@ -268,12 +316,27 @@ export interface GeminiToolMap {
   nameOf(index: number): string
   /** 记下「规范 index → 工具名」（`tool-start` 带上游 index 时用）。 */
   remember(index: number, name: string): void
+  /**
+   * 把一段参数增量累到该 index 上，返回**截至目前**的完整 JSON。
+   *
+   * Gemini 的 `functionCall.args` 是整块对象，没有增量形态；而上游（OpenAI
+   * 系）会把一次调用拆成很多 `arguments` 增量帧。逐帧发 `functionCall` 会让
+   * 客户端看到 N 次调用、且前 N-1 次 args 是空对象或半截 JSON
+   * （2026-10-21 在 3080 实测：5 个 `args:{}`）。所以只能攒。
+   */
+  appendArgs(index: number, delta: string): string
+  /** 该 index 上是否有**完整可解析**的参数（流末判定用）。 */
+  completeArgs(index: number): JsonObject | undefined
+  /** 攒过参数的所有 index（流末按序发出）。 */
+  pendingIndexes(): number[]
 }
 
 /** 新建一份空的工具名映射。 */
 export function newGeminiToolMap(): GeminiToolMap {
   const byName = new Map<string, number>()
   const byIndex = new Map<number, string>()
+  /** index → 已累积的参数片段（跨帧拼接后才是完整 JSON）。 */
+  const argsByIndex = new Map<number, string>()
   let seq = 0
   return {
     indexOf(name) {
@@ -290,6 +353,24 @@ export function newGeminiToolMap(): GeminiToolMap {
     remember(index, name) {
       byIndex.set(index, name)
       if (!byName.has(name)) byName.set(name, index)
+    },
+    appendArgs(index, delta) {
+      const next = (argsByIndex.get(index) ?? '') + delta
+      argsByIndex.set(index, next)
+      return next
+    },
+    completeArgs(index) {
+      const raw = argsByIndex.get(index)
+      if (raw === undefined || raw === '') return {}
+      try {
+        const v: unknown = JSON.parse(raw)
+        return obj(v) ?? undefined
+      } catch {
+        return undefined // 半截 JSON：还没攒够
+      }
+    },
+    pendingIndexes() {
+      return [...argsByIndex.keys()].sort((a, b) => a - b)
     },
   }
 }

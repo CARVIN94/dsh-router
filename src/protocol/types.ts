@@ -96,6 +96,15 @@ export type FinishReason = 'stop' | 'length' | 'tool-calls' | 'content-filter' |
 export interface CodecSession {
   /** 会话内的临时槽位（各协议自己的形状，核心不解读）。 */
   readonly state?: unknown
+  /**
+   * 本流已累计的用量。
+   *
+   * 为什么编码器需要它：有的协议把「收尾原因」与「输出用量」绑在**同一帧**
+   * （Anthropic 的 `message_delta`），而 finish 事件本身不带 usage。不给这个
+   * 槽位，收尾帧只能写 `output_tokens: 0` 或者再多发一帧 —— 后者会让客户端
+   * 取到第一个（占位）值，把用量读成 0（2026-10-21 在 3080 实测到）。
+   */
+  readonly usage?: { promptTokens: number; completionTokens: number; cachedTokens: number }
 }
 
 /**
@@ -175,8 +184,12 @@ export interface ProtocolCodec {
   /**
    * 流结束时的一次性帧（`message_stop`、`response.completed`、`[DONE]`）。
    * 与 `startFrames` 对称；`finish` 事件本身走 `encodeFrame`。
+   *
+   * 带上 `session` 是因为有的协议**必须**在流末才发得出东西：Gemini 的
+   * `functionCall` 是「名字+完整参数」一个 part，而上游逐帧发参数增量，
+   * 只能攒到流末（见 gemini.ts 的 endFrames）。
    */
-  endFrames(ctx: CodecContext): string[]
+  endFrames(ctx: CodecContext, session?: CodecSession): string[]
 }
 
 /** 是否为已知协议 id。 */

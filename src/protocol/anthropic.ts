@@ -157,7 +157,7 @@ export const anthropicCodec: ProtocolCodec = {
 
   /* ---------------- 响应侧：ChatEvent → Anthropic SSE ---------------- */
 
-  encodeFrame(event) {
+  encodeFrame(event, session) {
     switch (event.type) {
       case 'text':
         return [
@@ -209,19 +209,14 @@ export const anthropicCodec: ProtocolCodec = {
           ),
         ]
       case 'usage':
-        // 只带 output_tokens：Anthropic 的 message_delta 语义如此（输入用量在
-        // message_start 那帧）。这里多发一个 input_tokens 会被部分客户端当成
-        // 覆盖值处理，反而把真实输入用量冲掉。
-        return [
-          eventFrame(
-            'message_delta',
-            JSON.stringify({
-              type: 'message_delta',
-              delta: {},
-              usage: { output_tokens: event.completionTokens },
-            }),
-          ),
-        ]
+        // 流式下**不发**：Anthropic 的 message_delta 是「收尾帧」，stop_reason
+        // 与 output_tokens 必须同帧给。usage 单独一帧会让流尾出现两个
+        // message_delta —— 第一个 stop_reason + `output_tokens: 0`（占位），
+        // 第二个才是真数。客户端取第一个就把用量读成 0（2026-10-21 在 3080
+        // 实测到）。用量由 `finish` 帧带出，见下一分支。
+        //
+        // 非流式不受影响：那条路走 `encodeJson`，与这里无关。
+        return []
       case 'error':
         return [
           eventFrame(
@@ -229,20 +224,26 @@ export const anthropicCodec: ProtocolCodec = {
             JSON.stringify({ type: 'error', error: { type: 'api_error', message: event.message } }),
           ),
         ]
-      case 'finish':
+      case 'finish': {
         // 只发 message_delta(stop_reason)。`message_stop` 由 `endFrames` 发 ——
         // 两处都发会在流尾出现两个 message_stop，Anthropic 客户端会把后一个
         // 当成新的一轮开始。
+        //
+        // **输出用量必须并进这一帧**：Anthropic 的 message_delta 是收尾帧，
+        // stop_reason 与 output_tokens 同帧。单独再发一帧 usage 会让流尾出现
+        // 两个 message_delta，客户端取第一个就把用量读成 0。
+        const tokens = session?.usage?.completionTokens ?? 0
         return [
           eventFrame(
             'message_delta',
             JSON.stringify({
               type: 'message_delta',
               delta: { stop_reason: finishToAnthropic(event.reason), stop_sequence: null },
-              usage: { output_tokens: 0 },
+              usage: { output_tokens: tokens },
             }),
           ),
         ]
+      }
     }
   },
 
@@ -514,20 +515,32 @@ function parseArgs(s: string | undefined): JsonObject {
   }
 }
 
-/** Chat tools → Anthropic tools（`function.parameters` → `input_schema`）。 */
+/**
+ * Anthropic tool → Chat tool（`toChat` 方向）。
+ *
+ * Anthropic 的工具是**扁平**的 `{ name, description, input_schema }`，而 Chat
+ * 要多包一层 `function`、并把 `input_schema` 改名为 `parameters`。两件事都要做。
+ *
+ * ⚠️ 曾经这里读的是 `tool.function.*`（Chat 的形状）—— 方向搞反了，于是从
+ *    Anthropic 客户端进来的工具**被静默丢光**，Claude Code 接上来后模型会说
+ *    「我没有这个工具」（2026-10-21 在 3080 实测）。现按 Anthropic 结构读，
+ *    并兼容已经带 `function` 包装的输入（中间层可能提前转过）。
+ */
 function convertTools(tools: unknown): JsonObject[] {
   const out: JsonObject[] = []
   for (const t of arr(tools) ?? []) {
     const tool = obj(t)
     if (tool === undefined) continue
-    const fn = obj(tool.function)
-    if (fn === undefined) continue
+    const fn = obj(tool.function) ?? tool
     const name = str(fn.name)
     if (name === undefined) continue
     out.push({
-      name,
-      description: str(fn.description) ?? '',
-      input_schema: obj(fn.parameters) ?? { type: 'object', properties: {} },
+      type: 'function',
+      function: {
+        name,
+        description: str(fn.description) ?? '',
+        parameters: obj(fn.input_schema) ?? obj(fn.parameters) ?? { type: 'object', properties: {} },
+      },
     })
   }
   return out

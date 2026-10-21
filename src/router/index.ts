@@ -1228,7 +1228,7 @@ export class Router {
         // 只剩 0ms（否则组合越多越没法用），但同一条腿内的多个号共享一份
         // （停滞是上游级的，按号各等一份会 11×60s）。
         const served = await this.chatWithModel(
-          req, res, model, probe, trace, Date.now() + this.firstByteBudgetMs,
+          req, out, model, probe, trace, Date.now() + this.firstByteBudgetMs,
         )
         if (served) {
           settle(true)
@@ -1241,7 +1241,7 @@ export class Router {
         }
       }
       settle(false, 'combo: all models unavailable')
-      writeJson(res, 503, openAIError('no_healthy_supplier', `combo ${JSON.stringify(req.model)}: all models unavailable`))
+      writeJson(out, 503, openAIError('no_healthy_supplier', `combo ${JSON.stringify(req.model)}: all models unavailable`))
       return
     }
     // 直接调用：模型全名 = alias/model。用别名反查供应商，精准调用。
@@ -1252,22 +1252,22 @@ export class Router {
     const alias = slash > 0 ? req.model.slice(0, slash) : ''
     const target = alias === '' ? undefined : this.supplierByAlias(alias)
     if (target !== undefined) {
-      const served = await this.chatWithTarget(target, req, res, probe)
+      const served = await this.chatWithTarget(target, req, out, probe)
       if (served) {
         settle(true)
         return
       }
       settle(false, `supplier ${target.id}: all accounts unavailable`)
-      writeJson(res, 503, openAIError('no_healthy_supplier', `supplier ${JSON.stringify(target.id)}: all accounts unavailable`))
+      writeJson(out, 503, openAIError('no_healthy_supplier', `supplier ${JSON.stringify(target.id)}: all accounts unavailable`))
       return
     }
-    const served = await this.chatWithModel(req, res, req.model, probe)
+    const served = await this.chatWithModel(req, out, req.model, probe)
     if (served) {
       settle(true)
       return
     }
     settle(false, 'all suppliers unavailable')
-    writeJson(res, 503, openAIError('no_healthy_supplier', 'all suppliers unavailable'))
+    writeJson(out, 503, openAIError('no_healthy_supplier', 'all suppliers unavailable'))
   }
 
   /** 调指定供应商。

@@ -39,6 +39,18 @@ export interface SupplierConfig {
   credits: Record<string, number>
   /** 每连接显示别名:uid → 显示名(空/缺省用供应商原始昵称,纯展示不改路由键)。 */
   accountNames: Record<string, string>
+  /**
+   * 供应商级系统提示词（空 = 不改，走宿主原样）。
+   *
+   * 生效语义见 `prompt.ts`：非空时**顶掉**宿主的 `harness:identity` 那句
+   * （`You are an AI agent powered by DeepSeek Harness.`）；宿主配置
+   * `includeHarnessIdentity:false` 时那句本来就不存在，此时提示词直接排在最前。
+   * 两种情形对用户是同一句话：「用了这个供应商，AI 的开场身份就是这段」。
+   *
+   * 为什么按供应商而不是按组合/全局：同一套组合里 A 供应商是 Claude、B 是
+   * GPT，身份描述本该跟着**实际服务的那个上游**走。
+   */
+  prompt: string
 }
 
 interface ConfigFile {
@@ -95,7 +107,7 @@ export class SupplierConfigStore {
   get(supplierId: string): SupplierConfig {
     let cfg = this.bySupplier.get(supplierId)
     if (!cfg) {
-      cfg = { enabled: true, alias: '', disabled: [], custom: [], poolOrder: [], credits: {}, accountNames: {} }
+      cfg = { enabled: true, alias: '', disabled: [], custom: [], poolOrder: [], credits: {}, accountNames: {}, prompt: '' }
       this.bySupplier.set(supplierId, cfg)
     }
     return cfg
@@ -226,6 +238,28 @@ export class SupplierConfigStore {
     this.saveLocked()
   }
 
+  // ---- 供应商级系统提示词 ----
+
+  /** 该供应商的提示词（未设置 = 空串）。 */
+  promptOf(supplierId: string): string {
+    return this.get(supplierId).prompt
+  }
+
+  /**
+   * 设置供应商提示词。空串 = 清除（回到宿主原样）。
+   *
+   * @returns 值确实变了（调用方据此决定要不要让系统的提示词缓存失效）
+   */
+  setPrompt(supplierId: string, prompt: string): boolean {
+    if (supplierId === '') return false
+    const cfg = this.get(supplierId)
+    const next = prompt.trim()
+    if (cfg.prompt === next) return false
+    cfg.prompt = next
+    this.saveLocked()
+    return true
+  }
+
   private load(): void {
     if (this.fp === '') return
     let f: ConfigFile
@@ -244,6 +278,8 @@ export class SupplierConfigStore {
         poolOrder: Array.isArray(c.poolOrder) ? c.poolOrder.filter((u) => typeof u === 'string') : [],
         credits: readCredits(c.credits),
         accountNames: readNames(c.accountNames),
+        // 落盘 JSON 不可信：只留字符串，其余当空（空 = 不改，永远安全）
+        prompt: typeof c.prompt === 'string' ? c.prompt : '',
       })
     }
   }
@@ -260,6 +296,7 @@ export class SupplierConfigStore {
         poolOrder: [...cfg.poolOrder],
         credits: { ...cfg.credits },
         accountNames: { ...cfg.accountNames },
+        prompt: cfg.prompt,
       }
     }
     try {

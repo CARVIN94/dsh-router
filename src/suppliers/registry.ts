@@ -141,7 +141,9 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
     path: `${p}/models`,
     handler: guard(async (_req, res) => {
       const models = await router.modelsOf(s.id)
-      writeJson(res, 200, { ok: true, alias: s.getAlias(), models })
+      // prompt 一并带出：面板进详情页就能读到，不多打一次请求。
+      // 空串 = 没配 = 宿主原样（见 supplier-prompt/resolve.ts）。
+      writeJson(res, 200, { ok: true, alias: s.getAlias(), prompt: store.promptOf(s.id), models })
     }),
   })
 
@@ -258,6 +260,44 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
         return
       }
       writeJson(res, 200, { ok: true })
+    },
+  })
+
+  // ---- 通用: 供应商级系统提示词 ----
+  //
+  // 非空时顶掉宿主那句 `harness:identity`（`You are an AI agent powered by
+  // DeepSeek Harness.`）；清空则回到宿主原样。语义与坑见
+  // `supplier-prompt/resolve.ts` 的文件头 —— 那里有「为什么按会话上一轮命中
+  // 生效」的时序说明。
+  routes.push({
+    kind: 'exact',
+    path: `${p}/prompt`,
+    handler: async (req, res) => {
+      let body: { prompt?: unknown }
+      try {
+        body = JSON.parse(await readBody(req)) as { prompt?: unknown }
+      } catch {
+        writeJson(res, 400, { ok: false, error: 'invalid JSON body' })
+        return
+      }
+      if (body.prompt !== undefined && typeof body.prompt !== 'string') {
+        writeJson(res, 400, { ok: false, error: 'prompt 必须是字符串' })
+        return
+      }
+      // 上限：提示词是每轮都进 system 的内容，无限长会让每轮 token 爆掉。
+      // 8 KiB 足够写完整身份描述，也拦住「误粘一整份文档」。
+      const MAX = 8 * 1024
+      const next = typeof body.prompt === 'string' ? body.prompt : ''
+      if (next.length > MAX) {
+        writeJson(res, 400, { ok: false, error: `提示词过长（上限 ${MAX} 字符）` })
+        return
+      }
+      const changed = store.setPrompt(s.id, next)
+      // **不需要**广播 system-prompt/change：我们注册的 provider 函数每次装配都
+      // 现算（见 supplier-prompt/mount.ts），落盘一改，下一轮装配自然拿到新值。
+      // 发事件反而多余 —— 它会让宿主重跑全部段落的 provider，纯浪费。
+      // 没变也返回成功：面板的"保存"在值没变时不该报错。
+      writeJson(res, 200, { ok: true, changed })
     },
   })
 

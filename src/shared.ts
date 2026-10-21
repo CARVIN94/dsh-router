@@ -228,6 +228,13 @@ export interface RouterSupplierModelsResponse {
   error?: string
   /** 供应商前缀（模型全名 = alias/id）。 */
   alias?: string
+  /**
+   * 供应商级系统提示词（空串 = 没配 = 宿主原样）。
+   *
+   * 非空时顶掉宿主那句 `harness:identity`（`You are an AI agent powered by
+   * DeepSeek Harness.`）。语义与生效时机见 `supplier-prompt/resolve.ts`。
+   */
+  prompt?: string
   models?: RouterSupplierModel[]
 }
 

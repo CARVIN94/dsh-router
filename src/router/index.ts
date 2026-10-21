@@ -13,6 +13,9 @@ import { AccountPool } from './account-pool.ts'
 import { SupplierConfigStore } from '../supplier-config.ts'
 import { UsageStore } from './usage-store.ts'
 import { tapStreamUsage, usageFromJsonBody, withEstimates, type UsageTokens } from './usage-tokens.ts'
+import { codecOf } from '../protocol/index.ts'
+import { StreamState, translateStream } from '../protocol/stream.ts'
+import type { JsonObject } from '../protocol/types.ts'
 
 /** 一次 chat 的追踪信息（记日志用，回答「到底用的哪个模型哪个号」）。 */
 interface ChatTrace {
@@ -191,29 +194,62 @@ function reqMessages(rawBody: string): unknown {
 }
 
 /** 丢弃响应的假 ServerResponse（测试模型用：记录状态+内容，用于判定成败）。 */
-function sinkRes(): ServerResponse & { status(): number; body(): string } {
-  let status = 200
-  let text = ''
+/**
+ * 响应收集器：把 Router 本来要写给 `res` 的东西收进来，让调用方翻译后自己写。
+ *
+ * 只给**非 chat 协议**用（`/v1/messages`、`/v1/responses`、Gemini）：Router 只会
+ * 写 OpenAI 形态，而客户端要的是别的协议，中间必须插一层翻译。插入点在
+ * `chatCompletions` 的入口 —— 那里是唯一能同时看到「响应还没开始写」与
+ * 「协议是什么」的地方。
+ *
+ * 三条路径都要接住，漏一条就是那个协议下的一种故障：
+ *   - `head(status, headers)` —— 非流式的状态行（503 也走这里）
+ *   - `write(bytes)` —— 流式的 SSE 字节（可能是多段）
+ *   - `end()` —— 流结束
+ *
+ * 流式的 `writeHead` 是**延迟到第一个字节**才发生的（见 writeChatResult），
+ * 所以 `head` 在流式下可能一次都不来；调用方不能假设它来过。
+ */
+export interface ResponseSink {
+  /** 状态行 + 响应头（流式下可能不来；来了就一次）。 */
+  head?: (status: number, headers: Record<string, string>) => void
+  /** 一段响应体字节。 */
+  write: (bytes: Uint8Array) => void
+  /** 响应体结束。 */
+  end: () => void
+}
+
+/** 把 ResponseSink 包成一个 Router 能写的 ServerResponse。 */
+function sinkRes(sink: ResponseSink): ServerResponse {
   const self = {
     headersSent: false,
     writableEnded: false,
-    writeHead: (code: number): unknown => {
-      status = code
+    destroyed: false,
+    writeHead: (code: number, headers?: Record<string, string>): unknown => {
+      sink.head?.(code, headers ?? {})
       return self
     },
     write: (chunk?: unknown): boolean => {
-      if (chunk !== undefined) text += String(chunk)
+      if (chunk !== undefined) {
+        sink.write(typeof chunk === 'string' ? new TextEncoder().encode(chunk) : (chunk as Uint8Array))
+      }
       return true
     },
     end: (chunk?: unknown): unknown => {
-      if (chunk !== undefined) text += String(chunk)
+      if (chunk !== undefined) self.write(chunk)
+      sink.end()
       return self
     },
     flushHeaders: (): void => {},
-    status: (): number => status,
-    body: (): string => text,
+    once: (): unknown => self,
+    on: (): unknown => self,
+    removeListener: (): unknown => self,
+    destroy: (): void => { self.destroyed = true },
+    setHeader: (): unknown => self,
+    removeHeader: (): unknown => self,
+    writeableEnded: false,
   }
-  return self as unknown as ServerResponse & { status(): number; body(): string }
+  return self as unknown as ServerResponse
 }
 
 /**
@@ -594,6 +630,56 @@ async function writeChatResult(
 /** SSE 终止帧（断流兜底补发用）。 */
 const DONE_FRAME = new TextEncoder().encode('data: [DONE]\n\n')
 
+/**
+ * 取该供应商的 `chatOnce`，按它声明的 wire 包一层协议翻译。
+ *
+ * ════════════════════════════════════════════════════════════════════
+ * 为什么翻译放在核心、而不是让插件自己做
+ * ════════════════════════════════════════════════════════════════════
+ * 插件自己翻译意味着「每个只会说 Anthropic 的供应商各写一份 Anthropic→OpenAI
+ * 转换」，与账号池/冷却表/积分落盘是同一个错误：N 份互相不一致的实现，核心
+ * 也就无从判断该不该换号。放在核心，插件契约不变（仍只吐 OpenAI SSE），
+ * 换号/冷却/用量全部照旧生效。
+ *
+ * 翻译**只碰请求体与响应流**，不碰 `chatOnce` 的返回值语义：失败仍然返回
+ * `{ok:false, state, message}`，核心的冷却/回退逻辑一行不改。
+ *
+ * 非流式同理：上游给 JSON 时，先把它翻成规范 JSON 再交给核心（`writeChatResult`
+ * 的 `!('stream' in r)` 分支），客户端要流式而上游只给 JSON 时由现有的
+ * `aggregateSSE` 兜底（那条路径本来就要把 JSON 折成流）。
+ */
+function wireChatOnce(s: Supplier): (uid: string, lv: string, req: ChatRequest) => Promise<ChatOnceResult> {
+  const wire = s.wire ?? 'chat'
+  // 恒等快通道：今天所有供应商都是 chat，别为一个 no-op 造闭包 + 包流
+  if (wire === 'chat') return (uid, lv, req) => s.chatOnce(uid, lv, req)
+  const codec = codecOf(wire)
+  return async (uid, lv, req) => {
+    // 请求体：规范 → 上游协议。解析失败（坏 JSON）时原样交给插件 ——
+    // 插件的报错比在这里猜一个形状更接近真相。
+    let outReq = req
+    let body: JsonObject | undefined
+    try {
+      body = JSON.parse(req.rawBody) as JsonObject
+    } catch {
+      body = undefined
+    }
+    if (body !== undefined) {
+      outReq = {
+        ...req,
+        rawBody: JSON.stringify(codec.fromChat(body, { model: req.model, stream: req.stream })),
+      }
+    }
+    const r = await s.chatOnce(uid, lv, outReq)
+    if (!r.ok || !('stream' in r)) return r
+    // 响应流：上游协议 → OpenAI SSE。
+    //
+    // 首字节预算**不在这里套**：`writeChatResult` 已经给上游流套了
+    // `withFirstByteDeadline`，而那时流还是 OpenAI 形态（本函数返回的已经是
+    // 翻好的）。在翻好的流上再套一次会把两个预算叠起来，且翻译本身不该有超时。
+    return { ok: true, stream: translateStream(r.stream, new StreamState(wire, 'chat')) }
+  }
+}
+
 /** 从上游响应体提取错误信息（OpenAI {error:{message}} 或 {code,msg}/{message}）。 */
 function extractUpstreamError(body: string): string {
   try {
@@ -854,6 +940,16 @@ export class Router {
     return out
   }
 
+  /**
+   * 该供应商的 `chatOnce`，已按它声明的 wire 包好协议翻译。
+   *
+   * 每次调用都现取（而不是构造时缓存）：供应商会被开关/热重载替换，
+   * 缓存会把旧实例的翻译绑在新实例上。
+   */
+  private wireOf(s: Supplier): (uid: string, lv: string, req: ChatRequest) => Promise<ChatOnceResult> {
+    return wireChatOnce(s)
+  }
+
   /** 组合列表（面板用）：用户自定义组合。 */
   async combos(): Promise<Combo[]> {
     return [...this.customCombos]
@@ -1078,7 +1174,17 @@ export class Router {
    * - model 命中组合名 → 在组合模型里按策略选一个，交给供应商；失败按回退顺序尝试剩余模型。
    * - 否则 → 依次尝试供应商，直到某个返回 true（已写响应）或全部返回 false。
    */
-  async chatCompletions(req: ChatRequest, res: ServerResponse): Promise<void> {
+  /**
+   * 规范请求入口。
+   *
+   * @param res 真实的客户端响应。协议非 chat 时**不直接用它**，而是经
+   *   `sink` 先收集再翻译（见 `protocol/entry.ts`）—— 因为 Router 只知道
+   *   怎么写 OpenAI 形态，而客户端说的可能是 Anthropic/Gemini。
+   * @param sink 可选的响应收集器：给了就把「写给 res 的东西」改成写给 sink，
+   *   由调用方翻译后自己写真正的 res。只给非 chat 协议用。
+   */
+  async chatCompletions(req: ChatRequest, res: ServerResponse, sink?: ResponseSink): Promise<void> {
+    const out = sink === undefined ? res : sinkRes(sink)
     // 每个客户端请求一条用量记录（组合回退会试多个供应商，但只落一次账）
     const probe: UsageProbe = {
       requested: req.model,
@@ -1274,9 +1380,13 @@ export class Router {
   ): Promise<boolean> {
     const pool = s.pool
     const cfg = this.store.get(s.id)
-    // 无账号供应商：直接调一次（uid 传空，插件忽略）
+    // 上游协议适配：供应商声明了非 chat 的 wire 时，在这里包一层翻译 ——
+    // 请求体翻成它的协议、它的响应流翻回 OpenAI SSE。契约不变（插件仍只
+    // 看见 OpenAI 形态），翻译只此一处，四个入口（组合腿/直调/测试/探测）
+    // 全部受益。wire = 'chat'（缺省，今天所有供应商）时零成本返回原函数。
+    const chatOnce = this.wireOf(s)
     if (s.accounts !== undefined && s.accounts().length === 0) {
-      const r = await s.chatOnce('', req.lv ?? 'auto', req)
+      const r = await chatOnce('', req.lv ?? 'auto', req)
       if (!r.ok) {
         // 模型不属于本供应商、或请求本身被上游拒收：换供应商，不记账
         if (r.state === 'no_such_model' || r.state === 'bad_request') return false
@@ -1342,7 +1452,7 @@ export class Router {
       }
       pickWhy = pool.lastWhy
       tried.add(uid)
-      const r = await s.chatOnce(uid, req.lv ?? 'auto', req)
+      const r = await chatOnce(uid, req.lv ?? 'auto', req)
       if (!r.ok) {
         // 模型不属于本供应商、或请求本身被上游拒收：整个供应商都跳过，
         // 换号重试没有意义，也不能记在账号头上（否则无关账号会被冷掉）。
@@ -1406,7 +1516,16 @@ export class Router {
   async testModel(supplierId: string, model: string, onlyUid?: string): Promise<{ ok: boolean; error?: string }> {
     const s = this.active.find((x) => x.id === supplierId)
     if (s === undefined) return { ok: false, error: `unknown supplier ${JSON.stringify(supplierId)}` }
-    const sink = sinkRes()
+    // 测试 sink：只收集状态与 body，不写给任何真实 res（testModel 的响应丢弃）
+    let sinkStatus = 200
+    let sinkBody = ''
+    const sink = sinkRes({
+      head: (code) => { sinkStatus = code },
+      write: (bytes) => { sinkBody += new TextDecoder().decode(bytes) },
+      end: () => {},
+    })
+    const statusOf = (): number => sinkStatus
+    const bodyOf = (): string => sinkBody
     const req: ChatRequest = {
       model,
       stream: false,
@@ -1420,8 +1539,8 @@ export class Router {
       return { ok: false, error: (err as Error).message }
     }
     // 供应商可能「服务了但写出错误响应」（如 opencode：唯一能处理该模型的供应商，错误自己上报）
-    if (served && sink.status() < 400) return { ok: true }
-    const fromSink = served && sink.status() >= 400 ? extractUpstreamError(sink.body()) : ''
+    if (served && statusOf() < 400) return { ok: true }
+    const fromSink = served && statusOf() >= 400 ? extractUpstreamError(bodyOf()) : ''
     // 失败原因优先从上游响应体取，其次用 chatOnce 返回的 message（trace.lastError）。
     // 以前这里问插件的 lastError()——那是「最后一次失败」的可变全局，既可能串到
     // 别的账号/别的请求，也有插件压根没实现（codebuddy 就漏了，于是永远拿不到兜底）。

@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ChatRequest, ModelInfo, SupplierAccount } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { CredentialStore } from '../credential-store.ts'
+import type { ProtocolId } from '../protocol/types.ts'
 
 /** 供应商配置：loader 注入的运行时环境。 */
 export interface SupplierEnv {
@@ -47,9 +48,16 @@ export interface SupplierEnv {
  * `source` 是**可选标签**，声明这个供应商是从哪儿来的。核心用它把 `/health` 的
  * `source` 报准（面板按它分「内置 / 插件」两组，面板和插件页都看这个值）。
  * 不声明 = `external`（独立安装的供应商插件的现状，一个字段都不用改）。
+ *
+ * `wire` 是**协议标签**（可选）：这个供应商的上游说哪种协议。缺省
+ * `'chat'`（= OpenAI Chat Completions，今天所有供应商的现状，一个都不用改）。
+ * 声明成别种时，核心在把 `req` 交给插件前把规范请求体翻成它的协议，
+ * 并把它的响应流翻回规范形态 —— 插件看到的仍是「OpenAI SSE」，
+ * 于是**契约不变、已有插件全都不动**。详见 `protocol/`。
  */
 export type SupplierFactory = ((env: SupplierEnv) => SupplierModule) & {
   source?: 'builtin'
+  wire?: ProtocolId
 }
 
 /**

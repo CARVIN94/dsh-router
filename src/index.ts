@@ -47,6 +47,7 @@ import { loopbackBaseURL } from './host-base-url.ts'
 import { detectHostVersion, isHostSupported } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
 import type { ExtControl, ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
+import { geminiModelFromPath, lvOf, outboundSink, parseInbound } from './protocol/entry.ts'
 
 /**
  * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
@@ -136,6 +137,24 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
     'Cache-Control': 'no-store',
   })
   res.end(payload)
+}
+
+/**
+ * 每种协议的 error body 形状。
+ *
+ * 为什么必须有：非 chat 入口的 400/413/501 若照 OpenAI 的
+ * `{error:{message,type,code}}` 写，Claude Code 解析不到 `error.message`
+ * 会显示「未知错误」——用户看到的是一个空错误，而真因（如 body 太大）
+ * 就在手边却送不出去。
+ */
+function errBodyFor(protocol: 'anthropic' | 'responses' | 'gemini', message: string): unknown {
+  if (protocol === 'anthropic') {
+    return { type: 'error', error: { type: 'invalid_request_error', message } }
+  }
+  if (protocol === 'gemini') {
+    return { error: { code: 400, message, status: 'INVALID_ARGUMENT' } }
+  }
+  return { error: { message, type: 'api_error', code: 'invalid_request' } }
 }
 
 function readBody(req: IncomingMessage, limit: number): Promise<string> {
@@ -334,6 +353,14 @@ export function apply(rawContext: unknown): void {
   })()
 
   // ---- /v1/* (OpenAI-compatible, Bearer auth via KeysStore) ----
+  //
+  // 四种协议共用同一套路由/账号池/用量统计，差别只在「怎么听懂请求、怎么回答」：
+  //   /v1/chat/completions                      OpenAI Chat Completions
+  //   /v1/messages, /v1/messages/count_tokens   Anthropic Messages
+  //   /v1/responses                             OpenAI Responses
+  //   /v1beta/models/<m>:generateContent        Google Gemini
+  // 入站一律先翻成规范请求（Chat Completions 形状）再进 Router，所以上面这些
+  // 端点**自动**获得组合回退、账号池选号、首字节预算与用量看板。
 
   const withV1Auth = (handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>) => {
     return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -386,9 +413,79 @@ export function apply(rawContext: unknown): void {
         model: typeof peek.model === 'string' ? peek.model : '',
         lv,
         ...(session === undefined ? {} : { session }),
+        protocol: 'chat',
       },
       res,
     )
+  }))
+
+  /**
+   * Anthropic / Responses / Gemini 三个非 chat 入口的**公共前半段**：
+   * 鉴权 → 读 body → 翻成规范请求 → 交给 Router → 把响应翻回客户端协议。
+   *
+   * 抽出来是因为三者的差别只有「协议 id 是什么、模型名从哪取」，而鉴权/限流/
+   * 归因/错误形状必须完全一致 —— 各写一份就会出现「Anthropic 入口认了
+   * x-dsh-router-session、Gemini 入口不认」这种只能靠实测发现的漂移。
+   */
+  const enterProtocol = (protocol: 'anthropic' | 'responses' | 'gemini') => withV1Auth(async (req, res) => {
+    const parsed = await parseInbound(req, protocol, {
+      limitBytes: 8 << 20,
+      modelFromPath: protocol === 'gemini' ? geminiModelFromPath(req.url ?? '') : undefined,
+      lvFromBody: (body) => lvOf(body, protocol),
+    })
+    if ('error' in parsed) {
+      writeJson(res, parsed.status, errBodyFor(protocol, parsed.error))
+      return
+    }
+    if (parsed.model === '') {
+      writeJson(res, 400, errBodyFor(protocol, 'missing model'))
+      return
+    }
+    const sessionRaw = req.headers['x-dsh-router-session']
+    const session = (typeof sessionRaw === 'string' && sessionRaw !== '' ? sessionRaw : undefined)
+      ?? clientIdentityOf(parsed.body, req.headers['user-agent'])
+    // 出口：Router 只会写 OpenAI 形态，sink 负责翻成客户端协议再写给 res。
+    // sink 是**透传式中继**，Router 那套「客户端断开就取消上游流」的逻辑
+    // 照旧生效 —— 它监听的是真实 res 的 close，与本层无关。
+    const sink = outboundSink(protocol, parsed.model, res)
+    await router.chatCompletions(
+      {
+        rawBody: JSON.stringify(parsed.body),
+        stream: parsed.stream,
+        model: parsed.model,
+        lv: parsed.lv,
+        ...(session === undefined ? {} : { session }),
+        protocol,
+      },
+      res,
+      sink,
+    )
+  })
+
+  // Anthropic Messages（Claude Code 只说这种协议）。
+  // count_tokens 是「问一句要多少 token」：没有本地 tokenizer 就不能诚实回答，
+  // 而跑一次上游只数 token 是要花钱的假精确 —— 直接 501，别编数字。
+  route('/v1/messages', enterProtocol('anthropic'))
+  route('/v1/messages/count_tokens', withV1Auth(async (_req, res) => {
+    writeJson(res, 501, {
+      type: 'error',
+      error: { type: 'not_supported', message: 'count_tokens is not supported; send the message instead' },
+    })
+  }))
+
+  // OpenAI Responses（Codex 用）。
+  route('/v1/responses', enterProtocol('responses'))
+
+  // Google Gemini。Gemini 的模型名在 **URL 路径**里
+  // （`/v1beta/models/<model>:generateContent`），所以走 prefix 路由自己解析
+  // `req.url`（webServer 的 exact 匹配不吃 `:param` 语法，而模型名本身可含
+  // 斜杠，逐段穷举不现实）。流式/非流式靠路径尾部的
+  // `:streamGenerateContent` / `:generateContent` 区分，已在
+  // `geminiModelFromPath` 与 `parseInbound` 里落到 `stream` 上。
+  disposers.push(ctx.webServer.register({
+    kind: 'prefix',
+    path: '/v1beta/models/',
+    handler: enterProtocol('gemini'),
   }))
 
   // ---- /router/api/* (panel, same-origin) ----

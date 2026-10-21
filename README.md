@@ -183,6 +183,29 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 任何支持 OpenAI 兼容 API 的工具(Claude Code、Cline、DSH 设置-模型 等)都可以把
 `baseURL` 指向面板「端点与密钥」页里显示的那个端点(`dsh web` 下即 `http://localhost:3080/v1`)。
 
+### 四种协议入口
+
+不止 OpenAI Chat。四种协议**双向互转**,进站认客户端说的方言,出站按供应商
+声明的方言请求,中间收敛成一种规范形态(OpenAI Chat Completions 请求体 + 一组
+扁平事件),所以是 4 个协议模块而不是 4×3 = 12 条翻译路径。
+
+| 入口 | 客户端 | 说明 |
+| --- | --- | --- |
+| `POST /v1/chat/completions` | OpenAI Chat 系(Cline、DSH 设置-模型、任意 OpenAI SDK) | 规范形态本身,字节级透传 |
+| `POST /v1/messages` | Claude Code | Anthropic Messages。`count_tokens` 返回 501(没有本地 tokenizer 就不编数字) |
+| `POST /v1/responses` | Codex | OpenAI Responses |
+| `POST /v1beta/models/<model>:generateContent`<br>`...:streamGenerateContent` | Gemini CLI | 模型名在**路径**里;`?alt=sse` 等 query 会先切掉再解析 |
+
+四个入口共享同一套鉴权(`Authorization: Bearer`)、同一个账号池与组合回退、
+同一份用量统计。换协议只是换入口,不会多一份账号池实现。
+
+**跨协议会丢的东西**(明确不做翻译,各协议模块注释里逐条点名):Anthropic 的
+`cache_control`、Responses 的 `previous_response_id` / `store`、Gemini 的
+`safetySettings`。它们在目标协议里没有对应概念,硬造一个只是猜。
+
+设计取舍、各协议的坑(工具调用的三种编码、收尾的四种词汇、用量分散在不同帧)、
+测试策略见 [`docs/protocols.md`](docs/protocols.md)。
+
 **鉴权**:默认 `requireApiKey=false`,`/v1/*` 不要求鉴权(本地使用,与 9router 一致)。
 在「端点与密钥」页开启「要求 API Key」后,请求必须带
 `Authorization: Bearer <库内启用的 Key>`。
@@ -359,6 +382,13 @@ curl -X POST http://localhost:3080/v1/chat/completions \
                  │    └─ RouterAdapter(src/llm/adapter.ts)  OpenAI SSE → DSH StreamChunk
                  │         (usage 经 toTokenUsage 转 DSH 契约,见 docs/suppliers.md)
                  │         (带 x-dsh-router-session 头:宿主 sessionId → 会话亲和)
+                 ├─ 另外三个协议入口(src/protocol/,共享上面同一套 Router)
+                 │    ├─ /v1/messages           Anthropic Messages(Claude Code)
+                 │    ├─ /v1/responses          OpenAI Responses(Codex)
+                 │    └─ /v1beta/models/*       Gemini(generateContent / streamGenerateContent)
+                 │         parseInbound → 规范请求 → Router.chatCompletions(原样复用)
+                 │         → outboundSink 把 Router 写的 OpenAI 形态翻回客户端协议
+                 │         (编解码器见 src/protocol/{chat,anthropic,responses,gemini}.ts)
                  ├─ host-version(src/host-version.ts)  报宿主版本 + 守 0.2.0 版本地板(低于则告警)
                  ├─ KeysStore(src/keys.ts)              密钥库 + requireApiKey
                  └─ Router(路由器) → suppliers[]

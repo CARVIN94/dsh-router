@@ -20,21 +20,31 @@ import { renderPromptText, type PromptExtData } from './render.ts'
 /** `ctx.systemPrompt` 的最小可见面。 */
 export interface SystemPromptFace {
   section(section: { name: string; order: number; text: string | (() => string) }): () => void
-  getSectionOrder?(name: string): number
 }
 
 /** 段落名（**稳定**）：改名会让已注册的作用域 section 与旧名并存。 */
 export const PROMPT_SECTION_NAME = 'dsh-router-ext-prompt:guideline'
 
 /**
- * 段落 order：100。
+ * 段落 order：**-2000 = 全场最前**（2026-10-21 用户点名「把准则放到最前」）。
  *
- * 官方分配的槽位（`dsh-system-prompt` 的 `SECTION_ORDERS`）：
- * `PERSONA_PREFIX: 0` · `PLAN_POLICY: 500` · `TEAM_POLICY: 600` …·
- * 取 100 = 紧随 persona、远早于任何工具段 ⇒ 准则出现在身份之后、工具说明之前，
- * 与用户看到的记忆快照位置一致。
+ * 官方分配的槽位（`dsh-system-prompt` 的 `SECTION_ORDERS`）最低一档是
+ * `HARNESS_IDENTITY: -1000`（第一方开场白 `You are an AI agent powered by
+ * DeepSeek Harness.`），其后才是 `DEPLOYMENT_PERSONA_PREFIX: 0`、`PLAN_POLICY: 500`
+ * … `HARNESS_SOURCE: 10000`。
+ *
+ * 取 **-2000**（低于官方最低槽 1000）而不是「正好 -1000」：
+ *   - 撞在 -1000 上要靠**段名的字母序**决胜（`comparePromptSections` 是
+ *     `order` 再按 `name`）—— 那是实现细节，改段名就翻盘，不作为位置依据；
+ *   - 第一方那行在本部署被 `includeHarnessIdentity: false` 关掉了，但**别的
+ *     部署可能还开着** ⇒ 准则仍须排在它前面，不能假设它不存在。
+ *
+ * ⚠️ `order` 只要求有限数（`Number.isFinite`），负数合法。
  */
-const SECTION_ORDER = 100
+const SECTION_ORDER = -2000
+
+/** 官方 `SECTION_ORDERS` 里最低的那档（第一方开场白），测试用它当"最前"的判据。 */
+export const OFFICIAL_LOWEST_SECTION_ORDER = -1000
 
 export interface MountPromptDeps {
   /** 取 `ctx.systemPrompt`（可能尚未就绪 ⇒ undefined）。 */

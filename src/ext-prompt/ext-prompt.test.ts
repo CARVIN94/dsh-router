@@ -112,7 +112,9 @@ async function realCtx(opts: { enabled?: boolean; data?: unknown } = {}) {
       sections.push(s)
       return () => {}
     },
-    getSectionOrder: () => 100,
+    // ⚠️ 这里曾经有个 `getSectionOrder: () => 100` 的桩：没人调用它（`mount.ts`
+    //   自己定 order），而 100 已经不是本插件的段落 order（2026-10-21 改为 -2000
+    //   放到最前）⇒ 留着就是一句与事实不符的注脚，删掉。
   })
   ctx.provide('router.ext', table)
   ctx.provide('router.extStore', {

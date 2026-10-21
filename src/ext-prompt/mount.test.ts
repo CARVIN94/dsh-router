@@ -7,7 +7,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mountPromptSection, PROMPT_SECTION_NAME } from './mount.ts'
+import { mountPromptSection, PROMPT_SECTION_NAME, OFFICIAL_LOWEST_SECTION_ORDER } from './mount.ts'
 import { EXT_PROMPT_ID } from './plugin.ts'
 
 /** 记录注册内容的假 systemPrompt。 */
@@ -33,6 +33,18 @@ test('注册恰好一个段落，名字稳定', () => {
   mountPromptSection({ getSystemPrompt: () => sp, isEnabled: () => true, readData: () => undefined })
   assert.equal(sp.registered.length, 1)
   assert.equal(sp.registered[0]!.name, PROMPT_SECTION_NAME)
+})
+
+test('★ 段落 order 排在官方最低槽之前（2026-10-21 用户点名：准则放最前）', () => {
+  // 判据不写"是最小的"（谁将来再往前挪就误伤），写成**必须低于官方第一方最低槽**：
+  // 第一方开场白 `harness:identity` 在 -1000，别的部署可能没关它。
+  const sp = fakeSystemPrompt()
+  mountPromptSection({ getSystemPrompt: () => sp, isEnabled: () => true, readData: () => undefined })
+  const order = sp.registered[0]!.order
+  assert.ok(
+    order < OFFICIAL_LOWEST_SECTION_ORDER,
+    `order=${order} 未低于官方最低槽 ${OFFICIAL_LOWEST_SECTION_ORDER} ⇒ 准则排不到最前`,
+  )
 })
 
 test('⚠️ text 必须是 provider 函数而不是静态字符串（否则改开关不生效）', () => {

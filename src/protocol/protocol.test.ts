@@ -557,3 +557,88 @@ test('★ 回归：Gemini 路径带 ?alt=sse（CLI 默认）时模型名解析�
   // 模型名可含斜杠（`models/` 前缀是 Gemini 的合法写法）
   assert.equal(geminiModelFromPath('/v1beta/models/models/gemini-pro:generateContent'), 'models/gemini-pro')
 })
+
+/* ------------------------------------------------------------------ */
+/* 9. 穷举 4×4：每一对协议（含双向）都必须真通                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 「四种协议双向互转」这句话的**判据**。
+ *
+ * 前面几组测试各测一个协议对自己的往返；这里穷举 A→B 的全部有向组合
+ * （4×4 − 4 条自己到自己 = 12 条请求路径 + 12 条响应路径），任何一条
+ * 断掉都说明「双向互转」名不副实。
+ *
+ * 值钱的不是数量，而是**跨协议语义**：Claude Code 说 Anthropic、上游只会
+ * 说 Gemini 这种组合，是这套设计的全部理由。
+ */
+const CROSS_CANONICAL: JsonObject = {
+  model: 'm',
+  messages: [
+    { role: 'system', content: 'be brief' },
+    { role: 'user', content: '列出 /tmp' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'ls', arguments: '{"p":"/tmp"}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'a.txt' },
+  ],
+  tools: [{ type: 'function', function: { name: 'ls', description: 'list', parameters: { type: 'object', properties: { p: { type: 'string' } } } } }],
+  max_tokens: 100,
+}
+
+const CROSS_EVENTS: ChatEvent[] = [
+  { type: 'text', text: 'hi' },
+  { type: 'tool-start', index: 0, id: 'c1', name: 'ls' },
+  { type: 'tool-args', index: 0, delta: '{"p":"/tmp"}' },
+  { type: 'usage', promptTokens: 7, completionTokens: 3, cachedTokens: 0 },
+  { type: 'finish', reason: 'tool-calls' },
+]
+
+test('★ 穷举请求路径：A 形态 → 规范 → B 形态，工具与工具结果都不丢', () => {
+  for (const a of PROTOCOL_IDS) {
+    for (const b of PROTOCOL_IDS) {
+      if (a === b) continue
+      // 规范 → A（我们用自己的语言向说 A 的供应商请求）
+      const fa = codecOf(a).fromChat(CROSS_CANONICAL, CTX)
+      // A → 规范（客户端说 A，我们听懂它）
+      const canonical = codecOf(a).toChat(fa, CTX)
+      // 规范 → B
+      const fb = codecOf(b).fromChat(canonical, CTX)
+      const blob = JSON.stringify(fb)
+      assert.ok(blob.includes('ls'), `${a} → ${b}: 工具声明丢了`)
+      assert.ok(blob.includes('a.txt'), `${a} → ${b}: 工具结果丢了`)
+    }
+  }
+})
+
+test('★ 穷举响应路径：A 的帧 → 规范 → B 的帧，文本与工具名都能读回', () => {
+  for (const a of PROTOCOL_IDS) {
+    for (const b of PROTOCOL_IDS) {
+      if (a === b) continue
+      const ca = codecOf(a)
+      const cb = codecOf(b)
+      const sa = ca.createSession?.()
+      const sb = cb.createSession?.()
+
+      // 规范事件 → A 的帧
+      const framesA = CROSS_EVENTS.flatMap((e) => ca.encodeFrame(e, sa))
+      // A 的帧 → 规范事件
+      const back: ChatEvent[] = []
+      for (const frame of framesA) {
+        const m = /^event: (.+)\ndata: ([\s\S]*)\n\n$/.exec(frame)
+        if (m === null) {
+          const d = /^data: ([\s\S]*)\n\n$/.exec(frame)
+          if (d !== null && d[1] !== '[DONE]') back.push(...ca.decodeFrame(d[1]!, undefined, sa))
+          continue
+        }
+        if (m[2] === '[DONE]') continue
+        back.push(...ca.decodeFrame(m[2]!, m[1], sa))
+      }
+      // 规范 → B 的帧（内容事件 + 收尾帧）
+      const out = [
+        ...back.filter((e) => e.type !== 'finish' && e.type !== 'usage').flatMap((e) => cb.encodeFrame(e, sb)),
+        ...cb.endFrames({ model: 'm', stream: true, finish: 'tool-calls' }),
+      ].join('')
+      assert.ok(out.includes('hi'), `${a} → ${b}: 文本丢了`)
+      assert.ok(out.includes('ls'), `${a} → ${b}: 工具名丢了`)
+    }
+  }
+})

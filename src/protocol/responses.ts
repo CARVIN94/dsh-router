@@ -81,11 +81,43 @@ export const responsesCodec: ProtocolCodec = {
         if (t !== '') instructions.push(t)
         continue
       }
-      input.push({
-        type: 'message',
-        role: role === 'assistant' ? 'assistant' : 'user',
-        content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: contentText(msg.content) }],
-      })
+      // tool 角色 → `function_call_output`：Chat 把工具结果放在 role:'tool'，
+      // Responses 放在一个独立的 input 项里。丢了它上游会以为「工具从没被调用过」，
+      // 于是重复发起同一个调用 —— 表现为无限工具循环。
+      if (role === 'tool') {
+        input.push({
+          type: 'function_call_output',
+          call_id: str(msg.tool_call_id) ?? '',
+          output: contentText(msg.content),
+        })
+        continue
+      }
+      const text = contentText(msg.content)
+      // 文本永远是 message 项（空文本就不造一个空 message）
+      if (text !== '') {
+        input.push({
+          type: 'message',
+          role: role === 'assistant' ? 'assistant' : 'user',
+          content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }],
+        })
+      }
+      // assistant 的 tool_calls → 每个一个 `function_call` 项（Responses 没有
+      // 嵌套的 tool_calls，是平铺的独立项）。
+      if (role === 'assistant') {
+        for (const tc of arr(msg.tool_calls) ?? []) {
+          const call = obj(tc)
+          const fn = obj(call?.function)
+          if (call === undefined || fn === undefined) continue
+          const name = str(fn.name)
+          if (name === undefined) continue
+          input.push({
+            type: 'function_call',
+            call_id: str(call.id) ?? '',
+            name,
+            arguments: str(fn.arguments) ?? '{}',
+          })
+        }
+      }
     }
     if (instructions.length > 0) out.instructions = instructions.join('\n\n')
     out.input = input

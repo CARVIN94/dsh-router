@@ -48,7 +48,6 @@ import { detectHostVersion, isHostSupported } from './host-version.ts'
 import { ExtStore } from './ext/store.ts'
 import type { ExtControl, ExtInfo, ExtStoreService, RouterExt, RouterExtService } from './ext/contract.ts'
 import { geminiModelFromPath, lvOf, outboundSink, parseInbound } from './protocol/entry.ts'
-import { mountSupplierPrompt, type SystemPromptFace } from './supplier-prompt/mount.ts'
 
 /**
  * Plugin identity for cordis.yml rows — 必须与 package.json 的 name 一致。
@@ -56,15 +55,8 @@ import { mountSupplierPrompt, type SystemPromptFace } from './supplier-prompt/mo
  */
 export const name = 'dsh-router-core'
 
-/**
- * Services required before mounting.
- *
- * `systemPrompt` 也在这里：供应商级提示词要注册成它的一段（见
- * `supplier-prompt/mount.ts`）。它**不是硬依赖** —— 宿主没提供时本插件照旧
- * 工作，只是供应商提示词不生效（`getSystemPrompt()` 返回 undefined，
- * 挂载函数返回 no-op）。
- */
-export const inject = ['webServer', 'llm', 'systemPrompt']
+/** Services required before mounting: the webserver (routes) + llm (设置-模型). */
+export const inject = ['webServer', 'llm']
 
 /**
  * `Config` 导出：让 Router 卡片进设置-模型的镜像（0.2.0 的收录链是「插件导出的
@@ -234,49 +226,6 @@ export function apply(rawContext: unknown): void {
   })
 
   const keys = new KeysStore(stateFile)
-
-  // ---- 供应商级系统提示词 ----
-  //
-  // 「用了哪个供应商，AI 的身份描述就换成那段」——提示词存在 SupplierConfig 里
-  // （面板「编辑供应商」可改），这里把它接到宿主的系统提示词上。
-  //
-  // ⚠️ 时序：系统提示词在请求**前**装配，而「本轮命中谁」在请求**后**才知道，
-  //    两者天然差一轮。所以这里取的是**同一会话上一轮**的命中（`lastHit`）。
-  //    首轮没有命中 ⇒ 回落成宿主原句。详见 `supplier-prompt/resolve.ts` 的
-  //    文件头（那里逐条否掉了另外两种取法）。
-  //
-  // ⚠️ 宿主 `includeHarnessIdentity` 读取不到（cordis.yml 里的静态配置），
-  //    也不该读：我们注册的是**同名** `harness:identity` 段，宿主开着就顶掉它、
-  //    关着就在同一位置补上 —— 两种情形对用户是同一件事。这是官方的覆盖机制
-  //    （agent preset 顶掉部署 persona 就靠它）。
-  ctx.inject(['systemPrompt'], (pctx) => {
-    const sp = (pctx as { systemPrompt?: SystemPromptFace }).systemPrompt
-    if (sp === undefined) {
-      log('systemPrompt unavailable: supplier prompts will not be applied')
-      return
-    }
-    /**
-     * 本轮应生效的提示词。
-     *
-     * 会话从哪来：`lastHit(undefined)` 是全局最近一条 —— 那是**错的**（team
-     * 多会话下会张冠李戴，与「最近命中」徽章当初踩的同一个坑）。但提示词
-     * provider 拿不到「当前是哪个会话」（宿主装配时不传 agent 身份），所以这里
-     * 用**全局最近命中**并在注释里写明这个近似：单会话（绝大多数用法）下它
-     * 精确等于该会话；team 多会话下可能取到别的会话的供应商。
-     *
-     * 想更准只能让宿主在装配时告诉我们会话身份 —— 那要改 dsh-system-prompt
-     * 的 provider 契约，本插件做不到。
-     */
-    const currentPrompt = (): string => {
-      const last = router.usage.lastHit()
-      const prompt = last?.supplier === undefined
-        ? ''
-        : store.promptOf(last.supplier)
-      return prompt
-    }
-    const dispose = mountSupplierPrompt({ getSystemPrompt: () => sp, currentPrompt })
-    ctx.effect(() => dispose, 'dsh-router: supplier prompt section')
-  })
 
   const disposers: Array<() => void> = []
   const route = (

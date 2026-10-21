@@ -96,10 +96,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
   const [showAlias, setShowAlias] = useState(false)
   const [aliasDraft, setAliasDraft] = useState('')
   const [aliasError, setAliasError] = useState('')
-  /** 已生效的供应商提示词（空 = 宿主原样）。 */
-  const [prompt, setPrompt] = useState('')
-  /** 编辑中的草稿（弹窗关闭时丢弃）。 */
-  const [promptDraft, setPromptDraft] = useState('')
   const [testingIds, setTestingIds] = useState<Set<string>>(() => new Set())
   const [testResults, setTestResults] = useState<Record<string, 'ok' | 'error'>>({})
   const [copiedModel, setCopiedModel] = useState<string | null>(null)
@@ -134,7 +130,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
         if (data.ok && data.models) {
           setModels(data.models)
           if (data.alias) setAlias(data.alias)
-          setPrompt(data.prompt ?? '')
         } else setModelsError(data.error ?? '加载失败')
       }
     } catch (err) {
@@ -519,32 +514,19 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
     setBusy(true)
     setAliasError('')
     try {
-      // 两个字段分两个端点（前缀要校验唯一性、提示词要限长），但**一个保存按钮** ——
-      // 用户看到的是一个"编辑供应商"表单，不该被迫按两次。
-      const [aliasRes, promptRes] = await Promise.all([
-        fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/alias`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alias: aliasDraft.trim() }),
-          cache: 'no-store',
-        }),
-        fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/prompt`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: promptDraft }),
-          cache: 'no-store',
-        }),
-      ])
-      const aliasData = await aliasRes.json() as { ok: boolean; error?: string }
-      const promptData = await promptRes.json() as { ok: boolean; error?: string }
-      // 两边都成功才关闭弹窗：一边失败就留在原地把错误说出来（别让用户以为都存了）
-      if (!aliasData.ok || !promptData.ok) {
-        setAliasError(aliasData.error ?? promptData.error ?? '保存失败')
-        return
+      const response = await fetch(`${ROUTER_API_BASE}/suppliers/${supplier.id}/alias`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alias: aliasDraft.trim() }),
+        cache: 'no-store',
+      })
+      const data = await response.json() as { ok: boolean; error?: string }
+      if (data.ok) {
+        setAlias(aliasDraft.trim())
+        setShowAlias(false)
+      } else {
+        setAliasError(data.error ?? '保存失败')
       }
-      setAlias(aliasDraft.trim())
-      setPrompt(promptDraft.trim())
-      setShowAlias(false)
     } catch (err) {
       setAliasError((err as Error).message)
     } finally {
@@ -602,7 +584,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
             </p>
           </div>
           {canEdit && (
-            <button type="button" className="dshr-iconBtn dshr-providerEdit" title="编辑供应商" onClick={() => { setAliasDraft(alias); setPromptDraft(prompt); setAliasError(''); setShowAlias(true) }}>
+            <button type="button" className="dshr-iconBtn dshr-providerEdit" title="编辑供应商" onClick={() => { setAliasDraft(alias); setAliasError(''); setShowAlias(true) }}>
               <Icon d={I.edit} size={15} />
             </button>
           )}
@@ -885,7 +867,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
         </Modal>
       )}
 
-      {/* ---- 编辑供应商弹窗（前缀 + 系统提示词） ---- */}
+      {/* ---- 编辑供应商弹窗（前缀 + 连接池策略） ---- */}
       {showAlias && (
         <Modal title="编辑供应商" onClose={() => setShowAlias(false)}>
           <div className="dshr-modalForm">
@@ -899,36 +881,6 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                 onChange={(e) => setAliasDraft(e.target.value)}
               />
             </>
-
-            <>
-              <label className="dshr-fieldLabel">系统提示词</label>
-              <p className="dshr-muted">
-                用这个供应商时，AI 的开场身份就用这段。<strong>每个供应商各存一份</strong>，
-                互不影响——同一套组合里 Claude 和 GPT 可以各说各的身份。
-              </p>
-              <p className="dshr-muted">
-                <strong>留空</strong> = 用宿主默认那句 <code className="dshr-mono">You are an AI agent powered by DeepSeek Harness.</code>
-                （宿主开关 <code className="dshr-mono">includeHarnessIdentity</code> 打开时）。
-                <strong>填写</strong> = 替换掉那句。
-              </p>
-              <p className="dshr-muted">
-                改完从<strong>下一轮</strong>对话生效（首轮还没有命中记录，用默认身份）。
-              </p>
-              <textarea
-                className="dshr-input dshr-promptTextarea"
-                placeholder={`留空则用宿主默认：\nYou are an AI agent powered by DeepSeek Harness.`}
-                rows={6}
-                maxLength={8 * 1024}
-                value={promptDraft}
-                onChange={(e) => setPromptDraft(e.target.value)}
-              />
-              <p className="dshr-muted">
-                {promptDraft.trim() === ''
-                  ? '当前：留空（宿主默认身份）'
-                  : `当前：自定义身份，${promptDraft.trim().length} 字符`}
-              </p>
-            </>
-
             {aliasError !== '' && <div className="dshr-alert"><strong>出错了</strong><span>{aliasError}</span></div>}
             <div className="dshr-modalActions">
               <button type="button" className="dshr-miniButton" onClick={() => setShowAlias(false)}>取消</button>

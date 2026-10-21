@@ -954,26 +954,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     border-color: var(--rs-accent);
 }
 
-/* 多行输入（供应商系统提示词）。
-   `.dshr-input` 的 height: 30px 是给单行 input 的，套到 textarea 上会把多行
-   内容挤成一行高 —— 必须显式 height: auto + 允许纵向拉伸。 */
-.dshr-promptTextarea {
-    flex: 1 1 auto;
-    min-width: 0;
-    height: auto;
-    min-height: 96px;
-    max-height: 40vh;
-    padding: 8px 10px;
-    border: 1px solid var(--rs-line);
-    border-radius: 6px;
-    background: var(--rs-layer-1);
-    color: var(--rs-text);
-    font-size: 12px;
-    line-height: 1.55;
-    resize: vertical;
-    font-family: inherit;
-}
-
 /* 成功提示 */
 .dshr-alert-ok {
     border-color: color-mix(in srgb, var(--rs-ok) 45%, transparent);

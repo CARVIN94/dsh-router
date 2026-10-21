@@ -3360,6 +3360,25 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     list-style: none;
 }
 
+/* 分组标题行 —— `ExtControl.group` 的渲染落点，插在 `.dshr-compRows` 里
+   的非交互 <li>（无拖把/开关，不可点）。与 `compTitle` 的区别：那是详情页
+   主标题（页头），这是**组**名（次要色 + 小字号）。左右 14px 对齐
+   `.dshr-compRow` 的行内缩，组名与行文字左缘一致。 */
+.dshr-extGroupTitle {
+    margin: 14px 0 2px;
+    padding: 0 14px;
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 18px;
+    list-style: none;
+}
+
+/* 全部分组的扩展：首个渲染节点就是组标题，去掉上边距避免顶双空。 */
+.dshr-extGroupTitle:first-child {
+    margin-top: 0;
+}
+
 .dshr-compRow {
     display: flex;
     align-items: center;

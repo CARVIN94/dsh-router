@@ -76,3 +76,19 @@ test('★ src 下不许有备份/临时文件（它们会被 `git add -A` 顺手
     .filter((f) => /\.(bak|orig|rej|tmp|swp)$/.test(f) || /~$/.test(f))
   assert.deepEqual(junk, [], `源码目录里有临时/备份文件：${junk.join(', ')}`)
 })
+
+// ── controls 序列化白名单（2026-10-21 段落总控）──────────────────
+test('★ controls 透传 group / sortable（白名单漏字段 ⇒ 面板分组永远不生效）', () => {
+  // ⚠️ 这里存在一个**只在入口才暴露**的失效：`GET /ext` 用 `.map()` 逐字段
+  //   重建 controls（白名单），扩展在 `controls` 里给了 `group`，但白名单
+  //   不认它 ⇒ 字段被静默丢掉。而单测（直接读扩展对象的 `.controls`）**全绿**：
+  //   扩展那头确实给了。两端都"对"，中间少一环 —— 只能在这里守。
+  //
+  // 判据用源码形状而非启服务器：与本文件既有做法一致（理由见文件头）。
+  const mapLine = src.split('\n').find((l) => l.includes('.map((c) => ({ id: c.id, title: c.title' ))
+  assert.ok(mapLine !== undefined, '找不到 controls 的序列化 map（形状变了 ⇒ 本判据要跟着改）')
+  assert.match(mapLine, /\.\.\.\(c\.group !== undefined \? \{ group: c\.group \}/,
+    'controls 序列化没透传 group ⇒ 段落分组在面板上永远不出现')
+  assert.match(mapLine, /\.\.\.\(c\.sortable !== undefined \? \{ sortable: c\.sortable \}/,
+    'controls 序列化没透传 sortable ⇒ 段落行仍可拖（假交互）')
+})

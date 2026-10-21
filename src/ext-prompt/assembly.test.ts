@@ -18,6 +18,7 @@ import { SystemPrompt, renderPrompt, type PromptAssembly } from '@deepseek-ai/ds
 import { mountPromptSection, PROMPT_SECTION_NAME } from './mount.ts'
 import { renderPromptText } from './render.ts'
 import { PROMPT_CATEGORIES } from './content.ts'
+import { createSectionCache, disabledSectionNames, filterSections } from './sections.ts'
 
 /** 起一个真 systemPrompt 并挂上本扩展。 */
 async function assemble(
@@ -76,4 +77,66 @@ test('装配结果与 renderPromptText 的内容一致（渲染逻辑只有一�
   const text = renderPrompt(a)
   const expected = renderPromptText(true, undefined)
   assert.ok(text.includes(expected), '装配结果里找不到 renderPromptText 的输出 ⇒ 两处实现漂移了')
+})
+
+// ── 段落总控：真宿主装配链上的"关了就没了"（2026-10-21）──────────
+/**
+ * ⚠️ 这里才是段落总控的**终局判据**。前面 `section-filter.test.ts` 验的是
+ * "监听器按规则返回了什么"，而"宿主真把那个返回值当成最终装配"是**另一件事**
+ * —— 宿主源码里 waterfall 之后还有 complete-section 恢复、runtime-context
+ * 抑制等收尾，任何一处改动都可能让我们删的段回来。只有跑真 `assemble()`
+ * 才能钉住。
+ */
+async function assembleWithSections(
+  opts: { masterOn?: boolean; data?: unknown },
+): Promise<{ names: string[]; text: string; dispose: () => void }> {
+  const ctx = new Context()
+  new SystemPrompt(ctx, { includeHarnessIdentity: true, personaPrefix: 'PERSONA-PREFIX-SENTINEL' })
+  let enabled = true
+  const cache = createSectionCache()
+  // 与 index.ts 的监听器**同一形状**：先 next()、喂清单、再按落盘过滤
+  const offAssemble = ctx.on('system-prompt/assemble', async (assembly, _c, next) => {
+    const result = await next()
+    cache.update(result.sections)
+    if ((opts.masterOn ?? enabled) !== true) return result
+    const off = disabledSectionNames(opts.data as never)
+    if (off.size === 0) return result
+    return { ...result, sections: filterSections(result.sections, off) }
+  })
+  // 本扩展自己的准则段（带正文哨兵，便于断言它没被段开关删掉）
+  const dispose = mountPromptSection({
+    getSystemPrompt: () => ctx.systemPrompt,
+    isEnabled: () => true,
+    readData: () => undefined,
+  })
+  await new Promise((r) => setTimeout(r, 10))
+  const a = await ctx.systemPrompt.assemble({})
+  return {
+    names: a.sections.map((s) => s.name),
+    text: renderPrompt(a),
+    dispose: () => { offAssemble(); dispose(); void ctx },
+  }
+}
+
+test('★ 真装配链：关掉某段落 ⇒ 它真的不在最终 prompt 里', async () => {
+  const on = await assembleWithSections({})
+  // 宿主自带的段（关掉 includeHarnessIdentity 也仍在表里的话更好，但优先用我们自己的）
+  assert.ok(on.names.includes(PROMPT_SECTION_NAME), `准则段不在装配里：${on.names.join(', ')}`)
+  const target = on.names.find((n) => n === 'deployment:persona-prefix')
+  assert.ok(target !== undefined, `找不到宿主 persona 段，实际段名：${on.names.join(', ')}`)
+  on.dispose()
+
+  const off = await assembleWithSections({ data: { sections: { [target]: false } } })
+  assert.equal(off.names.includes(target), false, `真装配链里 ${target} 关了却还在`)
+  assert.equal(off.text.includes('PERSONA-PREFIX-SENTINEL'), false, '段没了但正文还在 ⇒ 过滤没生效')
+  // 反向：别的段与准则不能陪葬
+  assert.ok(off.names.includes(PROMPT_SECTION_NAME), '关别人的段时把准则段一起删了')
+  off.dispose()
+})
+
+test('★ 真装配链：总开关关 ⇒ 一个段都不动（扩展关 = 不干预宿主）', async () => {
+  const r = await assembleWithSections({ masterOn: false, data: { sections: { 'deployment:persona-prefix': false } } })
+  assert.ok(r.names.includes('deployment:persona-prefix'), '总开关关掉后仍在过滤 ⇒ 关了还生效')
+  assert.ok(r.text.includes('PERSONA-PREFIX-SENTINEL'), '总开关关掉后 persona 正文不见了')
+  r.dispose()
 })

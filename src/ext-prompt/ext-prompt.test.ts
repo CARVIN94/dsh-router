@@ -20,7 +20,7 @@ import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
 import type { RouterExtService } from '../ext/contract.ts'
 
 test('扩展器带上面板要用的身份', () => {
-  const ext = createPromptExt({ isSystemPromptReady: () => true })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [] })
   assert.equal(ext.id, EXT_PROMPT_ID)
   assert.equal(ext.name, '分层提示词')
   assert.equal(ext.source, 'builtin', '随核心分发必须标 builtin，否则插件页会重复列它')
@@ -34,7 +34,7 @@ test('★ `description` 是整段标题（不是自我介绍，也不内插分�
   //   ③ 现在又要求**顶部显示标题** ⇒ 改成「等于 PROMPT_TITLE」。
   //   两次反复的共同教训：**默认值/文案该是什么由用户拍板，判据只负责让改动可见**，
   //   所以断言跟着改、并在注释里留着反复，免得下一个人以为是"又改坏了"。
-  const ext = createPromptExt({ isSystemPromptReady: () => true })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [] })
   assert.equal(ext.description, PROMPT_TITLE, '详情页顶部要显示的就是整段标题')
   // ⚠️ 尤其**不许**内插 `${PROMPT_CATEGORIES.length}`：加减分类后文案不跟着变，
   //   就是同一件事的两个来源（「反查重复」）。
@@ -53,7 +53,7 @@ test('★ 插件页那一行的说明仍然在（来自 locale，不是 descript
 })
 
 test('注入：systemPrompt 不可用 ⇒ 报 not ready（不能静默不生效）', () => {
-  const ext = createPromptExt({ isSystemPromptReady: () => false })
+  const ext = createPromptExt({ isSystemPromptReady: () => false, getSections: () => [] })
   const st = ext.getState()
   assert.equal(st.ready, false, '无处注入却报就绪 = 卡片亮着、准则没进 prompt')
   assert.ok((st.detail ?? '').length > 0, '不报还不说原因 = 面板上无从判断')
@@ -102,10 +102,12 @@ test('★ 那一行默认关闭（与 ext-test 同款）', () => {
  *   真 cordis 会如实复现时序（本机 4.0.4 实测：provide 后 inject 不触发，
  *   start() 之后才触发）。
  */
-async function realCtx(opts: { enabled?: boolean; data?: unknown } = {}) {
+async function realCtx(opts: { enabled?: boolean; data?: unknown; assembled?: { name: string; text: string }[] } = {}) {
   const { Context } = await import('@deepseek-ai/cordis')
   const table: RouterExtService = {}
   const sections: { name: string; order: number; text: string | (() => string) }[] = []
+  const assembled = opts.assembled ?? []
+  let assembleCalls = 0
   const ctx = new Context()
   ctx.provide('systemPrompt', {
     section: (s: { name: string; order: number; text: string | (() => string) }) => {
@@ -115,6 +117,12 @@ async function realCtx(opts: { enabled?: boolean; data?: unknown } = {}) {
     // ⚠️ 这里曾经有个 `getSectionOrder: () => 100` 的桩：没人调用它（`mount.ts`
     //   自己定 order），而 100 已经不是本插件的段落 order（2026-10-21 改为 -2000
     //   放到最前）⇒ 留着就是一句与事实不符的注脚，删掉。
+    // 段落总控的预热/清单源（apply 里 `void sp.assemble()`）；返回值直接决定
+    // 面板清单，测试用 `assembled` 注入。
+    assemble: async () => {
+      assembleCalls++
+      return { sections: assembled.map((s) => ({ ...s })) }
+    },
   })
   ctx.provide('router.ext', table)
   ctx.provide('router.extStore', {
@@ -123,7 +131,7 @@ async function realCtx(opts: { enabled?: boolean; data?: unknown } = {}) {
     readData: () => opts.data,
     writeData: () => {},
   })
-  return { ctx, table, sections }
+  return { ctx, table, sections, getAssembleCalls: () => assembleCalls }
 }
 
 test('apply 把扩展登记进 router.ext 表（这张表就是「卡片出现」的唯一依据）', async () => {
@@ -165,14 +173,14 @@ test('注入：用户关掉某分类 ⇒ 该分类不进 prompt（可开关的�
 
 // ── 面板编辑文本（2026-09-29）────────────────────────────────
 test('★ 每条都标 editable，面板才知道该不该给「修改」按钮', () => {
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store: fakeStore({ categories: {} }) })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store: fakeStore({ categories: {} }) })
   for (const c of ext.controls ?? []) assert.equal(c.editable, true, `${c.id} 没标 editable`)
   assert.equal(typeof ext.setControlText, 'function', '没有 setControlText ⇒ 面板点了必然 400')
 })
 
 test('★ 编辑后 controls 立刻反映新标题/新正文（每次读都重算）', () => {
   const store = fakeStore({ categories: {}, text: { identity: { title: '我是谁', body: '我是一个测试。' } } })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   const c = (ext.controls ?? []).find((x) => x.id === 'identity')!
   assert.equal(c.title, '我是谁')
   assert.equal(c.body, '我是一个测试。')
@@ -184,7 +192,7 @@ test('★ controls 不是快照：改完之后**再读一次**要看到新值', 
   //   旧标题**（用户看到"保存了又变回去"）。而我当时注释写着"现算不缓存"。
   //   ⇒ 判据必须**跨两次读**才抓得住（只读一次的写法抓不到）。
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   const before = (ext.controls ?? []).find((x) => x.id === 'ladder')!
   assert.equal(before.title, '懒人梯子')
   ext.setControlText?.('ladder', { title: '我的梯子' })
@@ -194,7 +202,7 @@ test('★ controls 不是快照：改完之后**再读一次**要看到新值', 
 
 test('setControlText 只写覆盖值，且不碰 categories（同块的另一种数据）', () => {
   const store = fakeStore({ categories: { identity: false }, keep: 'me' })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.setControlText?.('identity', { title: '新标题' }), true)
   const after = store.readData<Record<string, unknown>>('')
   assert.deepEqual(after?.categories, { identity: false }, '改标题把开关状态冲掉了')
@@ -209,7 +217,7 @@ test('★ 改一条**不碰其它条**的覆盖（整块重写 text 会静默丢
     categories: {},
     text: { identity: { title: 'A' }, scope: { body: 'B' } },
   })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   ext.setControlText?.('ladder', { body: '新内容' })
   assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {
     identity: { title: 'A' },
@@ -220,7 +228,7 @@ test('★ 改一条**不碰其它条**的覆盖（整块重写 text 会静默丢
 
 test('改同一条的第二个字段 ⇒ 第一个字段仍在（部分更新，不是替换）', () => {
   const store = fakeStore({ categories: {}, text: { identity: { title: 'A' } } })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   ext.setControlText?.('identity', { body: 'B' })
   assert.deepEqual(store.readData<Record<string, unknown>>('')?.text, {
     identity: { title: 'A', body: 'B' },
@@ -229,7 +237,7 @@ test('改同一条的第二个字段 ⇒ 第一个字段仍在（部分更新，
 
 test('注入：空标题/空正文返回 false（不写盘）', () => {
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   for (const bad of [{ title: '  ' }, { title: '' }, { body: '' }]) {
     assert.equal(ext.setControlText?.('identity', bad), false, `空串被接受了：${JSON.stringify(bad)}`)
   }
@@ -238,7 +246,7 @@ test('注入：空标题/空正文返回 false（不写盘）', () => {
 
 test('注入：未知 controlId 返回 false', () => {
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.setControlText?.('__evil__', { title: 'x' }), false)
 })
 
@@ -264,7 +272,7 @@ test('★ controls 走合成列表：自建条目出现、标 custom、内置标
     custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }],
     text: { ladder: { body: '改过的' } },
   })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   const list = ext.controls ?? []
   assert.equal(list.length, PROMPT_CATEGORIES.length + 1, '自建条目没出现')
   assert.equal(list.find((c) => c.id === 'cu-1')?.custom, true)
@@ -274,7 +282,7 @@ test('★ controls 走合成列表：自建条目出现、标 custom、内置标
 
 test('★ 新增自建条目 ⇒ 返回新 id，且落盘（id 不撞内置）', () => {
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   const id = ext.addCustomControl?.('我的准则', '做完了就收。')
   assert.ok(id !== null && typeof id === 'string', '没返回新 id')
   assert.notEqual(id, 'identity', '新 id 撞上了内置条目')
@@ -283,7 +291,7 @@ test('★ 新增自建条目 ⇒ 返回新 id，且落盘（id 不撞内置）',
 
 test('注入：空标题/空正文新增 ⇒ 返回 null（不写盘）', () => {
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.addCustomControl?.('  ', 'x'), null)
   assert.equal(ext.addCustomControl?.('x', ''), null)
   assert.equal(store.readData<Record<string, unknown>>('')?.custom, undefined, '失败的写入留下痕迹')
@@ -296,7 +304,7 @@ test('★ 删除只允许自定义：内置条目被拒、自建条目删掉并�
     order: ['cu-1', 'ladder'],
     custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }],
   })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.removeCustomControl?.('identity'), false, '内置条目不该被删（它是代码的一部分）')
   assert.equal(ext.removeCustomControl?.('ladder'), false, '不存在的条目应被拒')
   assert.equal(ext.removeCustomControl?.('cu-1'), true)
@@ -308,7 +316,7 @@ test('★ 删除只允许自定义：内置条目被拒、自建条目删掉并�
 
 test('★ 还原：只对被改过的内置条目成功，且回到内置文本', () => {
   const store = fakeStore({ categories: {}, text: { ladder: { body: '改过的' } } })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.resetControlText?.('identity'), false, '没改过的内置条目不该「可还原」')
   assert.equal(ext.resetControlText?.('cu-1'), false, '自建条目没有「内置版本」可回退')
   assert.equal(ext.resetControlText?.('ladder'), true)
@@ -320,7 +328,7 @@ test('★ 还原：只对被改过的内置条目成功，且回到内置文本'
 
 test('★ 排序：只存 id，且过滤掉不存在的 id（脏数据不留幽灵）', () => {
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.setControlOrder?.(['__ghost__', 'ladder', 'ladder']), true)
   assert.deepEqual(store.readData<Record<string, unknown>>('')?.order, ['ladder'], '幽灵/重复 id 没被过滤')
 })
@@ -332,7 +340,7 @@ test('★ 没有 data 记录时也能写（"没改过" ≠ "不能写"）', () =
   //   当成"存储不可用"直接拒 ⇒ 「添加准则」永远报 `title and body are required`
   //   ——而 title/body 明明都传了，报错还指向错误的字段，排查成本极高。
   const store = fakeStore(undefined) // **没有 data**
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   const id = ext.addCustomControl?.('我的准则', '做完就收。')
   assert.ok(id !== null, '初始状态下添加失败（真实用户第一次用就是这个状态）')
   assert.equal((ext.controls ?? []).some((c) => c.id === id), true, '写盘了但 controls 里没有')
@@ -340,7 +348,7 @@ test('★ 没有 data 记录时也能写（"没改过" ≠ "不能写"）', () =
 
 test('★ 四个写入口在"无 data"时都可用（不只是 add）', () => {
   const store = fakeStore(undefined)
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.setControl?.('ladder', false), true, '开关在初始状态下不可用')
   assert.equal(ext.setControlText?.('ladder', { body: 'x' }), true, '改文本在初始状态下不可用')
   assert.equal(ext.setControlOrder?.(['ladder']), true, '排序在初始状态下不可用')
@@ -352,7 +360,7 @@ test('★ 还原：改过 ⇒ true（且覆盖被清掉）；没改过 ⇒ false
   //   而代码是对的。**假 store 比被守的东西更宽容 = 判据无效**（第三次栽在这）。
   //   ⇒ 假 store 必须**真的读回自己写的东西**：`fakeStore` 的 `box` 已在做。
   const store = fakeStore({ categories: {} })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.resetControlText?.('identity'), false, '没改过的却说可还原')
   ext.setControlText?.('ladder', { body: '改过的' })
   assert.equal(ext.resetControlText?.('ladder'), true, '改过的却还原不了')
@@ -362,7 +370,7 @@ test('★ 还原：改过 ⇒ true（且覆盖被清掉）；没改过 ⇒ false
 // ── op 成功必须回整张表（2026-09-30）───────────────────────
 test('★ 契约层：controls 上带 custom 标记（面板据此决定给删除还是还原）', () => {
   const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   const mine = (ext.controls ?? []).find((c) => c.id === 'cu-1')
   const builtin = (ext.controls ?? []).find((c) => c.id === 'identity')
   assert.equal(mine?.custom, true, '自建条目没标 custom ⇒ 面板给"还原"而不是"删除"')
@@ -377,7 +385,7 @@ test('★ 自建条目的开关可切（判据要用合成列表，不能只用�
   //   ⇒ 用户看到「自定义的开关控制报错」。而它**在 controls 列表里显示着** ——
   //   列表用 `resolveCategories`、写入判据用 `PROMPT_CATEGORIES`，两处来源不一致。
   const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal((ext.controls ?? []).some((c) => c.id === 'cu-1'), true, '列表里没有它')
   assert.equal(ext.setControl?.('cu-1', false), true, '列表里有、却切不了')
   assert.equal(store.readData<Record<string, unknown>>('')?.categories && (store.readData<{ categories: Record<string, boolean> }>('')?.categories?.['cu-1']), false, '开关没落盘')
@@ -385,14 +393,14 @@ test('★ 自建条目的开关可切（判据要用合成列表，不能只用�
 
 test('★ 自建条目的文本可改（同一处来源不一致）', () => {
   const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.setControlText?.('cu-1', { title: '新标题' }), true, '自建条目改不了标题')
   assert.equal((ext.controls ?? []).find((c) => c.id === 'cu-1')?.title, '新标题')
 })
 
 test('还原仍然只允许内置条目（自建没有「内置版本」可回退）', () => {
   const store = fakeStore({ categories: {}, custom: [{ id: 'cu-1', title: '我的', defaultOn: true, body: 'B' }] })
-  const ext = createPromptExt({ isSystemPromptReady: () => true, store })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [], store })
   assert.equal(ext.resetControlText?.('cu-1'), false, '自建条目不该能被「还原」')
 })
 
@@ -420,7 +428,7 @@ test('★ 图标能被真实渲染（base64 必须解得出合法 SVG）', () =>
 })
 
 test('图标挂在 ext 上（不设的话面板退回默认闪电）', () => {
-  const ext = createPromptExt({ isSystemPromptReady: () => true })
+  const ext = createPromptExt({ isSystemPromptReady: () => true, getSections: () => [] })
   assert.equal(ext.icon, PROMPT_LOGO_URL)
 })
 

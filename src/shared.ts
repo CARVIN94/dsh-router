@@ -193,6 +193,17 @@ export interface ExtControlItem {
   /** 文本可编辑（缺省 = 只读；见 `ExtControl.editable`）。 */
   editable?: boolean
   /**
+   * 分组名（可选；缺省 = 无组）—— 详情页按它分节渲染，组间插组标题行；
+   * 无组照旧平铺（见 `ExtControl.group`）。
+   */
+  group?: string
+  /**
+   * 参与拖动排序（可选；缺省 = 参与）—— `false` 的条目不给拖把手
+   * （见 `ExtControl.sortable`）。⚠️ 服务端**带值透传**，`false` 也会收到；
+   * 判断必须写 `sortable !== false`，`!sortable` 会把缺省（参与）当不参与。
+   */
+  sortable?: boolean
+  /**
    * 自建条目（可删）还是内置（不可删、只有开关与还原）。
    *
    * ⚠️ **必填，不给可选**（2026-09-30 实测踩过）：曾声明成 `custom?: boolean`，

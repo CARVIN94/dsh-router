@@ -16,10 +16,11 @@
  * 名称/副行，下面跟扩展说明卡与未就绪横幅。有 `api()` 支持的自定义扩展可在未来
  * 按需加独立面板，此处不内置任何具体扩展的专属视图。
  */
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ROUTER_API_BASE, type ExtControlItem, type RouterExtItem, type RouterExtResponse } from '../shared.ts'
 import { extPanel } from './ext-panels.ts'
+import { groupControlRows } from './group-controls.ts'
 import { Modal } from './Modal.tsx'
 
 /**
@@ -436,14 +437,30 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
             它只剩两个字，却仍占一行 —— 页面进来第一眼是「子开关」这三个字而不是
             那些规则本身。列表自带每条的标题与开关，不需要再套一层说明。 */}
         <ul className="dshr-compRows">
-          {controls.map((c, index) => (
+          {/* 分组渲染（`ExtControl.group`）：无组节（准则分类）平铺在前 ——
+              没用 group 的扩展拿到的就是原来的平铺列表，行为不变；有组的
+              条目（宿主段落）每组前插一行组标题。组的先后与组内顺序都来自
+              服务端 `rows`（= prompt 序），这里不重排。 */}
+          {groupControlRows(controls).map((g) => (
+            <Fragment key={g.label ?? '__plain__'}>
+              {g.label !== undefined && (
+                <li className="dshr-extGroupTitle">{g.label}</li>
+              )}
+              {g.items.map((c) => {
+                // 下标永远对 `controls`（= 服务端 rows）取：分组只影响**渲染
+                // 顺序**，拖动落盘的 ids 必须基于原列表 —— 段落行不可拖（见下），
+                // 可拖的准则全在无组节，原下标与视图位置天然一致。
+                const index = controls.indexOf(c)
+                const sortable = c.sortable !== false
+                return (
             <li
               key={c.id}
               className={`dshr-compRow${dragIndex === index ? ' dshr-linkRowDragging' : ''}`}
-              draggable
-              onDragStart={(e) => { setDragIndex(index); e.dataTransfer.effectAllowed = 'move' }}
-              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+              draggable={sortable}
+              onDragStart={(e) => { if (!sortable) return; setDragIndex(index); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={(e) => { if (!sortable) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
               onDrop={(e) => {
+                if (!sortable) { setDragIndex(null); return }
                 e.preventDefault()
                 if (dragIndex === null || dragIndex === index) { setDragIndex(null); return }
                 const next = [...controls]
@@ -511,6 +528,9 @@ function ExtControls({ item }: { item: RouterExtItem }): JSX.Element {
                 onChange={(next) => { void toggle(c.id, next) }}
               />
             </li>
+                )
+              })}
+            </Fragment>
           ))}
         </ul>
         {withBody.length === 0 && (

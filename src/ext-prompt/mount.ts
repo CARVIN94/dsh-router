@@ -20,6 +20,11 @@ import { renderPromptText, type PromptExtData } from './render.ts'
 /** `ctx.systemPrompt` 的最小可见面。 */
 export interface SystemPromptFace {
   section(section: { name: string; order: number; text: string | (() => string) }): () => void
+  /**
+   * 段落总控用（`index.ts` 的 waterfall 预热）：宿主 `SystemPrompt.assemble()`。
+   * 只声明用得到的最小形状 —— 返回的 `sections` 已按 order/name 排好序。
+   */
+  assemble(context?: Record<string, unknown>): Promise<{ sections: { name: string; text: string }[] }>
 }
 
 /** 段落名（**稳定**）：改名会让已注册的作用域 section 与旧名并存。 */

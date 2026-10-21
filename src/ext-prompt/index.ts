@@ -15,6 +15,14 @@
  * （宿主管的那个）。不置上的话，用户开了行还要再点一次，两级开关说同一件事。
  */
 import type { Context } from '@deepseek-ai/cordis'
+// ⚠️ **只为一个目的而 import type**：让 cordis 的 `Events` 增强
+//   （`system-prompt/assemble` / `system-prompt/change`）进入本文件所在的编译单元。
+//   不 import 的话，`ctx.on('system-prompt/assemble', …)` 的参数不是
+//   `keyof Events` ⇒ **声明构建（tsconfig.build.json，host 半边）直接报错**，
+//   而主 tsconfig 因为 include 了 `assembly.test.ts`（它 import 了同一个包）
+//   恰好把增强带进来 ⇒ `tsc --noEmit` 全绿、`npm run build` 才红。
+//   这类"两种配置下结论不同"的坑，靠显式依赖修，不靠碰巧。
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import {
   currentExts,
   currentExtStore,
@@ -24,6 +32,7 @@ import {
 import { createPromptExt, EXT_PROMPT_ID } from './plugin.ts'
 import { mountPromptSection, type SystemPromptFace } from './mount.ts'
 import type { PromptExtData } from './render.ts'
+import { createSectionCache, disabledSectionNames, filterSections } from './sections.ts'
 
 /** cordis 插件身份（配置树里这一行的技术名；显示名走同目录的 locale）。 */
 export const name = 'dsh-router-ext-prompt'
@@ -76,7 +85,7 @@ export function apply(ctx: Context): void {
   const table = currentExts(ctx)
   const store = currentExtStore(ctx)
 
-  // ① 准则段落。`section()` 注册一个**provider 函数**作为 text ——
+  // ① 准则段落。`section()` 注册一个 **provider 函数**作为 text ——
   //    每次装配现算，所以改开关立即生效，无需重注册。
   const dispose = mountPromptSection({
     getSystemPrompt: () => systemPromptOf(ctx),
@@ -84,13 +93,50 @@ export function apply(ctx: Context): void {
     readData: () => store?.readData<PromptExtData>(EXT_PROMPT_ID),
   })
 
-  // ② 面板登记。幂等：同一个 id 已在表里就不顶掉别人的登记。
+  // ② 段落总控：挂 `system-prompt/assemble` waterfall —— 每轮装配时
+  //    ⑴ 先把**未过滤的全量段落**喂给清单缓存（面板的事实源，在过滤前取 ⇒
+  //    关掉的段仍列在面板上，不会"关了就消失、开不回来"）；
+  //    ⑵ 再按落盘的关段表删掉关闭的段（宿主以监听器返回值为权威结果
+  //    —— `assemble()` 的 `return transformed`，删掉的段不会被恢复）。
+  //
+  //    ⚠️ 总开关关 ⇒ 原样放行：扩展关 = 本扩展什么都不做，宿主段落恢复
+  //    自然注入（与准则段"关总开关 ⇒ 段文本空 ⇒ 整段被丢"同一语义）。
+  //    ⚠️ 监听器注册在**无 scope 标签**的 ctx 上，而派发走
+  //    `scopeTarget`（dsh-scope）：无标签监听器收一切 scope 的装配
+  //    —— 这正是宿主"全局注册、参与所有 agent 装配"的通道，与准则
+  //    section 进 prompt 同一条 scope 规则。
+  const cache = createSectionCache()
+  let disposeAssemble: (() => boolean) | undefined
+  let disposeChange: (() => boolean) | undefined
+  const sp = systemPromptOf(ctx)
+  if (sp) {
+    disposeAssemble = ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
+      const result = await next()
+      cache.update(result.sections)
+      if (store?.isEnabled(EXT_PROMPT_ID) !== true) return result
+      const off = disabledSectionNames(store.readData<PromptExtData>(EXT_PROMPT_ID))
+      if (off.size === 0) return result
+      return { ...result, sections: filterSections(result.sections, off) }
+    })
+    // 段在**没有新装配时**增删（插件开关变化等）⇒ 面板清单不会自己更新，
+    // 主动跑一次 assemble 刷新（它会再走上面的 waterfall ⇒ 缓存唯一写入点）。
+    disposeChange = ctx.on('system-prompt/change', () => {
+      void sp.assemble().catch(() => { /* 预热失败不致命：下次装配自然补上 */ })
+    })
+    // 预热：一次对话都还没发生时，面板也要有清单（无 scope 的 global 近似）。
+    void sp.assemble().catch(() => { /* 同上 */ })
+  }
+
+  // ③ 面板登记。幂等：同一个 id 已在表里就不顶掉别人的登记。
   if (table !== undefined && table[EXT_PROMPT_ID] === undefined) {
     table[EXT_PROMPT_ID] = createPromptExt({
       isSystemPromptReady: () => !!systemPromptOf(ctx),
       // ⚠️ **store 必须在这时就能拿到**：拿不到的话面板上的分类开关显示可点、
       //   点了 400 —— 「看起来能用但不能用」比「不显示」更难查。
       store,
+      // 段清单来自 waterfall 缓存（若 ② 没挂上 ⇒ 空清单 ⇒ 段组不显示，
+      // 但不许这里给缺省 —— 见 createPromptExt 的 deps 注释）。
+      getSections: () => cache.list(),
     })
     store?.setEnabled(EXT_PROMPT_ID, true)
     // 核心持有的是**同一个 live 对象**（它 provide 的空表），且 `/ext` 每次请求都
@@ -99,6 +145,8 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => () => {
     dispose()
+    disposeAssemble?.()
+    disposeChange?.()
     if (table !== undefined) delete table[EXT_PROMPT_ID]
   })
 }

@@ -25,6 +25,11 @@ function fakeSystemPrompt() {
         disposals++
       }
     },
+    // 本文件测的是注册契约，不碰装配；给最小合法实现满足 `SystemPromptFace`
+    //（段清单与过滤的单测在 sections.test.ts / ext-prompt.test.ts）。
+    async assemble() {
+      return { sections: [] }
+    },
   }
 }
 

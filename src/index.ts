@@ -718,7 +718,7 @@ return Object.values(table as RouterExtService)
             controls: e.controls
               .filter((c): c is ExtControl =>
                 !!c && typeof c.id === 'string' && c.id !== '' && typeof c.title === 'string')
-              .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}), custom: c.custom === true, overridden: c.overridden === true })),
+              .map((c) => ({ id: c.id, title: c.title, on: c.on === true, ...(c.detail !== undefined ? { detail: c.detail } : {}), ...(typeof c.body === 'string' ? { body: c.body } : {}), ...(c.editable === true ? { editable: true } : {}), ...(c.group !== undefined ? { group: c.group } : {}), ...(c.sortable !== undefined ? { sortable: c.sortable } : {}), custom: c.custom === true, overridden: c.overridden === true })),
           }
         : {}),
       ...(st?.detail !== undefined ? { detail: st.detail } : {}),

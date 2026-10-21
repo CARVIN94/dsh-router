@@ -16,6 +16,15 @@ import type { ExtStoreService, RouterExt } from '../ext/contract.ts'
 import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'
 import { PROMPT_LOGO_URL } from './logo.ts'
 import { effectiveText, resolveCategories, resolveEnabledCategories, type PromptExtData } from './render.ts'
+import {
+  OWN_SECTION_NAME,
+  disabledSectionNames,
+  groupLabelOf,
+  sectionControlId,
+  sectionNameOf,
+  sectionTitleOf,
+  type SectionEntry,
+} from './sections.ts'
 
 /** 从对象里去掉某个键（不改原对象）。`writeData` 是整块替换 ⇒ 删一个键要重写。 */
 function omit<T extends Record<string, unknown>>(obj: T, key: string): Partial<T> {
@@ -41,6 +50,15 @@ export const EXT_PROMPT_ID = 'prompt'
 export function createPromptExt(deps: {
   isSystemPromptReady: () => boolean
   store?: ExtStoreService
+  /**
+   * 当前已装配的段落清单（最近一次 `assemble` 的快照，来自 waterfall 缓存）。
+   *
+   * ⚠️ **必选，不给缺省**：缺省成 `() => []` 的话，`index.ts` 忘接这个参数
+   * 就是"段清单恒空"的静默失效（面板无段、过滤不生效，但一切照常跑）——
+   * 让类型红比让它静默强。**空清单是合法值**（还没预热完/宿主一段都没有），
+   * 与"没接线"的区分靠这里不给缺省，不靠运行时猜。
+   */
+  getSections: () => SectionEntry[]
 }): RouterExt {
   const store = deps.store
   /**
@@ -92,7 +110,7 @@ export function createPromptExt(deps: {
       const on = resolveEnabledCategories(true, data)
       // ⚠️ 走 `resolveCategories`（内置 + 自建 + 排序），不是内置常量 ——
       //   否则自建条目与拖动排序**只停在面板上**，不进 prompt。
-      return resolveCategories(data).map((c) => {
+      const categories = resolveCategories(data).map((c) => {
         const t = effectiveText(c.id, data?.text?.[c.id], c)
         return {
           id: c.id,
@@ -109,11 +127,52 @@ export function createPromptExt(deps: {
           custom: c.custom,
           overridden: c.overridden,
           on: on.has(c.id),
+          // ⚠️ 准则**不标 group**：页头 `description` 已经是它的组头（+「添加」按钮），
+          //   再标一组就是同一件事显示两处（反查重复）。无组 = 平铺，行为不变。
         }
       })
+      // ② 宿主段落条目 —— 面板按 `group` 分节；`sortable: false` 不给拖
+      //   （排序落盘不认段 id，拖了也是假交互）；`editable` 缺省 = 只读
+      //   （别人的段我们不提供改写，只开关）。
+      const off = disabledSectionNames(data)
+      const sections = deps.getSections()
+        // 防御过滤：自己的准则段恒不列（清单源已排除，这里再拦一道 ——
+        // 列了它就是"同一件事的第二个开关"，两处状态必然漂移）。
+        .filter((s) => s.name !== OWN_SECTION_NAME)
+        .map((s) => ({
+        id: sectionControlId(s.name),
+        // 标题去掉组前缀（组名给了语境）：组「工具说明」下的 `write`，
+        // 比孤零零的 `tool:write` 好读；完整名放 `detail`（报问题时可指认）。
+        title: sectionTitleOf(s.name),
+        on: !off.has(s.name),
+        detail: s.name,
+        body: s.text,
+        group: groupLabelOf(s.name),
+        sortable: false,
+      }))
+      return [...categories, ...sections]
     },
     setControl: (controlId, on) => {
       if (!store) return false
+      // ---- 段落开关（`sec:` 前缀）：写 `data.sections`，与分类开关分键 ----
+      const secName = sectionNameOf(controlId)
+      if (secName !== null) {
+        // 只认**当前清单里**的段（清单 = 装配事实），且永远不关自己那段
+        // （它已有总开关 + 分类开关，再给一个入口就是同一件事的两个开关）。
+        if (secName === OWN_SECTION_NAME) return false
+        if (!deps.getSections().some((s) => s.name === secName)) return false
+        const data = readData()
+        const sections = { ...(data.sections ?? {}) }
+        if (on) delete sections[secName]
+        else sections[secName] = false
+        const next: PromptExtData = { ...data }
+        // 只存覆盖值（见 `PromptExtData.sections`）：全开时不留空对象键。
+        if (Object.keys(sections).length > 0) next.sections = sections
+        else delete next.sections
+        store.writeData(EXT_PROMPT_ID, next)
+        return true
+      }
+      // ---- 分类开关（原路径）----
       // ⚠️ **只改这一个键，不重写整块**：整块重写会顺手把 data 抽屉里的其它字段
       //   抹掉（`store.test.ts` 有一条「置开关不能把 data 冲掉」的同款纪律）。
       const data = readData()

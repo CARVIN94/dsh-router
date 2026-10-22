@@ -18,12 +18,25 @@
   <a href="docs/ext.md">扩展开发</a>
 </p>
 
-**插件版的 9router** —— 不是另开一个网关服务,而是直接作为 DSH 插件嵌进 DSH web,
-在宿主 Web 服务的 `/v1` 上原生暴露 OpenAI 兼容端点(`http://127.0.0.1:<宿主页端口>/v1`;`dsh web` 默认 3080,面板「端点与密钥」页显示的是实际地址),把请求路由到内部供应商。
-管理界面在**设置 → 路由**(官方设置页座位,不是自己开的页面)。装好即用,
-不用多开一个 9router、不用维护第二个端口、不用在网关和 DSH 之间搬配置。
+直接把 DSH 变成一个**多协议、多供应商的模型网关** —— 不是另开一个网关服务,
+而是作为插件嵌进 DSH web,在宿主 Web 服务上原生暴露四个端点,把请求路由到内部供应商。
+管理界面在**设置 → 路由**(官方设置页座位,不是自己开的页面)。装好即用:
+不另起进程、不占第二个端口、不用在网关和 DSH 之间搬配置。
 
-**原生支持 Agent Team / 多会话** —— 0.1.7 起每个 team 成员是独立会话,
+**四种协议双向互转**(详见 [四种协议入口](#四种协议入口)):
+
+| 端点 | 客户端 | 协议 |
+| --- | --- | --- |
+| `POST /v1/chat/completions` | OpenAI SDK / Cline / DSH 自身 | OpenAI Chat Completions |
+| `POST /v1/messages` | **Claude Code** | Anthropic Messages |
+| `POST /v1/responses` | **Codex** | OpenAI Responses |
+| `POST /v1beta/models/<m>:generateContent` | **Gemini CLI** | Google Gemini |
+
+四个入口共享同一套鉴权、账号池、组合回退与用量统计。把 Claude Code 的
+`ANTHROPIC_BASE_URL` 指过来,它用的就是你的账号池;Codex、Gemini CLI 同理。
+供应商侧也可以说这四种里的任意一种 —— 声明一下方言,核心负责翻译。
+
+**原生支持 Agent Team / 多会话** —— team 的每个成员是独立会话,
 dsh-router 按**会话身份**亲和选号:同会话固定落同一个连接(前缀缓存只写一份),
 不同会话尽量铺开到不同连接;多会话共用同号时按会话隔离统计,**不会互相拖累**。
 详见 [Agent Team 支持](#agent-team-支持)。
@@ -57,6 +70,7 @@ dsh plugin --profile web add dsh-router-core
 | 能力           | 说明                                                                                                                                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 零额外进程     | 就是 DSH 插件,随 `dsh web` 启停,天然同源(`/router/api/*` 无 CORS、面板嵌在设置里)。                                                                                                                                                                          |
+| 四协议互转     | Chat / Anthropic / Responses / Gemini 进站出站都认,Claude Code、Codex、Gemini CLI 直接接上来就能用账号池。供应商侧也只需声明方言,翻译在核心统一做。                                                                                                            |
 | 扩展即插即拔   | 扩展插件(如 [`dsh-router-ext-rtk`](https://github.com/CARVIN94/dsh-router-ext-rtk))经 `router.ext` 注册,在 bash 执行前改写命令(如加 `rtk` 前缀压缩输出)。开关在官方插件页(设置 → 插件 → dsh-router-core),带自检;面板「扩展」页只列已启用的、只读。 |
 | 供应商即插即拔 | 内置供应商是插件页「包含的组件」里的三行,可单独开关;更多供应商 = 装一个 DSH 插件(`dsh-router-*`)或放一个 js 文件到 `~/.dsh/profiles/web/suppliers/`(同名 js 覆盖内置)。                                                                                                                                       |
 | 模型不内置     | 供应商只实现差异化能力,模型拉取与缓存由核心统一管,不写死、不过时。                                                                                                                                                                                           |
@@ -66,10 +80,6 @@ dsh plugin --profile web add dsh-router-core
 | 用量可观测     | 面板概览看板:周期切换、汇总卡、趋势折线、Top 榜、最近请求。                                                                                                                                                                                                  |
 | Team 友好      | 按**会话身份**亲和选号:同会话固定同一连接(前缀缓存只写一份),不同会话尽量铺开到不同连接;多会话共用同号时缓存质量**按会话隔离**统计,不会互相拖累。                                                                                                            |
 
-> 面板布局、组合 fallback、连接池/账号池、API key 管理都贴近
-> [9router](https://github.com/decolua/9router),但按 DSH「一切皆插件」的方式
-> 重组得更轻。
->
 > 供应商开发与接入规范见 [`docs/suppliers.md`](docs/suppliers.md)
 > （契约 / 加载顺序 / 模型统一策略 / 内置供应商参考实现）。
 > 选号/亲和/team 的完整设计与实测见
@@ -77,7 +87,7 @@ dsh plugin --profile web add dsh-router-core
 
 ## Agent Team 支持
 
-DSH 0.1.7 的**智能体团队**把任务拆给多个成员,**每个成员是独立会话**,一轮
+DSH 的**智能体团队**把任务拆给多个成员,**每个成员是独立会话**,一轮
 team 测试就是多个会话交错发请求。dsh-router 原生适配这个场景:
 
 - **真会话身份** —— 从宿主 `GenerateOptions.sessionId` 拿到权威会话 id
@@ -199,6 +209,22 @@ curl -X POST http://localhost:3080/v1/chat/completions \
 四个入口共享同一套鉴权(`Authorization: Bearer`)、同一个账号池与组合回退、
 同一份用量统计。换协议只是换入口,不会多一份账号池实现。
 
+**把客户端接过来,只需改一个环境变量**(以 Claude Code 为例):
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:3080
+export ANTHROPIC_AUTH_TOKEN=<面板「端点与密钥」里建的 key>
+claude   # 从此走 dsh-router 的账号池、组合回退与用量统计
+```
+
+Codex 用 `base_url` 指向同一个地址 + `/v1`,Gemini CLI 用
+`GOOGLE_GEMINI_BASE_URL`。三者都自动获得面板里配的供应商、冷却与失败转移 ——
+不需要为每个客户端各配一份 key。
+
+**反方向也成立**:供应商可以在契约里声明自己说哪种协议(`wire`),核心负责把
+规范请求翻成它的方言、再把响应翻回来。所以接一个只会说 Anthropic 的上游,
+插件里只需要几行 `fetch`,不必自己写协议转换。
+
 **跨协议会丢的东西**(明确不做翻译,各协议模块注释里逐条点名):Anthropic 的
 `cache_control`、Responses 的 `previous_response_id` / `store`、Gemini 的
 `safetySettings`。它们在目标协议里没有对应概念,硬造一个只是猜。
@@ -217,7 +243,7 @@ Anthropic 的工具调用(非流式 `tool_use` 与流式 `content_block_start` +
 设计取舍、各协议的坑(工具调用的三种编码、收尾的四种词汇、用量分散在不同帧)、
 测试策略见 [`docs/protocols.md`](docs/protocols.md)。
 
-**鉴权**:默认 `requireApiKey=false`,`/v1/*` 不要求鉴权(本地使用,与 9router 一致)。
+**鉴权**:默认 `requireApiKey=false`,`/v1/*` 不要求鉴权(本地使用如此)。
 在「端点与密钥」页开启「要求 API Key」后,请求必须带
 `Authorization: Bearer <库内启用的 Key>`。
 
@@ -372,27 +398,70 @@ Anthropic 的工具调用(非流式 `tool_use` 与流式 `content_block_start` +
   `assemble()` 的快照,插件 apply 时会预热一次;刚装完/刚重载宿主那一瞬间
   可能还没有清单(组不显示),说一句话或重开面板即出现。
 
-## 分层提示词扩展(`dsh-router-ext-prompt`)
+## 分层提示词(`dsh-router-ext-prompt`)
 
-两层开关,各管一件事:
+一个扩展,把**整个系统提示词**变成可看、可分组、可开关的清单。装在插件页
+「包含的组件」里,默认关闭。打开后入口在 **设置 → 路由 → 扩展 → 分层提示词**。
 
-- **准则分类**(14 条):插件自带的协作准则,每条可开关、可改写。
-- **系统提示词段落**:把宿主整体系统提示词按**段落**列出(部署人设、工具说明、
-  MCP、界面与交付…)并按第一段前缀分组,逐段开关。关掉的段在
-  `system-prompt/assemble` 装配链里被过滤掉 —— 用宿主 waterfall 的返回值为
-  权威结果(`assemble()` 的 `return transformed`),而不是同名覆盖:同名覆盖
-  只能顶掉某一个已知名字,对**同层自己注册**的段还会 throw。
+### 两层,各管一件事
 
-  分组映射**以真宿主实测段名为准**,不按"看起来像"的前缀脑补:实测里
-  `harness:source` 是运行环境说明(不是开场身份)、`app:web-surface` 是
-  Web GUI 说明(不是"界面与交付")⇒ 它们各自留下真实前缀当组名,不并入
-  好听的组。映射表没收录的前缀**原样显示**,条目照常能列能开关 ——
-  映射漂移不允许变成"段消失"。
+**第一层:准则(内置 13 条)**
 
-两条纪律写在实现里:
+插件自带一套协作准则(`[准则 v5]`),按语义拆成 13 条,**每条独立开关、独立可改**:
 
-- **自己那段永不进段落清单**。准则已经有总开关 + 分类开关,再列一条段开关
-  就是同一件事的两个开关,两边状态必然漂移;过滤时它也恒放行。
+| 分类 | 管什么 |
+| --- | --- |
+| 身份气质 / 视野 / 懒人梯子 | 怎么定位自己、动手前看什么、找最省的解法 |
+| 领地 / 全局收口 / 可判定 | 工作边界、收尾复查、什么叫"做完了" |
+| 修根因 / 取舍 / 底线 | 改共享函数而不是补单点、砍边角与升级路径、不可逆禁令 |
+| 结构 / 绝不偷懒 / 交付 | 先结构后代码、校验与安全、交付口径 |
+| 执行顺序 | 一次任务的固定流程 |
+
+**还能自己加条目**:面板上「新增」写一条自己的准则,与内置的并列、同样能开关。
+自建的标 `custom`,可删;内置的不可删,只能关或改。改过的条目存
+`router.extStore`,面板上有「还原」回到内置原文。整段准则用扩展的总开关控制
+—— 关掉它,准则一个字都不注入。
+
+**第二层:系统提示词段落(24 段)**
+
+把宿主**整体**系统提示词按段落列出来,逐段开关。实测 24 段,分组如下
+(段名与前缀由宿主与本机装的插件决定,不同部署会不同):
+
+| 分组 | 内容 |
+| --- | --- |
+| 部署人设 | `persona-prefix` / `persona-suffix` —— 这段部署的定位 |
+| 工具说明 | `tool:bash` `tool:read` `tool:write` `tool:edit` `tool:glob` … 每个工具一段 |
+| 计划模式 | `plan:policy` |
+| 运行上下文 | `context:file-reference` |
+| MCP 资源 / MCP 服务 | `mcp-resource-servers`、`mcp:rea` |
+| 界面与交付 | `ui:deliverable-file-references` |
+| harness / app | `harness:source`(运行环境说明)、`app:web-surface`(Web GUI) |
+
+关掉的段在 `system_prompt/assemble` 装配链里**真的不再注入**。
+
+### 为什么用 waterfall 删段,而不是同名覆盖
+
+同名覆盖(注册同名段返回 `''`)只能顶掉某一个**已知名字**,而且对**同层自己
+注册**的段还会 throw —— 它适合"替换宿主的某一句",不适合"关掉任意一段"。
+`assemble()` 的监听器返回值是权威结果(宿主源码 `return transformed`),
+改 `sections` 就是真删段。它自己也在用同一手法做 agent preset 的 persona 替换,
+所以这条路是平台认可的,不是绕后门。
+
+### 段清单不写死
+
+段名只有个别是宿主导出的常量,其余(`tool:*` / `mcp:*` / 第三方插件注册的段)
+埋在各插件里 —— 写死必然漂移。做法:装配 waterfall 每轮携带**全量已排序段落**,
+顺路缓存一份;`apply` 时预热一次 `assemble`,所以没开口说话也有清单。
+
+分组映射**以真宿主实测段名为准**,不按"看起来像"的前缀脑补。实测纠正过两处:
+`harness:source` 讲的是运行环境(不是开场身份)、`app:web-surface` 是 Web GUI
+说明(不是"界面与交付")⇒ 它们各自保留真实前缀当组名。映射表没收录的前缀
+**原样显示**,条目照常能列能开关 —— 映射漂移不允许变成"段消失"。
+
+### 两条纪律
+
+- **自己那段永不进段落清单**。准则已经有总开关 + 14 条分类开关,再列一条段开关
+  就是同一件事的两个开关,状态必然漂移;过滤时它也恒放行。
 - **落盘只存关闭项**(`data.sections[name] = false`),开回来就删键。宿主段随
   版本增删,存全表就得每次升级对账;只记"用户主动关了谁"让新段自然落回默认。
 
@@ -497,7 +566,6 @@ pnpm test         # node --test "src/**/*.test.ts"
 
 感谢以下项目给的灵感:
 
-- [decolua/9router](https://github.com/decolua/9router) —— 本地 AI 路由网关,面板/组合/连接池/凭证等思路的来源;
 - [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) —— DSH「一切皆插件」的宿主框架;
 - [omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) —— DSH 插件形态与侧边栏入口的参考。
 

@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Plugin self-check",
-    "description": "Run a real access test against a supplier/model/connection, or run a contract check over an external supplier plugin (every member: implemented / usable / not executed)"
-  }
-}

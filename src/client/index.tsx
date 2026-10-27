@@ -11,9 +11,6 @@
 import { mountRouterWorkspace } from './workspace-mount.tsx'
 import { RouterSettingsSection } from './settings-section.tsx'
 import { RouterComponentsSection } from './RouterComponentsSection.tsx'
-import { ExtTestPanel } from './ExtTestPanel.tsx'
-import { registerExtPanel } from './ext-panels.ts'
-import { EXT_TEST_ID } from '../ext-test/plugin.ts'
 import { registerSettingsNavIcon } from './settings-nav-icon.ts'
 import { rewriteRouterModelHint } from './model-hint-copy.ts'
 import { LastHitDock } from './LastHitDock.tsx'
@@ -97,19 +94,6 @@ function mountComponentsSection(ctx: Ctx): (() => void) | undefined {
   }, RouterComponentsSection))
 }
 
-/**
- * 给「插件自检」扩展登记它的详情面板。
- *
- * 面板的**唯一入口**是设置 → 路由 → 扩展 → 点开那张卡片（`ExtDetail` 查注册表拿到
- * 本组件）。**刻意不给插件页那一行再挂一个详情页**：那一行的宿主行开关已经能开/关
- * 它了，再点进去看同一块面板就是同一个东西有两个入口 —— 与「内置扩展不在自绘节里
- * 重复列」是同一条理由。
- */
-function registerExtTestPanel(ctx: Ctx): void {
-  const dispose = registerExtPanel(EXT_TEST_ID, ExtTestPanel)
-  ctx.effect(() => dispose, 'dsh-router: ext test panel registry')
-}
-
 export function apply(ctx: Ctx): void {
   // 「最近命中」徽章：走官方 conversation.composer.dock（scope: session → 组件
   // props 注入 sessionId，按当前会话取命中）。0.2.0 起这个座位无条件可用 ——
@@ -128,7 +112,6 @@ export function apply(ctx: Ctx): void {
   if (disposeComponents !== undefined) {
     ctx.effect(() => disposeComponents, 'dsh-router: plugin page components')
   }
-  registerExtTestPanel(ctx)
   // 换掉宿主的默认齿轮（契约没有 icon 字段，只能注册后认领自己的行）
   ctx.effect(() => registerSettingsNavIcon(SECTION_LABEL), 'dsh-router: settings nav icon')
   // 设置-模型 里 Router 卡片的那句死路提示 → 正确说法（同样只能认领后就地改写）

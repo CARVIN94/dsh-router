@@ -3,7 +3,7 @@
  *   1. 登记进 `router.ext` 表，带上可显示的身份（名字/说明/就绪）；
  *   2. **幂等**：同一个 id 已在表里就不顶掉别人的登记；
  *   3. `source: 'builtin'`（随核心分发 ⇒ 插件页的原生行，自绘节不重复列）；
- *   4. **准则段落真的挂上了** —— ext-test 没有这一条，本扩展多做执行面，必须验。
+ *   4. **准则段落真的挂上了** —— 这是本扩展唯一的执行面，必须单独验。
  *
  * 为什么第 4 条不可省：扩展的「卡片出现与否」取决于它在不在这张表里，而**准则
  * 有没有进 prompt** 取决于段落挂没挂 —— 两者是**不同的失效**，都静默且都不报错。
@@ -75,7 +75,7 @@ test('★ patch 里真的声明了这一行，且 id/name 逐字对得上', () =
   assert.equal(block![1], 'dsh-router-core/ext-prompt', 'patch 的 name 必须是能解析的子路径说明符')
 })
 
-test('★ 那一行默认关闭（与 ext-test 同款）', () => {
+test('★ 那一行默认关闭', () => {
   // `disabled: true` = 行默认关 ⇒ loader 不 import ⇒ 扩展不进 `router.ext` 表 ⇒
   // 卡片不出现、准则不进 prompt。
   //
@@ -148,7 +148,7 @@ test('幂等：同一个 id 已在表里时不顶掉别人的登记', async () =
   assert.equal(table[EXT_PROMPT_ID], first, '重复登记不该换成一个新对象')
 })
 
-test('★ apply 把准则挂成了 system prompt 段落（ext-test 没这层，必须单独验）', async () => {
+test('★ apply 把准则挂成了 system prompt 段落', async () => {
   const { ctx, sections } = await realCtx()
   apply(ctx as unknown as Parameters<typeof apply>[0])
   assert.equal(sections.length, 1, '准则没挂上 = 卡片亮着但 prompt 里没有准则')

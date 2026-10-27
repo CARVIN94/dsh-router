@@ -3,7 +3,6 @@
  *
  * 通用能力（dsh-router 核心，所有供应商自动可用，js 无需实现）：
  *   GET    /suppliers/:id/models                  models + alias（listModels 合并启用状态）
- *   POST   /suppliers/:id/probe                  契约体检：逐成员报「实现/可用/不执行」
  *   PATCH  /suppliers/:id/enabled                 {enabled} —— 供应商开关（关掉不参与路由）
  *   POST   /suppliers/:id/models/toggle           {id, enabled}
  *   POST   /suppliers/:id/models/add              {id}
@@ -26,7 +25,6 @@ import type { Router } from '../router/index.ts'
 import type { ModelWithEnabled, SupplierStatus } from '../router/types.ts'
 import type { SupplierConfigStore } from '../supplier-config.ts'
 import type { LoadedSupplier } from './loader.ts'
-import { probeSupplier } from './probe.ts'
 
 /** webServer 路由形状（与 index.ts 的 WebServerRoute 一致）。 */
 export interface WebServerRoute {
@@ -167,75 +165,6 @@ export function supplierRoutes(base: string, loaded: LoadedSupplier, store: Supp
       store.setEnabled(s.id, body.enabled)
       router.invalidateModels(s.id)
       writeJson(res, 200, { ok: true, id: s.id, enabled: router.isEnabled(s.id) })
-    },
-  })
-
-  // ---- 契约体检（只跑只读成员；有副作用的只报存在性）----
-  routes.push({
-    kind: 'exact',
-    path: `${p}/probe`,
-    handler: async (req, res) => {
-      if (req.method !== 'POST') {
-        writeJson(res, 405, { ok: false, error: 'probe requires POST' })
-        return
-      }
-      try {
-        // body 可空；只用来选模型/连接（不选就用第一个可用的）
-        let pick: { model?: string; uid?: string } = {}
-        const raw = (await readBody(req)).trim()
-        if (raw !== '') {
-          const body = JSON.parse(raw) as { model?: unknown; uid?: unknown }
-          pick = {
-            ...(typeof body.model === 'string' ? { model: body.model } : {}),
-            ...(typeof body.uid === 'string' ? { uid: body.uid } : {}),
-          }
-        }
-        // 模型启用状态走 router.modelsOf（核心缓存，不额外打上游）
-        const models = await router.modelsOf(s.id).catch(() => undefined)
-        const report = await probeSupplier(loaded, {
-          models,
-          // **实跑「全部禁用 → 看列表 → 全部启用」，验完还原。**
-          //
-          // 这是体检里唯一能抓出「插件在 listModels 里过滤已禁用模型」越权的路径：
-          // 违规插件把已禁用的藏起来，于是全部禁用之后核心一个模型都看不到，
-          // 用户点「全部启用」也就再也点不回来（没有 id 可传）。
-          // 还原写在 finally —— 体检不该在用户配置上留痕，哪怕中间抛了。
-          runBulkToggleRoundTrip: async () => {
-            const original = [...store.get(s.id).disabled]
-            const before = await router.modelsOf(s.id)
-            const ids = before.map((mm) => mm.id)
-            if (ids.length === 0) return { ok: true, detail: '该供应商没有模型，跳过' }
-            try {
-              store.setAllModelsEnabled(s.id, false, ids)
-              router.invalidateModels(s.id)
-              const after = await router.modelsOf(s.id, true)
-              const hidden = after.filter((mm) => !mm.enabled).length
-              const missing = ids.length - after.length
-              if (hidden !== ids.length || missing !== 0) {
-                return {
-                  ok: false,
-                  // 一句话说完：现象 + 归因。细说留给源码与提交记录，面板上不占地方。
-                  detail: `全部禁用后只剩 ${after.length}/${ids.length} 个 —— 插件在 listModels 里藏了已禁用的模型（启用状态由核心合并）`,
-                }
-              }
-              return { ok: true, detail: `全部禁用后 ${after.length} 个都在，再启用可恢复` }
-            } finally {
-              store.setAllModelsEnabled(s.id, true, ids)
-              for (const id of original) store.setAllModelsEnabled(s.id, false, [id])
-              router.invalidateModels(s.id)
-              await router.modelsOf(s.id, true)
-            }
-          },
-          // chatOnce 真跑一次：账号遍历 / 冷却 / 首字节预算都走真实路径
-          runChatOnce: async (model) => {
-            const r = await router.testModel(s.id, model, pick.uid)
-            return { ok: r.ok, detail: r.ok ? '通了' : (r.error ?? '上游没给原因') }
-          },
-        })
-        writeJson(res, 200, { ok: true, report })
-      } catch (err) {
-        writeJson(res, 500, { ok: false, error: (err as Error).message })
-      }
     },
   })
 

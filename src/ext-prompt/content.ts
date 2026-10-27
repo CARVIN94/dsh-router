@@ -26,6 +26,13 @@
  *      `categories`/`text`/`order` 里残留的 `hardening` 键无须迁移 ——
  *      `resolveCategories` 规则 2 会忽略不认识的 id。
  *   ② 身份气质：「默认中文」→「回复、思考过程必须使用中文」。
+ *
+ * ⚠️ 2026-10-27 用户点名的三处改动：
+ *   ① **删掉「可判定」分类**（整条移除，id `verdifiable`）；已存配置里的残留键
+ *      由 `resolveCategories` 忽略，无须迁移。
+ *   ② **删掉「绝不偷懒」分类**（整条移除，id `no-cheap`）——用户判定它与别处重复。
+ *   ③ 执行顺序重写：去掉「查结构行号 / 声明任务四件套 / 读码取切片 / 循既有骨架 /
+ *      以闸门为准」几段，改为「循既有架构/提出更优架构 → 验证以测试/e2e 验收」。
  */
 
 /** 一个可独立开关的提示词分类。 */
@@ -87,13 +94,6 @@ export const PROMPT_CATEGORIES: readonly PromptCategory[] = [
       '做完那块区域该比动手前更整或更少。',
   },
   {
-    id: 'verdifiable',
-    title: '可判定',
-    defaultOn: true,
-    body:
-      '可判定：只有清单和会变红的闸门生效，形容词不生效。新约束一律写成"动作+闸门"。',
-  },
-  {
     id: 'root-cause',
     title: '修根因',
     defaultOn: true,
@@ -124,13 +124,6 @@ export const PROMPT_CATEGORIES: readonly PromptCategory[] = [
       '单文件单功能，软顶函数 ~40 行/文件 ~300 行。',
   },
   {
-    id: 'no-cheap',
-    title: '绝不偷懒',
-    defaultOn: true,
-    body:
-      '绝不偷懒：边界输入校验、防数据丢失、安全、可访问性、真实硬件校准；非平凡逻辑留个能跑的检查。',
-  },
-  {
     id: 'delivery',
     title: '交付',
     defaultOn: true,
@@ -143,8 +136,8 @@ export const PROMPT_CATEGORIES: readonly PromptCategory[] = [
     title: '执行顺序',
     defaultOn: true,
     body:
-      '执行：拉记忆→看全貌→建领地→定位任务→查结构行号→声明「任务/文件/验证/提交」→读码取切片→' +
-      '循既有骨架→验证以闸门为准(混合状态下的绿灯不作数)→收口复查全貌→提交。',
+      '执行：拉记忆→看全貌→定位任务→建领地→循既有架构/提出更优架构→验证以测试/e2e 验收→' +
+      '收口复查全貌→提交。',
   },
 ] as const
 

@@ -79,15 +79,15 @@ if (nameLines.length === 0) {
 // ---- 行（子路径模块）：patch ↔ 源码目录 ↔ exports ↔ files ↔ 产物 ----
 //
 // 「行」= 插件页原生「包含的组件」里的一行，模块说明符是本包子路径
-// （`dsh-router-core/suppliers/nvidia`、`dsh-router-core/ext-test`）。它们在
+// （如 `dsh-router-core/suppliers/nvidia`）。它们在
 // **同一个 bundle 的 patch 里**，所以本包的发布管道必须为每一行都配齐：
 // 源码 `src/<sub>/index.ts` + `row.json` + `locale/`、exports 三件套、files 白名单、
 // 构建产物。少一环都是静默降级（行在页面上但标题/加载坏了），所以这里逐项核对。
 //
 // 为什么以 patch 为准、再反向找「有 row.json 却没声明」的目录：行的定义就是
 // 「patch 里声明的子路径」。若只按目录扫（早先只扫 src/suppliers），新增
-// `src/ext-test` 这种**不在 suppliers 下**的行会绕过全部闸门 —— 这正是本文件
-// 存在的理由，不能再留这个洞。
+// 一行**不在 suppliers 下**的源码目录会绕过全部闸门 —— 这正是本文件存在的
+// 理由，不能再留这个洞。
 const rowSubpaths = []
 for (const name of nameLines.slice(1)) {
   if (name === pkg.name || !name.startsWith(`${pkg.name}/`)) {

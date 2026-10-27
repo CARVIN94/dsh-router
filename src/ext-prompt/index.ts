@@ -2,14 +2,12 @@
  * 分层提示词扩展的 **cordis 行** —— 官方插件页（设置 → 插件 → dsh-router-core）详情页
  * 原生「包含的组件」里的那一行。
  *
- * 壳的形状与 `ext-test` 同款（cordis 身份 + 登记，实现 = `plugin.ts`），
- * 但**多一件执行面的事**：挂 system prompt 段落。ext-test 不做拦截、只登记；
- * 本扩展要把准则真注入，所以额外等 `systemPrompt` service 就绪后挂 section。
+ * 壳的形状 = cordis 身份 + 登记，实现 = `plugin.ts`；**执行面的事**是挂
+ * system prompt 段落 —— 所以额外等 `systemPrompt` service 就绪后挂 section。
  *
- * **默认开启**（patch 里不带 `disabled`，与三行内置供应商一致）：
- * 协作准则是每次协作都要的基础设施，不是可选增强。与 `ext-test` 的
- * `disabled: true` **刻意不同** —— 自检是「想跑才跑」的工具，准则不是；
- * 让准则默认缺席，会变成「用户不知道它存在 ⇒ 协作按另一套规则执行」。
+ * **默认关闭**（patch 里 `disabled: true`）：开不开由用户决定。行关闭时 loader
+ * 根本不 import 本模块，扩展就不在 `router.ext` 表里 ——「打开才出现这张卡片」
+ * 是天然的，不需要额外状态位。
  *
  * 登记时把扩展开关置为开：本扩展**没有独立的运行期开关**，它的开关就是这一行
  * （宿主管的那个）。不置上的话，用户开了行还要再点一次，两级开关说同一件事。
@@ -52,8 +50,8 @@ function systemPromptOf(sctx: Context): SystemPromptFace | undefined {
  *
  * ⚠️⚠️ **必须导出这个数组，且 `apply` 里直接用 `ctx.systemPrompt`**（2026-09-29 修）
  * ——我原先写成「在 apply 里 `ctx.inject(['systemPrompt'], cb)`」，**准则一直不进
- * prompt**：面板上卡片、开关、原文全都正常（`GET /router/api/ext` 实测有 14 条
- * controls），但模型看到的 system prompt 里没有它。
+ * prompt**：面板上卡片、开关、原文全都正常（`GET /router/api/ext` 里 controls 一条
+ * 不少），但模型看到的 system prompt 里没有它。
  *
  * 根因（本机 cordis 4.0.4 实测）：`ctx.inject(deps, cb)` 的回调**不是同步触发** ——
  * provide 之后立刻 `inject`，回调要等到下一个异步点才跑。插件的 `apply` 是**同步

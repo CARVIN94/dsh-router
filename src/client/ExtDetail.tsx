@@ -13,13 +13,11 @@
  *
  * 列表页只列**已启用**的扩展（关闭的连卡片都不出现），所以这里也不必再显示
  * 「已启用/未启用」——那行字只能是常量。布局同供应商详情：返回链接 + 图标 +
- * 名称/副行，下面跟扩展说明卡与未就绪横幅。有 `api()` 支持的自定义扩展可在未来
- * 按需加独立面板，此处不内置任何具体扩展的专属视图。
+ * 名称/副行，下面跟扩展说明卡与未就绪横幅。
  */
 import { Fragment, useEffect, useState } from 'react'
 import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ROUTER_API_BASE, type ExtControlItem, type RouterExtItem, type RouterExtResponse } from '../shared.ts'
-import { extPanel } from './ext-panels.ts'
 import { groupControlRows } from './group-controls.ts'
 import { Modal } from './Modal.tsx'
 
@@ -599,10 +597,6 @@ interface ExtDetailProps {
 }
 
 export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
-  // 扩展**自带**详情面板时用它（插件自检就是这么做的：选供应商/模型/连接 + 跑测试）。
-  // 没有就退回下面这张通用只读页 —— 保留返回链接与标题，导航形状与有没有自定义
-  // 面板无关，用户点进去的预期是稳定的。
-  const Custom = extPanel(item.id)
   return (
     <div className="dshr-tabBody">
       {/* Header（同供应商详情：返回链接 + 图标 + 名称/副行） */}
@@ -635,21 +629,15 @@ export function ExtDetail({ item, onBack }: ExtDetailProps): JSX.Element {
         </div>
       </div>
 
-      {/* 扩展自带的面板优先（注册表命中时下面几块都不渲染） */}
-      {Custom !== undefined ? <Custom /> : (
-        <>
       {/* 子开关（扩展自己的行为细节；没有 controls 就不渲染这一块） */}
       {item.controls !== undefined && item.controls.length > 0 && <ExtControls item={item} />}
 
-      {/* 实际生效的提示词（只读预览；回答「关掉的真的没进去吗」） */}
       {/* 未就绪警示（同供应商详情的出错横幅） */}
       {item.ready === false && (
         <div className="dshr-alert">
           <strong>未就绪</strong>
           <span>{item.detail !== undefined && item.detail !== '' ? item.detail : '当前不可用'}</span>
         </div>
-      )}
-        </>
       )}
     </div>
   )

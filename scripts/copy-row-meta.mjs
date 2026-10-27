@@ -7,8 +7,8 @@
  * 不是只取包名）。这些文件得跟着 js 一起发布，而 tsdown 只产 js。
  *
  * 行的判定：**含 `row.json` 的目录**（那是行独有的清单文件）。以它为准而不是
- * 「src/suppliers 下的目录」—— 否则新增 `src/ext-test` 这种不在 suppliers 下的行
- * 会被静默漏掉，本脚本成功、产物却没有它的显示信息（症状：行在页面上，标题退化成
+ * 「src/suppliers 下的目录」—— 否则新增一行**不在 suppliers 下**的源码目录会被
+ * 静默漏掉，本脚本成功、产物却没有它的显示信息（症状：行在页面上，标题退化成
  * 模块说明符，且**构建不报错**）。这正是 check-publish 里同一条规则的由来。
  *
  * 三个刻意的形状：
@@ -34,7 +34,7 @@ function findRows(dir) {
     if (!entry.isDirectory()) continue
     const sub = relative(srcRoot, join(dir, entry.name))
     if (existsSync(join(dir, entry.name, 'row.json'))) out.push(sub)
-    // 递归一层：行可以放在 src/ 下（ext-test）也可以放在 src/suppliers/ 下
+    // 递归一层：行可以放在 src/ 下，也可以放在 src/suppliers/ 下
     out.push(...findRows(join(dir, entry.name)))
   }
   return out.sort()

@@ -1,7 +1,7 @@
 /**
  * 详情页 controls 分组的判据（`group-controls.ts`）。
  *
- * 关键是**向后兼容不可退**：没用 `group` 字段的扩展（ext-test 等）必须
+ * 关键是**向后兼容不可退**：没用 `group` 字段的扩展必须
  * 拿到"一个无组节、顺序不变"的结果 —— 分组是新能力的**叠加**，不是重排。
  */
 import test from 'node:test'

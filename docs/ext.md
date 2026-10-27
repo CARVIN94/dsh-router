@@ -12,20 +12,6 @@ bash 命令。装好后出现在「设置 → 路由 → 扩展」,**开关不�
 数据目录是 `<profile>/data/`,**不跟进程 cwd 跑**——从任何目录启动 `dsh web`
 读到的都是同一份配置(见 `src/data-dir.ts`)。
 
-## 扩展详情页可以自带内容
-
-扩展详情页默认是一张**写死的只读页**(名字、id、状态、一段说明)。扩展若想在详情里放
-自己的交互(要选的模型、要跑的测试、要看的诊断),可以按**扩展 id** 登记一个面板组件
-(`src/client/ext-panels.ts` 的 `registerExtPanel`):登记后 `ExtDetail` 用你的组件渲染
-整个内容区,没登记才落回那张通用只读页。组件**不收 props** —— 面板的渲染点只有详情页
-一处。核心自带的 `插件自检` 就是这么做的。
-
-⚠️ **目前这张注册表在 dsh-router 自己的 client bundle 内部,外部插件包还引不到它**:
-`dsh-router-core/client` 是整个 client 入口(一个注册座位的 CJS 闭包),并不导出
-`registerExtPanel`。要让外部插件也能自带面板,需要给它加一个真正的导出路径
-(如 `./client/panels`)。这是已知的升级路径,不是现在就能用的写法 —— 照着现有 exports
-去 `import { registerExtPanel } from 'dsh-router-core/client'` 会拿到 undefined。
-
 参考实现:[dsh-router-ext-rtk](https://github.com/CARVIN94/dsh-router-ext-rtk)
 (把命令改写成 `rtk <cmd>` 压缩输出)。
 
@@ -68,9 +54,9 @@ export function createPromptExt(deps): RouterExt {
    (隐藏会让用户以为它们不存在),重新打开总开关就恢复原样。
 3. **`control.id` 是持久化键**,改名会让用户已保存的选择丢失 —— 同 `ExtId`。
 
-⚠️ **不适用于外部插件包(暂时)**:与下面的 `registerExtPanel` 一样,
-`controls` 的读写经 `dsh-router-core/client` 才能到达外部 bundle,而该入口不导出
-这些能力。要让外部扩展用上,需要给它加一条真正的导出路径。这是已知的升级路径。
+⚠️ **不适用于外部插件包(暂时)**:`controls` 的读写经 `dsh-router-core/client`
+才能到达外部 bundle,而该入口不导出这些能力。要让外部扩展用上,需要给它加一条
+真正的导出路径。这是已知的升级路径。
 
 ## 分工:管理归核心,执行归插件
 

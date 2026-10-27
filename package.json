@@ -36,12 +36,6 @@
     },
     "./suppliers/nvidia/package.json": "./lib/suppliers/nvidia/package.json",
     "./suppliers/nvidia/locale/*.json": "./lib/suppliers/nvidia/locale/*.json",
-    "./ext-test": {
-      "types": "./lib/types/ext-test/index.d.ts",
-      "default": "./lib/ext-test/index.js"
-    },
-    "./ext-test/package.json": "./lib/ext-test/package.json",
-    "./ext-test/locale/*.json": "./lib/ext-test/locale/*.json",
     "./ext-prompt": {
       "types": "./lib/types/ext-prompt/index.d.ts",
       "default": "./lib/ext-prompt/index.js"
@@ -79,9 +73,6 @@
     "lib/suppliers/*/index.js",
     "lib/suppliers/*/package.json",
     "lib/suppliers/*/locale/*.json",
-    "lib/ext-test/index.js",
-    "lib/ext-test/package.json",
-    "lib/ext-test/locale/*.json",
     "lib/ext-prompt/index.js",
     "lib/ext-prompt/package.json",
     "lib/ext-prompt/locale/*.json",

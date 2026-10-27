@@ -1043,9 +1043,8 @@ export class Router {
       // 注意这里**刻意不**把「用户禁用过的模型」也补回来：插件的 listModels 只该报
       // 「模型来源」，启用状态由核心合并（见 loader.ts 的 modelsWithEnabled）。
       // 插件若在 listModels 里就把自己禁用的过滤掉，那是它违约 —— 该修的是插件，
-      // 核心不该反过来替它兜着。兜着的后果比表面症状更糟：面板看着正常了，
-      // 而体检的越权检测（probe.ts 的 hiddenDisabledIds）会因为模型已被补全而
-      // 永远报 OK，那个 bug 就再也没人发现了。
+      // 核心不该反过来替它兜着：兜着之后面板看着正常了，插件那个 bug 就再也没人
+      // 发现了（症状消失、原因还在）。少报就让它少报，用户看得见才好去修插件。
       const seen = new Set(models.map((mm) => mm.id))
       for (const id of custom) {
         if (!seen.has(id)) {

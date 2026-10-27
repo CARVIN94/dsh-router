@@ -1,16 +1,14 @@
 /**
  * 分层提示词扩展（`router.ext` 侧的实现）—— 声明与状态都在这里。
  *
- * 与 `ext-test`（插件自检）同款：**不挂任何监听、不改写任何东西**，
- * 唯一作用是让用户在官方插件页里看到一张卡片、能开关它，并把协作准则
- * 注册成一段 system prompt。
+ * **不挂任何监听、不改写任何东西**，唯一作用是让用户在官方插件页里看到一张
+ * 卡片、能开关它，并把协作准则注册成一段 system prompt。
  *
  * 与 `rtk` / `jev` 那类扩展的区别要写清楚：那两家挂 `tools/execute`
  * 改写**工具调用**；本扩展只往 **system prompt** 加一段。名字同族是因为
  * 都在 `router.ext` 这张表里，拦截面不重叠。
  *
- * 复用 `router.ext` 通道只为拿到**发现 + 开关**两件事（见 ext-test 的同款说明），
- * 真正的注入在 `mount.ts`。
+ * 复用 `router.ext` 通道只为拿到**发现 + 开关**两件事，真正的注入在 `mount.ts`。
  */
 import type { ExtStoreService, RouterExt } from '../ext/contract.ts'
 import { PROMPT_CATEGORIES, PROMPT_TITLE } from './content.ts'

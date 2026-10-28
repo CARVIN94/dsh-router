@@ -13,6 +13,7 @@ import {
   type RouterSupplierModelsResponse,
 } from '../shared.ts'
 import { statusBadge } from './account-badge.ts'
+import { modelLabel, modelMatches } from './model-label.ts'
 import { Modal } from './Modal.tsx'
 
 /* ---------------- SVG 图标 ---------------- */
@@ -550,7 +551,7 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
     return out
   })()
   const q = modelQuery.trim().toLowerCase()
-  const matchQuery = (m: RouterSupplierModel): boolean => q === '' || m.id.toLowerCase().includes(q)
+  const matchQuery = (m: RouterSupplierModel): boolean => modelMatches(q, m)
   const enabledModels = models?.filter(m => m.enabled && matchQuery(m)) ?? []
   const disabledModels = models?.filter(m => !m.enabled && matchQuery(m)) ?? []
 
@@ -763,19 +764,24 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
               {enabledModels.map(model => {
                 const status = testResults[model.id]
                 const chipCls = status === 'ok' ? ' dshr-modelChip-ok' : status === 'error' ? ' dshr-modelChip-err' : ''
+                const lab = modelLabel(model)
                 return (
                   <div key={model.id} className={`dshr-modelChipWrap${chipCls}`}>
                     <button
                       type="button"
                       className="dshr-modelChip"
-                      title="点击禁用"
+                      title={`${lab.title}\n点击禁用`}
                       disabled={toggling}
                       onClick={() => void toggleModel(model.id, false)}
                     >
                       <span className="dshr-modelChipStatus">
                         <Icon d={status === 'ok' ? I.checkCircle : status === 'error' ? I.cancel : I.robot} size={13} />
                       </span>
-                      <span className="dshr-modelChipId">{model.id}</span>
+                      <span className="dshr-modelChipName">{lab.label}</span>
+                      {lab.showId && <span className="dshr-modelChipKey">{model.id}</span>}
+                      {typeof model.context_length === 'number' && model.context_length > 0 && (
+                        <span className="dshr-modelChipCtx">{model.context_length}K</span>
+                      )}
                     </button>
                     <div className="dshr-modelChipOps">
                       <button
@@ -819,11 +825,11 @@ export function SupplierDetail({ supplier, accounts, statusLoading, onBack, onRe
                         key={model.id}
                         type="button"
                         className="dshr-modelChip dshr-modelChip-off"
-                        title="点击恢复"
+                        title={`${modelLabel(model).title}\n点击恢复`}
                         disabled={toggling}
                         onClick={() => void toggleModel(model.id, true)}
                       >
-                        <span className="dshr-modelChipId">{model.id}</span>
+                        <span className="dshr-modelChipName">{modelLabel(model).label}</span>
                         <span className="dshr-modelChipRestore">+ 恢复</span>
                       </button>
                     ))}

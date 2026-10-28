@@ -35,7 +35,18 @@ export interface SupplierStatus {
 
 /** OpenAI 模型条目。 */
 export interface ModelInfo {
+  /** 上游的模型 key（**唯一标识**：组合存它、路由认它、上游收它）。 */
   id: string
+  /**
+   * 可读名（上游自己写的，如 `Qwen3.8-Max`）。**只用于显示**，缺省 = `id`。
+   *
+   * 为什么需要它：有些上游的 key 是内部标识（Qoder 的 `qmodel_38max`、
+   * `kmodel_latest`），面板上只剩一串猜不出含义的字母。既然上游在目录里
+   * 同时下发了 `display_name`，丢掉它就是把可读信息换成噪声。
+   * 反过来，**凡是"发给上游/存下来"的地方都得继续用 `id`**——用名字去请求
+   * 上游只会拿到 404。
+   */
+  name?: string
   context_length?: number
 }
 

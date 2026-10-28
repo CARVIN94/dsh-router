@@ -752,3 +752,19 @@ test('正常供应商（listModels 全量返回）：列表内容与启用状态
   assert.deepEqual(models.map((m) => m.id).sort(), ['a-1', 'a-2'])
   assert.deepEqual(models.map((m) => m.enabled).sort(), [false, true], '启用状态仍由核心合并')
 })
+
+test('可读名原样透传到面板，且 id 不被它替换', async () => {
+  const router = new Router('')
+  // Qoder 的形状：id 是上游内部 key，可读名在 name 里
+  const a = supplier('a', [{ id: 'qmodel_38max', name: 'Qwen3.8-Max', context_length: 200 }])
+  addSupplier(router, a.s)
+
+  const models = await router.modelsOf('a')
+  assert.deepEqual(models, [{
+    id: 'qmodel_38max',
+    name: 'Qwen3.8-Max',
+    context_length: 200,
+    enabled: true,
+    custom: undefined,
+  }], '两个字段各自都必须在：拿 name 去请求上游会 404，只剩 id 则面板上看不懂')
+})

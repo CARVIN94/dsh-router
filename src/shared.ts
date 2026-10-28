@@ -227,6 +227,8 @@ export interface RouterExtResponse {
 /** 供应商模型（含启用状态）。 */
 export interface RouterSupplierModel {
   id: string
+  /** 可读名（上游写的，只用于显示；缺省 = id）。见 `ModelInfo.name`。 */
+  name?: string
   context_length?: number
   enabled: boolean
   /** 是否为自定义（手动添加 / 拉取）模型，可删除。 */

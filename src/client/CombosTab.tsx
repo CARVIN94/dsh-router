@@ -10,6 +10,7 @@ import {
   type RouterComboAlias,
   type RouterComboSupplierGroup,
 } from '../shared.ts'
+import { modelLabel, modelMatches } from './model-label.ts'
 import { Modal } from './Modal.tsx'
 
 /* ---------------- SVG 图标 ---------------- */
@@ -66,6 +67,22 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
     const hit = groups.find(g => g.models.some(m => m.id === stored && m.enabled))
       ?? groups.find(g => g.models.some(m => m.id === stored))
     return hit === undefined ? stored : `${hit.supplier.alias}/${stored}`
+  }
+  /**
+   * 存储值 → 悬停说明。组合里存的、请求要发的都是 `alias/modelId`（上面那行），
+   * 但上游 key 往往不是人能读的（`qmodel_38max`），所以把上游的可读名
+   * （`Qwen3.8-Max`）放进 title 里，不占行宽也不改变「发什么」。
+   */
+  const comboTip = (stored: string): string => {
+    const name = displayName(stored)
+    const comma = stored.indexOf(',')
+    const mid = comma > 0 ? stored.slice(comma + 1) : stored
+    const sid = comma > 0 ? stored.slice(0, comma) : ''
+    const hit = (sid === '' ? groups : groups.filter(g => g.supplier.id === sid))
+      .flatMap(g => g.models)
+      .find(m => m.id === mid)
+    const readable = (hit?.name ?? '').trim()
+    return readable === '' || readable === mid ? name : `${readable}\n${name}（请求里用这个）`
   }
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<RouterCombo | null>(null)
@@ -289,7 +306,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                     : (
                       <>
                         {combo.models.slice(0, 4).map((model, i) => (
-                          <span key={`${model}-${i}`} className="dshr-comboChip">
+                          <span key={`${model}-${i}`} className="dshr-comboChip" title={comboTip(model)}>
                             <span className="dshr-comboChipNum">{i + 1}</span>
                             <span className="dshr-comboChipSupplier">{displayName(model)}</span>
                           </span>
@@ -349,7 +366,7 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                         >
                           <span className="dshr-comboGrip" title="拖拽排序"><Icon d={I.grip} size={14} /></span>
                           <span className="dshr-comboStepNum">{index + 1}</span>
-                          <code className="dshr-comboSelectedModel">{displayName(model)}</code>
+                          <code className="dshr-comboSelectedModel" title={comboTip(model)}>{displayName(model)}</code>
                           <button type="button" className="dshr-iconBtn dshr-iconBtn-sm dshr-comboStepRemove" title="移除" onClick={() => removeModel(index)}>
                             <Icon d={I.delete} size={14} />
                           </button>
@@ -379,16 +396,20 @@ export function CombosTab({ combos, aliases, onRefresh }: CombosTabProps): JSX.E
                       : groups.map(g => {
                         const items = g.models.filter(m =>
                           !form.models.includes(`${g.supplier.id},${m.id}`) &&
-                          (modelQuery === '' || m.id.toLowerCase().includes(modelQuery.toLowerCase())))
+                          (modelQuery === '' || modelMatches(modelQuery, m)))
                         if (items.length === 0) return null
                         return (
                           <div key={g.supplier.id} className="dshr-comboPickGroup">
                             <p className="dshr-comboPickGroupTitle">{g.supplier.name} · {g.supplier.alias}</p>
-                            {items.map(m => (
-                              <button key={m.id} type="button" className="dshr-comboPickItem" onClick={() => toggleModel(g.supplier.id, m.id)}>
-                                <span className="dshr-comboPickName">{m.id}</span>
-                              </button>
-                            ))}
+                            {items.map(m => {
+                              const lab = modelLabel(m)
+                              return (
+                                <button key={m.id} type="button" className="dshr-comboPickItem" title={lab.title} onClick={() => toggleModel(g.supplier.id, m.id)}>
+                                  <span className="dshr-comboPickName">{lab.label}</span>
+                                  {lab.showId && <span className="dshr-comboPickKey">{m.id}</span>}
+                                </button>
+                              )
+                            })}
                           </div>
                         )
                       })}

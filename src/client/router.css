@@ -1900,9 +1900,16 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
     cursor: default;
 }
 
-.dshr-modelChipId {
+/* 主标签 = 上游的可读名（缺省回落成 key），正文字号；key 用等宽淡字跟在后面，
+   两者相同时不渲染 key（判据见 model-label.ts） */
+.dshr-modelChipName {
+    font-size: 12px;
+}
+
+.dshr-modelChipKey {
     font-family: var(--rs-mono);
-    font-size: 11px;
+    font-size: 10px;
+    color: var(--rs-faint);
 }
 
 .dshr-modelChipCtx {
@@ -2045,61 +2052,6 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 .dshr-modelChipWrap:hover .dshr-modelChipOps,
 .dshr-modelChipOps:focus-within {
     opacity: 1;
-}
-
-/* 旧 .dshr-modelChip 独立样式（disabled 区仍用） */
-.dshr-modelChip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    border: 1px solid var(--rs-line);
-    border-radius: 8px;
-    color: var(--rs-text);
-    background: var(--rs-layer-1);
-    font-size: 12px;
-    cursor: pointer;
-    transition:
-        border-color 0.12s ease,
-        background 0.12s ease,
-        color 0.12s ease;
-}
-
-.dshr-modelChip:hover {
-    border-color: var(--rs-accent);
-    background: color-mix(in srgb, var(--rs-accent) 6%, transparent);
-}
-
-.dshr-modelChip:disabled {
-    opacity: 0.6;
-    cursor: default;
-}
-
-.dshr-modelChipId {
-    font-family: var(--rs-mono);
-    font-size: 11px;
-}
-
-.dshr-modelChipCtx {
-    flex: none;
-    color: var(--rs-faint);
-    font-size: 10px;
-}
-
-.dshr-modelChip-off {
-    border-style: dashed;
-    color: var(--rs-faint);
-    opacity: 0.8;
-}
-
-.dshr-modelChip-off:hover {
-    color: var(--rs-accent);
-    border-color: var(--rs-accent);
-}
-
-.dshr-modelChipRestore {
-    color: var(--rs-accent);
-    font-size: 10px;
 }
 
 /* 计数徽标跟在标题/操作按钮右侧（模型卡片） */
@@ -2484,9 +2436,20 @@ html[data-dsh-router-active]:not([data-dsh-taskboard-active]):not(
 }
 
 .dshr-comboPickName {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 挑选项里的上游 key：可读名之后的小号等宽淡字，两者相同时不渲染 */
+.dshr-comboPickKey {
+    flex: none;
+    margin-left: auto;
     font-family: var(--rs-mono);
+    font-size: 10px;
+    color: var(--rs-faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

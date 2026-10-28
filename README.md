@@ -469,6 +469,9 @@ Anthropic 的工具调用(非流式 `tool_use` 与流式 `content_block_start` +
   2. **用户目录**:`~/.dsh/profiles/<profile>/suppliers/*.js`,**压过**同名内置行。
 - **模型统一策略**:插件不内置、不缓存模型;`listModels` 每次从上游拉取,
   缓存由核心按 60s TTL 统一管(`/suppliers/:id/models`),`/v1/models` 保持实时。
+  条目是 `{ id, name?, context_length? }`:**`id` 是上游 key**(组合、路由、请求都用它),
+  **`name` 是上游的可读名**(只用于显示)。有的上游 key 是内部标识(Qoder 的
+  `qmodel_38max`),不把名字带上来,面板上就只有一串看不懂的字母。
 - **凭证存储**:SQLite 单库 `{authDir}/credentials.sqlite`(表 `credentials(supplier, uid, data)`,
   凭证为供应商不透明 JSON blob)。
 - **/v1/\* 鉴权**:由 `KeysStore.requireApiKey` 控制。关闭 → 不鉴权;

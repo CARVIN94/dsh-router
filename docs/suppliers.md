@@ -42,7 +42,7 @@ export const priority = 10        // 数字越小越优先(免费优先)
 | 方法 | 说明 |
 |---|---|
 | `status()` | 报账号**现在状态**:`{ id, name, accounts: [{ uid, nickname, credits, state }] }` |
-| `listModels(force?)` | `[{ id, context_length? }]`;`force=true` 时强制刷新来源(「获取模型」按钮调用) |
+| `listModels(force?)` | `[{ id, name?, context_length? }]`;`force=true` 时强制刷新来源(「获取模型」按钮调用)。`id` = 上游 key(组合/路由/请求都用它),`name` = 上游的可读名,**只用于显示**——上游 key 是内部标识时(Qoder 的 `qmodel_38max`)不报 name,面板上就只有一串看不懂的字母 |
 | `getAlias()` | 默认前缀 = 供应商 id(模型全名 = alias/id,别名留空即用 id) |
 | `chatOnce(uid, req)` | **对单个账号调一次上游**,见下 |
 | `dispose()` | 停止时清理 |

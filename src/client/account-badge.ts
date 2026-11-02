@@ -20,5 +20,7 @@ export function statusBadge(account: RouterAccount): AccountBadge {
   if (account.cooling) return { text: '冷却中', cls: 'dshr-badge-warn' }
   if (account.state === 'quota') return { text: '额度用完', cls: 'dshr-badge-warn' }
   if (account.state === 'session_dead') return { text: '凭证失效', cls: 'dshr-badge-warn' }
+  // 「凭证失效」对风控是误导：它会让用户去重新登录，而那不会改变任何东西。
+  if (account.state === 'restricted') return { text: '账号被风控', cls: 'dshr-badge-warn' }
   return { text: '健康', cls: 'dshr-badge-ok' }
 }

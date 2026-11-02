@@ -448,6 +448,28 @@ test('【颗粒度】session_dead 是连接级冷却：跨该号所有模型，�
   assert.ok(d?.until !== undefined, 'session_dead 冷却必须有 until（可恢复）')
 })
 
+test('【颗粒度】restricted 与 session_dead 处置相同：连接级冷却、到期自愈、换号', () => {
+  // 11140 是账号级风控，不是凭证失效。分开成独立状态只为文案——处置必须一致，
+  // 否则被风控的号会留在池里，每个请求先撞它一次才知道它不能用了。
+  const p = pool()
+  const list = accs(['a', 'b'])
+  p.noteFailure('a', 'm1', 'restricted', '账号被上游限制使用')
+  assert.equal(p.pick(list, [], 'm1'), 'b', '必须换号')
+  assert.equal(p.pick(list.filter((x) => x.uid === 'a'), [], 'm2'), undefined, '跨该号所有模型')
+  const d = p.decorate(list).find((x) => x.uid === 'a')
+  assert.equal(d?.cooling, true)
+  assert.ok(d?.until !== undefined, 'restricted 冷却必须有 until（可恢复，不是永久禁）')
+})
+
+test('restricted 是「现在不能选」：插件报它时核心也不选该号', () => {
+  const p = pool()
+  const list: SupplierAccountNow[] = [
+    { uid: 'r', credits: 5, state: 'restricted' },
+    { uid: 'ok', credits: 5, state: 'ok' },
+  ]
+  assert.equal(p.pick(list, [], 'm1'), 'ok')
+})
+
 test('处置：未知错误第一次就冷却（坏号不留在池里等下一次撞）', () => {
   const p = pool()
   const list = accs(['a', 'b'])

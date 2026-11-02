@@ -81,6 +81,9 @@ const RULES: Record<AccountState, Rule> = {
   // 请求本身非法（上游拒收这个 payload）：同一个请求对池里每个号都会失败，
   // 冷号只会把「这条请求有问题」放大成「这个模型谁都别用」。不惩罚账号。
   bad_request: { cooldown: 0, counts: false },
+  // 账号级风控：与 session_dead 同样做**连接级冷却**（跨该号所有模型），到期自愈。
+  // 分开成独立状态只为文案——处置一致，所以这里用同一个时长。
+  restricted: { cooldown: SESSION_DEAD_COOLDOWN_MS, counts: false },
 }
 
 /**
@@ -270,7 +273,7 @@ export class AccountPool {
    * 该号立刻回到候选（没有额外状态要清）。
    */
   private servableByReport(a: SupplierAccountNow | undefined): boolean {
-    return a?.state !== 'quota' && a?.state !== 'session_dead'
+    return a?.state !== 'quota' && a?.state !== 'session_dead' && a?.state !== 'restricted'
   }
 
   /**
@@ -506,9 +509,10 @@ export class AccountPool {
   noteFailure(uid: string, modelId: string, state: AccountState, message: string, resetAt?: number): void {
     const rule = RULES[state]
     if (rule.cooldown === 0) return // no_such_model 等：不冷不记
-    // session_dead 是连接级冷却（登录态问题，跨该号所有模型），到期自愈——
-    // 不再有「永久禁用」：403 分不清凭证死活，误伤号不该被钉死
-    if (state === 'session_dead') {
+    // session_dead 与 restricted 都是连接级冷却（跨该号所有模型），到期自愈——
+    // 不再有「永久禁用」：403 分不清凭证死活，误伤号不该被钉死。restricted 的
+    // 成因是上游风控而非凭证，但处置相同：换号，到点回来。
+    if (state === 'session_dead' || state === 'restricted') {
       const e = this.uidState(uid)
       const cd = rule.cooldown
       e.until = Math.max(e.until, Date.now() + (typeof cd === 'number' ? cd : 0))

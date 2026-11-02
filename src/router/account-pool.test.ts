@@ -15,7 +15,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountPool } from './account-pool.ts'
-import type { SupplierAccountNow } from '../suppliers/contract.ts'
+import type { AccountState, SupplierAccountNow } from '../suppliers/contract.ts'
 
 const accs = (uids: string[]): SupplierAccountNow[] => uids.map((uid) => ({ uid, credits: 0, state: 'ok' }))
 
@@ -470,6 +470,27 @@ test('restricted 是「现在不能选」：插件报它时核心也不选该号
   assert.equal(p.pick(list, [], 'm1'), 'ok')
 })
 
+/**
+ * 插件报出**核心还不认识**的状态时，绝不能抛异常。
+ *
+ * 这是版本错配的真实事故（2026-11-02）：codebuddy 0.3.25 先发版，报 `restricted`；
+ * 核心 0.4.9 的 RULES 表里没有它 → `RULES[state]` 是 undefined → `.cooldown`
+ * 抛 TypeError → 异常穿透到宿主 webServer 的兜底，**整个响应变成 400**。
+ * 用户看到 `/v1 returned 400`，与上游和账号都无关，纯属插件比核心新。
+ *
+ * 状态是**跨包**的运行时字符串，编译期穷举管不住它；处置按「说不清」的既有
+ * 语义（瞬时冷却 + 换号），绝不把一次版本错配放大成整个端点不可用。
+ */
+test('★ 核心不认识的 AccountState 不得抛异常，按 unknown 处置', () => {
+  const p = pool()
+  const list = accs(['a', 'b'])
+  // 模拟未来的插件：报一个本版本核心还没有的状态
+  assert.doesNotThrow(() => p.noteFailure('a', 'm1', 'brand_new_state' as AccountState, '新状态'))
+  assert.equal(p.pick(list, [], 'm1'), 'b', '未知状态必须换号（不能留在池里等下一次撞）')
+  const d = p.decorate(list).find((x) => x.uid === 'a')
+  assert.equal(d?.cooling, true, '未知状态要冷却，否则坏号每个请求都先撞一次')
+})
+
 test('处置：未知错误第一次就冷却（坏号不留在池里等下一次撞）', () => {
   const p = pool()
   const list = accs(['a', 'b'])
@@ -539,11 +560,12 @@ test('状态表：各 AccountState 的处置符合预期', () => {
   assert.equal(p.pick(list, [], 'm1'), undefined, '四个号都不可服务')
 })
 
-// ---- 插件报的额度/凭证状态直接进选号 ----
+// ---- 插件报的额度/凭证/风控状态直接进选号 ----
 // 分工：插件报「现在怎么了」，核心决定「怎么办」。积分用完（quota）/凭证失效
-// （session_dead）要靠充值/重登才能恢复，选它必是白撞一次——而且 traework 的
-// 积分耗尽失败发生在流已提交之后（HTTP 200 + 流内 4008），这次请求救不回来。
-// 所以必须在**选号阶段**就排除，不能等失败后记账。
+// （session_dead）/账号被风控（restricted）都要靠充值/重登/等风控到期才能恢复，
+// 选它必是白撞一次——而且 traework 的积分耗尽失败发生在流已提交之后
+// （HTTP 200 + 流内 4008），这次请求救不回来。所以必须在**选号阶段**就排除，
+// 不能等失败后记账。
 
 test('报 quota 的号不进选号（额度用完，选它必白撞）', () => {
   const p = pool()

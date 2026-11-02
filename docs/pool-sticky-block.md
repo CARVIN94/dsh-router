@@ -441,10 +441,10 @@ Lead 与 T1 撞同一个号,T2 独占)。改为**占用感知分配**(`allocSess
 
 - **插件侧**(`dsh-router-traework` 的 `pool.list()`):`credits === 0` 报 `quota`。
   严格区分 `CREDITS_UNKNOWN(-1)`——那是「还没拉到」,不是「用完了」。
-- **核心侧**(`account-pool.servableByReport`):`quota` / `session_dead` 的号
-  不进候选。只认这两个**账号级、要靠外部动作恢复**的事实;`transport`/`unknown`/
-  `unavailable` 是某次采样的瞬时观察,拿它排除等于「一次抖动就踢号」,那些仍走
-  冷却单元。
+- **核心侧**(`account-pool.servableByReport`):`quota` / `session_dead` /
+  `restricted` 的号不进候选。只认这三个**账号级、要靠外部动作或时间恢复**的事实
+  (充值 / 重登 / 等风控到期);`transport`/`unknown`/`unavailable` 是某次采样的
+  瞬时观察,拿它排除等于「一次抖动就踢号」,那些仍走冷却单元。
 - **诊断侧**(`router/index.ts`):指定连接测试失败后重试时,不再把上游真因覆盖成
   「连接不存在」。`tried` 里已有该 uid = 它刚试过并失败,保留 `trace.lastError`。
 

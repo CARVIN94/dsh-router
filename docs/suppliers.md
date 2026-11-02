@@ -81,11 +81,19 @@ js 报告**此刻**观察到的账户状况,而不是把上游原始响应丢给
 | `unknown` | 说不清是什么错 |
 | `no_such_model` | **这个模型不属于本供应商**(不是账号的失败) |
 | `bad_request` | **请求本身不合法,被上游拒**(参数错/图片认不出/tool_call 配对断裂;不是账号的失败) |
+| `restricted` | **上游按账号做了风控**(WorkBuddy 的 11140),不是凭证失效;处置同 `session_dead`(连接级冷却 + 换号),约 30 分钟自愈,无需重新登录 |
 
-**`status()` 里报 `quota` / `session_dead` 会影响选号**:这两个是「要靠外部动作
-才能恢复」的账号级事实(充值、重新登录),核心**不把它们选进候选**
-(`account-pool.servableByReport`)。所以有积分概念的 js 应在积分归零时直接报
-`quota`,不要报 `ok`:
+**新增 state 是向后兼容的**:插件可以先于核心发版。核心对**不认识的** state
+一律按 `unknown` 处置(瞬时冷却 + 换号),绝不抛异常——因为 state 是跨包的
+运行时字符串,`Record<AccountState, Rule>` 只在编译期穷举管不住它。曾经
+codebuddy 0.3.25 先报了 `restricted` 而核心还是 0.4.9,`RULES[state]` 取到
+`undefined`,`.cooldown` 抛 TypeError 穿透到宿主 webServer 的兜底,
+**整个响应变成 400**(2026-11-02 事故)。
+
+**`status()` 里报 `quota` / `session_dead` / `restricted` 会影响选号**:这三个是
+「要靠外部动作或时间才能恢复」的账号级事实(充值、重新登录、等风控到期),核心
+**不把它们选进候选**(`account-pool.servableByReport`)。所以有积分概念的 js
+应在积分归零时直接报 `quota`,不要报 `ok`:
 
 ```ts
 // traework 的做法(src/api/pool.ts list()):0 是真值,就是「用完了」
@@ -130,7 +138,8 @@ js 只要知道这一条:**报 `rate_limit`/`transport`/`unknown` 只影响「�
 模型」**,不会牵连该号上的其它模型。一个连接服务多个模型时,模型 A 被限流不该
 让模型 B 也不可用。
 
-例外是 `session_dead`:凭证失效是连接级问题,该号**所有模型**都停用(连接级冷却,到期自愈)。
+例外是 `session_dead` 与 `restricted`:凭证失效/账号被风控是连接级问题,该号
+**所有模型**都停用(连接级冷却,到期自愈)。
 
 ## `chatOnce(uid, req)`:一次只服务一个账号
 
@@ -154,9 +163,11 @@ type ChatOnceResult =
 | `rate_limit` | **指数退避**:首次 2s,每次翻倍,上限 5 分钟;成功后等级清零。失败项带 `resetAt`(上游声明的重置时刻,epoch ms)时**冷到该点**——频率配额的重置是小时级的,退避上限只会到点回来再撞 |
 | `quota` | 冷却 10 分钟 |
 | `session_dead` | **连接级冷却 30 分钟**(该号所有模型都停用,到期自愈;没有永久禁用——403 分不清凭证死活与风控误伤) |
+| `restricted` | **连接级冷却 30 分钟**,与 `session_dead` 完全相同(处置一致,分开只为给用户看的那句话:风控不是凭证失效,重新登录没用) |
 | `unavailable` / `transport` / `unknown` | 瞬时短冷却 30s(**每次都冷**,不攒次数) |
 | `no_such_model` | **不惩罚账号**,核心直接跳过整个供应商换下一个 |
 | `bad_request` | **不惩罚账号**(请求非法不是号的错),核心直接跳到下一个模型/供应商 |
+| *(核心不认识的)* | 按 `unknown` 处置(瞬时冷 30s + 换号)。插件可以先于核心发版,这条兜底保证版本错配不会把端点打成 400 |
 
 - 非流式若聚合后发现**空响应**(无 content / reasoning / tool_calls),请返回
   `{ ok:false, state:'unknown' }` 而不是 `ok:true`——空响应交给核心换号/换模型回退,

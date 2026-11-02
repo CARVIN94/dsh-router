@@ -13,11 +13,12 @@ export interface SupplierAccount {
   nickname?: string
   credits: number
   /**
-   * 插件解读上游信号后的语义状态（`quota` = 额度/积分用完，`session_dead` = 凭证失效）。
+   * 插件解读上游信号后的语义状态（`quota` = 额度/积分用完，`session_dead` = 凭证失效，
+   * `restricted` = 账号被上游风控）。
    *
-   * `decorate()` 一直原样带出插件报的状态，核心选号也读它（`quota`/`session_dead`
-   * 的号不进候选）——面板类型里缺了这一格就会自相矛盾：号明明已被排除在路由之外，
-   * 界面上却只看得到「0 积分」，看不出它为什么不参与。
+   * `decorate()` 一直原样带出插件报的状态，核心选号也读它（`quota`/`session_dead`/
+   * `restricted` 的号不进候选）——面板类型里缺了这一格就会自相矛盾：号明明
+   * 已被排除在路由之外，界面上却只看得到「0 积分」，看不出它为什么不参与。
    */
   state?: AccountState
   cooling: boolean

@@ -11,8 +11,9 @@
  * 失败而对其它模型也不可用，这是错的。
  *
  *   - 冷却/限流退避/瞬时 → 键 = (supplierId, modelId, uid)，只冷「这个号 × 这个模型」
- *   - 凭证失效(session_dead) → 键 = uid 连接级冷却（登录态问题，该号所有模型都不可用）；
- *     **没有永久禁用**——403 分不清凭证死活与风控误伤，冷却到期自愈
+ *   - 凭证失效(session_dead) / 账号风控(restricted) → 键 = uid 连接级冷却
+ *     （该号所有模型都不可用）；**没有永久禁用**——403 分不清凭证死活与风控误伤，
+ *     冷却到期自愈
  *   - 手动冷却(面板)         → 键 = uid（管理员整连接暂停）
  *
  * 为什么键里要带 supplierId：不同供应商**会有同名的模型 id**（如 traework 与
@@ -260,9 +261,10 @@ export class AccountPool {
   /**
    * 插件报的「现在状态」是否意味着这个号此刻不该被选中。
    *
-   * 只认两种**账号级持久事实**（要靠外部动作才能恢复，不是抖动）：
+   * 只认三种**账号级持久事实**（要靠外部动作或时间才能恢复，不是抖动）：
    *  - `quota` —— 额度/积分用完，充值才能恢复（traework 积分归零时报它）
    *  - `session_dead` —— 凭证失效，重新登录才能恢复
+   *  - `restricted` —— 上游按账号风控（WorkBuddy 的 11140），到点自行恢复
    *
    * 其余一律不看：`transport`/`unknown`/`unavailable` 是插件某一次采样的瞬时
    * 观察，拿它排除等于「一次抖动就踢号」，而且没有冷却计时器兜底；`rate_limit`
@@ -291,9 +293,10 @@ export class AccountPool {
    *     "策略"，是无会话身份时的替身。
    *  4. 块统计不驱动轮转（亲和已保证驻留），只保留 `BLOCK_MAX` 次不达标 →
    *     降权该号（缓存无效，可恢复）。
-   *  5. 插件报的 `quota`/`session_dead`（额度用完 / 凭证失效）→ **直接不选它**：
-   *     这类失败要靠充值/重登才能恢复，选它必是白撞一次（还有的供应商失败在
-   *     流已提交之后，这次请求根本救不回来）。见 `servableByReport`。
+   *  5. 插件报的 `quota`/`session_dead`/`restricted`（额度用完 / 凭证失效 /
+   *     账号被风控）→ **直接不选它**：这类失败要靠充值/重登/等风控到期才能
+   *     恢复，选它必是白撞一次（还有的供应商失败在流已提交之后，这次请求
+   *     根本救不回来）。见 `servableByReport`。
    *
    * 天花板：号数 < 并发会话数时必然有会话共用号 → 互踩，无法用选号手法消除
    * （缓存空间是账号侧物理限制）。见 docs/pool-sticky-block.md §10。
@@ -320,7 +323,7 @@ export class AccountPool {
       (uid) => this.healthy(uid, modelId, now) && this.servableByReport(byUid.get(uid)),
     )
     if (healthy.length === 0) {
-      this.lastWhy = '全池无健康号（都在冷却，或插件报的额度/凭证已不可用）'
+      this.lastWhy = '全池无健康号（都在冷却，或插件报的额度/凭证/风控已不可用）'
       return undefined
     }
     // 缓存无效降权：该号缓存质量样本长期不达标 → 跳过它（可到期恢复）
@@ -343,7 +346,7 @@ export class AccountPool {
       if (!healthy.includes(bound)) {
         const ba = byUid.get(bound)
         if (!this.servableByReport(ba)) {
-          why.push(`原绑定 ${bound} 插件报额度/凭证不可用（${ba?.state}）`)
+          why.push(`原绑定 ${bound} 插件报额度/凭证/风控不可用（${ba?.state}）`)
         } else {
           const c = this.cooldowns.get(this.key(modelId, bound))
           why.push(`原绑定 ${bound} 正在冷却${c?.reason ? `(${c.reason})` : ''}`)
@@ -507,7 +510,14 @@ export class AccountPool {
    * 把号轮流打冷（2026-10-15 的 11 号全灭事故）。
    */
   noteFailure(uid: string, modelId: string, state: AccountState, message: string, resetAt?: number): void {
-    const rule = RULES[state]
+    // **必须兜底**：`Record<AccountState, Rule>` 只在编译期穷举，而 state 是
+    // 别的 npm 包（供应商插件）在运行时给的字符串——插件比核心新、报出一个核心
+    // 还不认识的状态（如 0.3.25 的 codebuddy 报 `restricted` 而核心还是 0.4.9）
+    // 时，`RULES[state]` 是 undefined，下一行 `.cooldown` 直接抛 TypeError。
+    // 抛在这里不是「这一条请求失败」，而是异常穿透到宿主 webServer 的兜底
+    // ——**整个响应变成 400**，用户看到的是 `/v1 returned 400`，与上游毫无关系。
+    // 未知状态按 `unknown` 处置（瞬时冷却 + 换号），这是「说不清」的既有语义。
+    const rule = RULES[state] ?? RULES.unknown
     if (rule.cooldown === 0) return // no_such_model 等：不冷不记
     // session_dead 与 restricted 都是连接级冷却（跨该号所有模型），到期自愈——
     // 不再有「永久禁用」：403 分不清凭证死活，误伤号不该被钉死。restricted 的

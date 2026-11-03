@@ -448,9 +448,9 @@ test('【颗粒度】session_dead 是连接级冷却：跨该号所有模型，�
   assert.ok(d?.until !== undefined, 'session_dead 冷却必须有 until（可恢复）')
 })
 
-test('【颗粒度】restricted 与 session_dead 处置相同：连接级冷却、到期自愈、换号', () => {
-  // 11140 是账号级风控，不是凭证失效。分开成独立状态只为文案——处置必须一致，
-  // 否则被风控的号会留在池里，每个请求先撞它一次才知道它不能用了。
+test('【颗粒度】restricted 与 session_dead 同为连接级冷却：到期自愈、换号（时长不同，见下条）', () => {
+  // 11140 是账号级风控，不是凭证失效。分开成独立状态、各自时长——否则被风控的
+  // 号会留在池里，每个请求先撞它一次才知道它不能用了。
   const p = pool()
   const list = accs(['a', 'b'])
   p.noteFailure('a', 'm1', 'restricted', '账号被上游限制使用')
@@ -459,6 +459,19 @@ test('【颗粒度】restricted 与 session_dead 处置相同：连接级冷却�
   const d = p.decorate(list).find((x) => x.uid === 'a')
   assert.equal(d?.cooling, true)
   assert.ok(d?.until !== undefined, 'restricted 冷却必须有 until（可恢复，不是永久禁）')
+})
+
+test('restricted 的连接级冷却比 session_dead 短（风控多为误伤，2 分钟快速自愈）', () => {
+  // session_dead = 30min（真死号不刷上游），restricted = 2min（验证成本低）。
+  const p = pool()
+  const list = accs(['a', 'b'])
+  p.noteFailure('a', 'm1', 'session_dead', '凭证失效')
+  const deadUntil = new Date(p.decorate(list).find((x) => x.uid === 'a')?.until ?? 0).getTime()
+  p.noteFailure('b', 'm1', 'restricted', '风控')
+  const restrictedUntil = new Date(p.decorate(list).find((x) => x.uid === 'b')?.until ?? 0).getTime()
+  // restricted 只冷 2 分钟，session_dead 冷 30 分钟
+  assert.ok(deadUntil - Date.now() > 25 * 60_000, `session_dead 应 > 25 分钟，实际 ${(deadUntil - Date.now()) / 60_000} 分钟`)
+  assert.ok(restrictedUntil - Date.now() <= 2 * 60_000, `restricted 应 ≤ 2 分钟，实际 ${(restrictedUntil - Date.now()) / 60_000} 分钟`)
 })
 
 test('restricted 是「现在不能选」：插件报它时核心也不选该号', () => {

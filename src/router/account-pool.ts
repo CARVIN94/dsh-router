@@ -51,6 +51,13 @@ const MINUTE = 60_000
 const SESSION_DEAD_COOLDOWN_MS = 30 * MINUTE
 
 /**
+ * 账号风控（restricted）的连接级冷却时长。
+ * 11140 大多是误伤（正常请求也被风控），而验证成本极低——2 分钟后回池，
+ * 真被限的号再撞一次就重新冷却，误伤号不必陪葬 30 分钟。
+ */
+const RESTRICTED_COOLDOWN_MS = 2 * MINUTE
+
+/**
  * 状态 → 处置表。**核心策略就在这一张表里**，插件只报状态不做决策。
  *
  * 冷却策略对齐 9router 的 accountFallback / errorConfig：
@@ -82,9 +89,10 @@ const RULES: Record<AccountState, Rule> = {
   // 请求本身非法（上游拒收这个 payload）：同一个请求对池里每个号都会失败，
   // 冷号只会把「这条请求有问题」放大成「这个模型谁都别用」。不惩罚账号。
   bad_request: { cooldown: 0, counts: false },
-  // 账号级风控：与 session_dead 同样做**连接级冷却**（跨该号所有模型），到期自愈。
-  // 分开成独立状态只为文案——处置一致，所以这里用同一个时长。
-  restricted: { cooldown: SESSION_DEAD_COOLDOWN_MS, counts: false },
+  // 账号级风控：连接级冷却（跨该号所有模型），到期自愈。分开成独立状态、
+  // 也用独立时长——风控多为误伤（正常请求也被拦），冷却要短（验证成本低，
+  // 真被限的号回池再撞一次就重新冷却）；凭证失效才用长窗口（真死号不刷上游）。
+  restricted: { cooldown: RESTRICTED_COOLDOWN_MS, counts: false },
 }
 
 /**
@@ -520,8 +528,8 @@ export class AccountPool {
     const rule = RULES[state] ?? RULES.unknown
     if (rule.cooldown === 0) return // no_such_model 等：不冷不记
     // session_dead 与 restricted 都是连接级冷却（跨该号所有模型），到期自愈——
-    // 不再有「永久禁用」：403 分不清凭证死活，误伤号不该被钉死。restricted 的
-    // 成因是上游风控而非凭证，但处置相同：换号，到点回来。
+    // 不再有「永久禁用」：403 分不清凭证死活，误伤号不该被钉死。两者时长不同
+    // （见 RULES）：凭证失效长冷不刷上游，风控短冷快速自愈。
     if (state === 'session_dead' || state === 'restricted') {
       const e = this.uidState(uid)
       const cd = rule.cooldown

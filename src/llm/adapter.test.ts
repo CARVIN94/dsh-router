@@ -659,6 +659,46 @@ test('流式：只有坏帧时才按断流处理，且 code 可重试', async ()
   assert.ok(RETRYABLE_CODES.includes(code), `code ${JSON.stringify(code)} 必须可重试`)
 })
 
+/* ---------------- /v1 非 2xx 的可重试性二分（2026-11-03） ---------------- */
+
+/**
+ * 为什么要有这一组：全灭 503 的信封 `no_healthy_supplier` 是**确定性失败**
+ * （腿冷却是时间函数，不是请求函数——重发只会把每条腿再全打一遍再吃同一个
+ * 503），此前一律归 `TRANSPORT`（白名单内，dsh-llm-retry 重试 5 次），一次
+ * 用户可见的 503 实际代价是 6× 上游请求 + ~12s backoff。现在归自造码
+ * `CLIENT`（白名单外 → 一次都不重试）。
+ *
+ * 对照面：500 仍是 `TRANSPORT` 可重试——那才是值得再试一次的瞬时故障；
+ * 503 但 body 不是本进程写死的 JSON 信封（截断/其他来源）也保守可重试，
+ * 宁可多试也别错杀。
+ */
+test('/v1 全灭 503 归 CLIENT 不可重试；500 与非信封 503 仍可重试', async () => {
+  const { RouterAdapter: RA } = await import('./adapter.ts')
+  const cases = [
+    // 本进程 router/index.ts 三处出口的真实形状
+    [503, JSON.stringify({ error: { message: 'combo ["money"]: all models unavailable', type: 'api_error', code: 'no_healthy_supplier' } }), 'CLIENT'] as const,
+    [503, JSON.stringify({ error: { message: 'all suppliers unavailable', type: 'api_error', code: 'no_healthy_supplier' } }), 'CLIENT'] as const,
+    // 确定性之外的：500（瞬时故障，值得再试）、503 但不是我们的信封
+    //（截断 / 外部来源）、以及 detail 缺 code 字段
+    [500, '{"error":{"code":"boom"}}', 'TRANSPORT'] as const,
+    [503, '{"error":{"code":"other"}}', 'TRANSPORT'] as const,
+    [503, 'upstream connect error', 'TRANSPORT'] as const,
+    [503, '{"error":{}}', 'TRANSPORT'] as const,
+  ] as const
+  for (const [status, body, want] of cases) {
+    globalThis.fetch = (async () => new Response(body, { status })) as typeof fetch
+    const adapter = new RA('http://x', { comboModels: async () => [] })
+    let code = ''
+    try {
+      for await (const _c of adapter.stream({ model: 'm', messages: [], signal: AbortSignal.timeout(3000) } as never)) void _c
+    } catch (e) { code = (e as { code?: string }).code ?? '' }
+    assert.equal(code, want, `HTTP ${status} body=${body.slice(0, 40)}…`)
+    if (want === 'CLIENT') {
+      assert.ok(!RETRYABLE_CODES.includes(code), 'CLIENT 不在白名单里（一次都不重试才是本组的目的）')
+    }
+  }
+})
+
 test('流式：上游不发空行分隔时也要能分帧（前瞻完整 JSON）', async () => {
   // 部分上游/中间件只发 \n 不发 \n\n。两帧会被拼成 `{...}\n{...}` 而 parse
   // 失败。9router 逐行取天然没这问题，我们按空行分帧，就得补前瞻回退。

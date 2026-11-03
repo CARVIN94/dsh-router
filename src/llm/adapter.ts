@@ -745,13 +745,45 @@ export class RouterAdapter extends LlmAdapter {
     try {
       if (!resp.ok) {
         const detail = await resp.text().catch(() => '')
-        throw new LlmError(`dsh-router /v1 returned ${resp.status}: ${detail.slice(0, 200)}`, 'TRANSPORT')
+        throw new LlmError(
+          `dsh-router /v1 returned ${resp.status}: ${detail.slice(0, 200)}`,
+          isDeterministicRouterError(resp.status, detail) ? 'CLIENT' : 'TRANSPORT',
+        )
       }
       if (resp.body === null) return
       yield* translateSse(ssePayloads(resp.body, this.idleTimeoutMs))
     } finally {
       options.signal?.removeEventListener('abort', onAbort)
     }
+  }
+}
+
+/**
+ * 这条非 2xx 是否是**确定性失败**——同一请求重发也会得到同样答案。
+ *
+ * 只有 `CLIENT` 这种不在 dsh-llm 默认可重试白名单（EMPTY_RESPONSE/RATE_LIMIT/
+ * SERVER/TIMEOUT/TRANSPORT，adapter.test.ts 锁了一份副本）里的自造码才能让
+ * 重试一次都不发生（dsh-llm-retry 的判定：`!policy.retryableCodes.includes(
+ * failure.code)` → 直接放行不重试）。
+ *
+ * 只认 `/v1` 自己写死的 503 信封 `no_healthy_supplier`——出口就在本进程
+ * `router/index.ts`（combo/直连/all-suppliers 三处，全部只有这一个 code）。
+ * 此刻再重发，结果只是把每条腿又全打一遍（每个失败供应商 6× 上游请求）+
+ * backoff 干等 ~12 秒，然后同一个 503：腿冷却是时间函数，不是请求函数，
+ * 重试无济于事。等冷却窗口过了，宿主下一次真实请求自然成功。
+ *
+ * 只信 JSON `error.code` 字段：万一 detail 截断（:748 切到 200 字符）或
+ * body 不是 JSON（异常穿透时宿主 webServer 兜底的是**空 body** 400），保守
+ * 落回 `TRANSPORT`——错判成不可重试的代价（少一次重试）远小于错判成可重试
+ * 的代价（每层都白打 6× 请求）。
+ */
+function isDeterministicRouterError(status: number, detail: string): boolean {
+  if (status !== 503) return false
+  try {
+    const j = JSON.parse(detail.slice(0, 200)) as { error?: { code?: unknown } }
+    return j.error?.code === 'no_healthy_supplier'
+  } catch {
+    return false
   }
 }
 
